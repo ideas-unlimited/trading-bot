@@ -46,12 +46,29 @@ python -m unittest discover -s tests
 
 ## Crypto swing / rotation playbook
 
-Research on Binance daily bars (2017-2026, BTC/ETH/BNB/XRP/SOL) lives in
-`research/`; the two rules that survived are shipped:
+Research on Binance bars (BTC/ETH/BNB/XRP/SOL) lives in `research/`. All
+backtests and strategy selection are capped at the last three years - nothing
+older than `MAX_HISTORY_DAYS` is loaded.
+
+The rule that survived a 1,750-config search on the last 12 months and a
+3-year re-check is a 4h SMA 30/50 cross, 2 ATR stop, one position at a time:
 
 ```bash
 python research/fetch_binance.py          # refresh data/crypto/*.csv (1d and 4h)
 
+python -m bot book --timeframe 4h --fast 30 --slow 50 --atr-mult 2.0 \
+                   --risk-per-trade 0.02 --initial-cash 1000 --fee-bps 10
+```
+
+One $1,000 wallet across the five coins, 10 bps fees and 5 bps slippage:
+**+40.6%** in the last 12 months (buy & hold -42.6%), Sharpe 1.50, drawdown
+-12.4%; **+322.6%** over three years (CAGR 61.6%, Sharpe 1.61, drawdown
+-24.8%). The tail pays for everything: one trade was 82% of the year. The
+full write-up is `runs/report/year.html`.
+
+Two older rules are kept as alternatives:
+
+```bash
 # core: top-2 60-day momentum, weekly, BTC > 200d SMA gate, 40% vol target
 python -m bot rotate --coins BTCUSDT,ETHUSDT,BNBUSDT,XRPUSDT,SOLUSDT \
                      --initial-cash 1000 --fee-bps 10
@@ -62,10 +79,9 @@ python -m bot backtest --source csv --csv data/crypto/BTCUSDT_1d.csv \
                        --strategy momentum_swing --risk-per-trade 0.02
 ```
 
-Tested (10 bps fees): rotation CAGR 36.7%, Sharpe 1.25, max drawdown -36.6%;
-the 5-coin swing book at 2% risk CAGR 30.4%, Sharpe 1.42, drawdown -21.9%.
-Both win less than half their trades - the edge is payoff asymmetry, not hit
-rate. The full write-up is `runs/report/report.html`.
+On the same three-year window the rotation core returned +119.7% with a
+-29.7% drawdown, so the 4h book is the default. All of these win less than
+half their trades - the edge is payoff asymmetry, not hit rate.
 
 ## Alpaca paper trading (stocks + crypto)
 
