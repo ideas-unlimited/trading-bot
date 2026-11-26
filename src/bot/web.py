@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from .alpaca_client import AlpacaClient, AlpacaError
+from .alpaca_client import AlpacaClient, AlpacaError, PAPER_TRADING_BASE
 from .backtest import run_backtest
 from .config import BotConfig, CostConfig, RiskConfig
 from .data.feed import generate_synthetic
@@ -28,15 +28,56 @@ from . import db as store
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
-# Curated ticker lists for the terminal dropdowns.
+# Curated ticker lists for the terminal dropdowns.  Each entry carries the
+# feeds that can serve it: Alpaca trades a subset of crypto pairs; everything
+# else backtests through TradingView data (tvDatafeed, unofficial).
 SYMBOLS = {
     "stocks": [
-        "SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META",
-        "GOOGL", "AMD", "NFLX", "JPM", "V", "UNH", "XOM", "KO",
+        {"symbol": "SPY", "alpaca": True},
+        {"symbol": "QQQ", "alpaca": True},
+        {"symbol": "AAPL", "alpaca": True},
+        {"symbol": "MSFT", "alpaca": True},
+        {"symbol": "NVDA", "alpaca": True},
+        {"symbol": "TSLA", "alpaca": True},
+        {"symbol": "AMZN", "alpaca": True},
+        {"symbol": "META", "alpaca": True},
+        {"symbol": "GOOGL", "alpaca": True},
+        {"symbol": "AMD", "alpaca": True},
+        {"symbol": "NFLX", "alpaca": True},
+        {"symbol": "JPM", "alpaca": True},
+        {"symbol": "V", "alpaca": True},
+        {"symbol": "UNH", "alpaca": True},
+        {"symbol": "XOM", "alpaca": True},
+        {"symbol": "KO", "alpaca": True},
     ],
     "crypto": [
-        "BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD", "DOGE/USD",
-        "LINK/USD", "AVAX/USD", "LTC/USD", "BCH/USD", "DOT/USD",
+        # The user's full watchlist.  alpaca=False pairs backtest via TV data
+        # and cannot paper-trade through Alpaca (not listed there).
+        {"symbol": "BTC/USD", "alpaca": True, "tv": "BINANCE:BTCUSDT"},
+        {"symbol": "ETH/USD", "alpaca": True, "tv": "BINANCE:ETHUSDT"},
+        {"symbol": "SOL/USD", "alpaca": True, "tv": "BINANCE:SOLUSDT"},
+        {"symbol": "XRP/USD", "alpaca": True, "tv": "BINANCE:XRPUSDT"},
+        {"symbol": "LINK/USD", "alpaca": True, "tv": "BINANCE:LINKUSDT"},
+        {"symbol": "DOGE/USD", "alpaca": True, "tv": "BINANCE:DOGEUSDT"},
+        {"symbol": "AVAX/USD", "alpaca": True, "tv": "BINANCE:AVAXUSDT"},
+        {"symbol": "LTC/USD", "alpaca": True, "tv": "BINANCE:LTCUSDT"},
+        {"symbol": "BCH/USD", "alpaca": True, "tv": "BINANCE:BCHUSDT"},
+        {"symbol": "DOT/USD", "alpaca": False, "tv": "BINANCE:DOTUSDT"},
+        {"symbol": "BNB/USDT", "alpaca": False, "tv": "BINANCE:BNBUSDT"},
+        {"symbol": "HYPE/USDT", "alpaca": False, "tv": "HYPE:HYPEUSDT"},
+        {"symbol": "UNI/USD", "alpaca": False, "tv": "BINANCE:UNIUSDT"},
+        {"symbol": "JUP/USDT", "alpaca": False, "tv": "BINANCE:JUPUSDT"},
+        {"symbol": "PYTH/USDT", "alpaca": False, "tv": "BINANCE:PYTHUSDT"},
+        {"symbol": "CAKE/USDT", "alpaca": False, "tv": "BINANCE:CAKEUSDT"},
+        {"symbol": "CC/USDC", "alpaca": False, "tv": "MEXC:CCUSDC"},
+    ],
+    "commodities": [
+        {"symbol": "XAUT/USD", "alpaca": False, "tv": "BITFINEX:XAUTUSD", "label": "Tether Gold"},
+        {"symbol": "XAG/USD", "alpaca": False, "tv": "OANDA:XAGUSD", "label": "Silver spot"},
+        {"symbol": "USOIL", "alpaca": False, "tv": "TVC:USOIL", "label": "WTI Crude Oil"},
+    ],
+    "indices": [
+        {"symbol": "BTC.D", "alpaca": False, "tv": "CRYPTOCAP:BTC.D", "label": "Bitcoin dominance"},
     ],
 }
 
@@ -69,7 +110,8 @@ def _load_bars_for_api(payload: dict[str, Any]) -> list[Any]:
     symbol = payload.get("symbol", "BTC/USD")
     interval = payload.get("interval", "1d")
     days = int(payload.get("days") or 365)
-    return load_scan_bars(symbol, interval, source=source, days=days)
+    src, fetch = _resolve_feed(symbol, source)
+    return load_scan_bars(fetch, interval, source=src, days=days)
 
 
 def api_backtest(payload: dict[str, Any]) -> dict[str, Any]:
@@ -150,30 +192,107 @@ def api_backtest(payload: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _symbol_meta(canonical: str) -> dict[str, Any] | None:
+    for entries in SYMBOLS.values():
+        for entry in entries:
+            if entry["symbol"] == canonical:
+                return entry
+    return None
+
+
+def _resolve_feed(canonical: str, source: str) -> tuple[str, str]:
+    """Map a dropdown symbol to (feed, fetch_symbol).
+
+    TradingView symbols become ``EXCHANGE:TICKER`` using the catalog mapping;
+    unknown/custom symbols with an ``EXCHANGE:`` prefix pass through as-is.
+    """
+    if source == "tv":
+        tv = (_symbol_meta(canonical) or {}).get("tv")
+        if tv:
+            return "tv", tv
+        if ":" in canonical:
+            return "tv", canonical
+        return "tv", f"BINANCE:{canonical}"
+    return source, canonical
+
+
 def api_scan(payload: dict[str, Any]) -> dict[str, Any]:
     symbols = [s.strip() for s in (payload.get("symbols") or ["BTC/USD"]) if s.strip()]
     timeframes = [t.strip() for t in (payload.get("timeframes") or ["1d"]) if t.strip()]
     strategies = [s.strip() for s in (payload.get("strategies") or ["sma_cross"]) if s.strip()]
+    source = payload.get("source", "alpaca")
+    config_overrides = {
+        k: payload.get(k)
+        for k in (
+            "initial_cash", "fee_bps", "slippage_bps",
+            "risk_per_trade", "max_position_pct", "max_drawdown_stop",
+        )
+        if payload.get(k) is not None
+    }
     try:
-        rows = run_scan(
-            symbols,
-            timeframes,
-            strategies,
-            source=payload.get("source", "alpaca"),
-            days=int(payload.get("days") or 365),
+        rows = run_scan_rows(
+            symbols, timeframes, strategies,
+            source=source, days=int(payload.get("days") or 365),
             params=payload.get("params") or {},
-            **{
-                k: payload.get(k)
-                for k in (
-                    "initial_cash", "fee_bps", "slippage_bps",
-                    "risk_per_trade", "max_position_pct", "max_drawdown_stop",
-                )
-                if payload.get(k) is not None
-            },
+            config_overrides=config_overrides,
         )
     except AlpacaError as exc:
         return {"error": f"Alpaca error: {exc}"}
     return _jsonify({"rows": rows})
+
+
+def run_scan_rows(
+    symbols: list[str],
+    timeframes: list[str],
+    strategies: list[str],
+    *,
+    source: str,
+    days: int,
+    params: dict[str, Any],
+    config_overrides: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Scan across symbols, resolving each to its feed (Alpaca or TV)."""
+    feeds = {s: _resolve_feed(s, source) for s in symbols}
+    rows: list[dict[str, Any]] = []
+    for symbol in symbols:
+        src, fetch = feeds[symbol]
+        for tf in timeframes:
+            try:
+                bars = load_scan_bars(fetch, tf, source=src, days=days, n_bars=10_000)
+            except Exception as exc:  # noqa: BLE001 - report per-combination failures
+                rows.append({"symbol": symbol, "timeframe": tf, "strategy": "-",
+                             "error": str(exc)[:160]})
+                continue
+            if len(bars) < 60:
+                rows.append({"symbol": symbol, "timeframe": tf, "strategy": "-",
+                             "error": f"only {len(bars)} bars fetched"})
+                continue
+            config = make_config(bars, **config_overrides)
+            for name in strategies:
+                try:
+                    strategy = build(name, **params)
+                except (TypeError, ValueError) as exc:
+                    rows.append({"symbol": symbol, "timeframe": tf, "strategy": name,
+                                 "error": str(exc)})
+                    continue
+                result = run_backtest(bars, strategy, config)
+                m = result.metrics
+                rows.append(
+                    {
+                        "symbol": symbol, "timeframe": tf, "strategy": name, "bars": len(bars),
+                        "total_return": m.get("total_return"), "buy_and_hold": m.get("buy_and_hold"),
+                        "sharpe": m.get("sharpe"), "sortino": m.get("sortino"),
+                        "max_drawdown": m.get("max_drawdown"), "calmar": m.get("calmar"),
+                        "trades": int(m.get("trades") or 0), "win_rate": m.get("win_rate"),
+                        "profit_factor": m.get("profit_factor"), "halted": bool(result.halted_reason),
+                    }
+                )
+
+    def sort_key(row: dict[str, Any]) -> float:
+        sharpe = row.get("sharpe")
+        return float(sharpe) if isinstance(sharpe, (int, float)) and sharpe == sharpe else float("-inf")
+
+    return sorted(rows, key=sort_key, reverse=True)
 
 
 def api_account() -> dict[str, Any]:
@@ -461,25 +580,16 @@ def api_ingest(payload: dict[str, Any]) -> dict[str, Any]:
     days = int(payload.get("days") or 365)
     if not symbol:
         return {"error": "symbol required"}
-    try:
-        client = AlpacaClient()
-    except AlpacaError as exc:
-        return {"error": str(exc)}
+    src, fetch = _resolve_feed(symbol, payload.get("source", "alpaca"))
     conn = _db_conn()
     ingested = []
     try:
         for tf in timeframes:
-            start = datetime.now(timezone.utc) - timedelta(days=days)
-            if tf == "6h":
-                from .data.feed import aggregate_bars
-
-                raw = client.fetch_bars(symbol, "1h", start=start, limit=10_000)
-                bars = aggregate_bars(raw, 6)
-            else:
-                bars = client.fetch_bars(symbol, tf, start=start, limit=10_000)
+            bars = load_scan_bars(fetch, tf, source=src, days=days, n_bars=10_000)
             n = store.upsert_bars(conn, symbol, tf, bars)
             ingested.append(
-                {"timeframe": tf, "bars": n, "first": bars[0].ts.isoformat(), "last": bars[-1].ts.isoformat()}
+                {"timeframe": tf, "bars": n, "source": src,
+                 "first": bars[0].ts.isoformat(), "last": bars[-1].ts.isoformat()}
             )
         counts = store.bar_counts(conn)
     finally:

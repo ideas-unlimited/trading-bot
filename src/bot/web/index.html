@@ -651,15 +651,20 @@ timeframes("scTf", ["1h","4h","6h","1d"], true); timeframes("ingTf", ["1d"], tru
   const chips = $("ingMarketChips");
 });
 marketChips("marketChips", "bots"); marketChips("btMarketChips", "bt"); marketChips("ingMarketChips", "ing");
-["botSymbol","btSymbol","ingSymbol"].forEach(id => {
-  const key = id.startsWith("bot") ? "bots" : id.startsWith("bt") ? "bt" : "ing";
-  $(id).addEventListener("focus", () => fillSymbolDropdown(id, S.market[key]));
+feedChips("btFeedChips", "bt"); feedChips("scFeedChips", "sc"); feedChips("ingFeedChips", "ing");
+$("botSymbol").addEventListener("change", () => {
+  const hint = autoFeed("bots", $("botSymbol").value);
+  $("botFeedHint").textContent = hint || (S.symbolMeta[$("botSymbol").value]?.alpaca === false
+    ? "backtests use TradingView data; live paper-trading via Alpaca is unavailable for this pair"
+    : "");
 });
-setInterval(() => { fillSymbolDropdown("botSymbol", S.market.bots);
-  fillSymbolDropdown("btSymbol", S.market.bt); fillSymbolDropdown("ingSymbol", S.market.ing); }, 400);
+$("btSymbol").addEventListener("change", () => autoFeed("bt", $("btSymbol").value));
+$("ingSymbol").addEventListener("change", () => autoFeed("ing", $("ingSymbol").value));
 
 (async function boot(){
-  try { S.symbols = await api("/api/symbols"); } catch(e){ S.symbols = {stocks:[],crypto:[]}; }
+  try { S.symbols = await api("/api/symbols"); } catch(e){ S.symbols = {}; }
+  S.symbolMeta = {};
+  Object.values(S.symbols).forEach(entries => (entries||[]).forEach(e => { S.symbolMeta[e.symbol] = e; }));
   fillSymbolDropdown("botSymbol", "crypto"); fillSymbolDropdown("btSymbol", "crypto"); fillSymbolDropdown("ingSymbol", "crypto");
   await loadStrategies();
   loadAccount(); loadDashboard();

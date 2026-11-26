@@ -25,9 +25,24 @@ def load_scan_bars(
     start: datetime | None = None,
     n_bars: int = 10_000,
 ) -> list[Any]:
-    """Fetch bars for one symbol/timeframe (Alpaca, or synthetic for demos)."""
+    """Fetch bars for one symbol/timeframe.
+
+    ``source``: alpaca (stocks + Alpaca crypto pairs), tv (TradingView data
+    for anything else, symbol given as ``EXCHANGE:TICKER``), or synthetic.
+    """
     if source == "synthetic":
         return generate_synthetic(2_000, seed=11, step=timedelta(hours=1))
+    if source == "tv":
+        from .data.feed import aggregate_bars
+        from .data.tvfeed import fetch_tv_bars
+
+        exchange, _, sym = symbol.partition(":")
+        if not sym:
+            sym, exchange = exchange, "BINANCE"
+        if timeframe == "6h":
+            raw = fetch_tv_bars(sym, exchange, "1h", n_bars)
+            return aggregate_bars(raw, 6)
+        return fetch_tv_bars(sym, exchange, timeframe, n_bars)
     if start is None and days:
         start = datetime.now(timezone.utc) - timedelta(days=days)
     client = AlpacaClient()
