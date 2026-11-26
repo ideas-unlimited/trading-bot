@@ -157,16 +157,17 @@ def upsert_bars(conn: "psycopg.Connection", symbol: str, timeframe: str, bars: l
     ]
     if not rows:
         return 0
-    conn.executemany(
-        """
-        INSERT INTO bars (symbol, timeframe, ts, open, high, low, close, volume)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (symbol, timeframe, ts) DO UPDATE
-        SET open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
-            close = EXCLUDED.close, volume = EXCLUDED.volume
-        """,
-        rows,
-    )
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO bars (symbol, timeframe, ts, open, high, low, close, volume)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (symbol, timeframe, ts) DO UPDATE
+            SET open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
+                close = EXCLUDED.close, volume = EXCLUDED.volume
+            """,
+            rows,
+        )
     return len(rows)
 
 
@@ -349,7 +350,8 @@ def _hydrate_run(r: dict) -> dict:
 def upsert_paper_trades(conn: "psycopg.Connection", fills: list[dict]) -> int:
     if not fills:
         return 0
-    conn.executemany(
+    with conn.cursor() as cur:
+        cur.executemany(
         """
         INSERT INTO paper_trades (order_id, symbol, side, qty, price, filled_at, bot_name)
         VALUES (%s, %s, %s, %s, %s, %s, %s)

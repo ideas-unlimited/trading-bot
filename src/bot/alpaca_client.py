@@ -69,8 +69,15 @@ def _parse_ts(raw: str) -> datetime:
 
 
 def bars_from_payload(payload: dict[str, Any]) -> list[Bar]:
-    """Convert an Alpaca bars response into ``Bar``s, oldest first."""
+    """Convert an Alpaca bars response into ``Bar``s, oldest first.
+
+    Handles both response shapes: a list of rows, or the multi-symbol
+    mapping ``{"bars": {"BTC/USD": [...]}}`` that the grouped endpoints
+    return (we always request a single symbol).
+    """
     rows = payload.get("bars") or []
+    if isinstance(rows, dict):
+        rows = next(iter(rows.values())) if rows else []
     bars = []
     for row in rows:
         if row.get("o") is None or row.get("c") is None:
@@ -165,7 +172,7 @@ class AlpacaClient:
         if timeframe.strip() == "6h":
             from .data.feed import aggregate_bars
 
-            raw = self._fetch_bars_raw(symbol, "1Hour", start=start, end=end, limit=limit)
+            raw = self._fetch_bars_raw(symbol, "1h", tf="1Hour", start=start, end=end, limit=limit)
             return aggregate_bars(raw, 6)
         return self._fetch_bars_raw(symbol, timeframe, start=start, end=end, limit=limit)
 
@@ -177,10 +184,10 @@ class AlpacaClient:
         start: datetime | None = None,
         end: datetime | None = None,
         limit: int = 10_000,
+        tf: str | None = None,
     ) -> list[Bar]:
-        """Fetch historical OHLCV bars (stocks or crypto, decided by symbol)."""
-        """Fetch historical OHLCV bars (stocks or crypto, decided by symbol)."""
-        tf = resolve_timeframe(timeframe)
+        """Fetch historical OHLCV bars; ``tf`` may pass a pre-resolved name."""
+        tf = tf or resolve_timeframe(timeframe)
         params: dict[str, str] = {
             "symbols": symbol,
             "timeframe": tf,

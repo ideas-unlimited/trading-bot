@@ -19,16 +19,17 @@ from .feed import Bar
 
 #: CLI interval aliases -> tvDatafeed ``Interval`` attribute names.
 INTERVAL_ALIASES: dict[str, str] = {
+    # NOTE: tvDatafeed Interval attributes are singular (in_4_hour, not in_4_hours)
     "1": "in_1_minute", "1m": "in_1_minute",
-    "3m": "in_3_minutes",
-    "5": "in_5_minutes", "5m": "in_5_minutes",
-    "15m": "in_15_minutes",
-    "30m": "in_30_minutes",
-    "45m": "in_45_minutes",
+    "3m": "in_3_minute",
+    "5": "in_5_minute", "5m": "in_5_minute",
+    "15m": "in_15_minute",
+    "30m": "in_30_minute",
+    "45m": "in_45_minute",
     "60": "in_1_hour", "60m": "in_1_hour", "1h": "in_1_hour",
-    "2h": "in_2_hours",
-    "3h": "in_3_hours",
-    "4h": "in_4_hours",
+    "2h": "in_2_hour",
+    "3h": "in_3_hour",
+    "4h": "in_4_hour",
     "1d": "in_daily", "d": "in_daily",
     "1w": "in_weekly", "w": "in_weekly",
     "1M": "in_monthly", "M": "in_monthly",

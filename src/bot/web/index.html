@@ -82,6 +82,7 @@
   <div class="logo">trading<span>bot</span></div>
   <a data-view="dashboard" class="on">◆ Dashboard</a>
   <a data-view="bots">⚙ Bots</a>
+  <a data-view="strategies">◈ Strategies</a>
   <a data-view="backtest">↯ Backtest</a>
   <a data-view="scan">≡ Scan</a>
   <a data-view="trades">$ Trades &amp; P&L</a>
@@ -164,8 +165,30 @@
     <div class="card hidden" id="botRunCard" style="margin-top:14px">
       <h2 id="botRunTitle">Run</h2>
       <div class="metrics" id="botRunMetrics"></div>
-      <svg id="eqChart"></svg>
+      <svg id="botCandles"></svg>
+      <svg id="eqChart" style="height:180px"></svg>
       <div class="scroll" style="margin-top:10px"><table id="botRunTrades"></table></div>
+    </div>
+  </div>
+
+  <!-- ================= STRATEGIES ================= -->
+  <div class="view" id="view-strategies">
+    <div class="grid cols-2">
+      <div class="card">
+        <h2>Built-in strategies</h2>
+        <div id="builtinList"></div>
+        <div class="hint">Built-ins live in code (src/bot/strategy/). Create presets to tune their parameters — presets are what bots use.</div>
+      </div>
+      <div class="card">
+        <h2>My strategy presets</h2>
+        <div class="row"><div><label>Preset name</label><input type="text" id="sgName" placeholder="e.g. SMA fast 10/30"></div></div>
+        <label>Strategy</label>
+        <select id="sgKind"></select>
+        <div id="sgParams"></div>
+        <button class="primary" id="btnSavePreset2">Save preset</button>
+        <div class="hint">Saving with an existing name updates that preset.</div>
+        <table id="presetsTable" style="margin-top:12px"></table>
+      </div>
     </div>
   </div>
 
@@ -213,7 +236,9 @@
       <div class="card" id="btResult">
         <h2 id="btTitle">Results</h2>
         <div class="metrics" id="btMetrics"></div>
-        <svg id="chart"></svg>
+        <svg id="candles"></svg>
+        <svg id="chart" style="height:180px"></svg>
+        <div class="hint" style="text-align:right">top: price candles with trade markers · bottom: equity (strategy vs buy &amp; hold)</div>
         <h2 style="margin-top:14px">Trades (last 50)</h2>
         <div class="scroll"><table id="btTrades"></table></div>
       </div>
@@ -328,6 +353,7 @@ document.querySelectorAll("nav a").forEach(a => a.onclick = () => {
   $("viewTitle").textContent = a.textContent.trim().replace(/^[^\w$]+/,"");
   if (a.dataset.view==="dashboard") loadDashboard();
   if (a.dataset.view==="bots") { loadBots(); loadRuns(); loadPresets(); }
+  if (a.dataset.view==="strategies") renderStrategies();
   if (a.dataset.view==="trades") syncTrades();
   if (a.dataset.view==="data") loadBars();
 });
@@ -355,7 +381,9 @@ function renderParams(selId){
   const kind = $(selId).value;
   const names = S.strategies[kind]?.params || [];
   const prefix = selId.slice(0,2);
-  $(prefix+"Params").innerHTML = names.map(p =>
+  const box = $( (selId === "botStrategy" ? "bot" : "bt") + "Params" );
+  if (!box) return;
+  box.innerHTML = names.map(p =>
     `<div class="row"><div><label>${p}</label>
      <input type="number" step="any" data-param="${prefix}:${p}" value="${paramDefaults[p] ?? ""}"></div></div>`).join("");
 }
@@ -430,11 +458,6 @@ function fillSymbolDropdown(dropdownId, market){
   }).join("") + `<option value="__custom__">✎ custom…</option>`;
   if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
 }
-function fillSymbolDropdown(dropdownId, market){
-  const sel = $(dropdownId);
-  if (!sel) return;
-  sel.innerHTML = (S.symbols[market]||[]).map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join("");
-}
 function costPayload(prefix){
   const g = (id) => Number($(id).value);
   return { initial_cash: g(prefix+"InitialCash"), fee_bps: g(prefix+"Fee"),
@@ -504,6 +527,7 @@ window.runBot = async (id) => {
     $("botRunCard").classList.remove("hidden");
     $("botRunTitle").textContent = `${r.run.symbol} @ ${r.run.timeframe} · ${r.run.strategy} · ${r.run.bars} bars`;
     metricsInto($("botRunMetrics"), r.run.metrics);
+    drawCandles($("botCandles"), r.ohlc, r.trades);
     drawChart($("eqChart"), r.equity_curve, r.buy_and_hold_curve);
     tradesInto($("botRunTrades"), r.trades);
     loadBots(); loadRuns();
@@ -572,6 +596,7 @@ $("btnBacktest").onclick = async () => {
     });
     $("btTitle").textContent = `${r.symbol} @ ${r.interval} · ${r.strategy} · ${r.bars} bars`;
     metricsInto($("btMetrics"), r.metrics);
+    drawCandles($("candles"), r.ohlc, r.trades);
     drawChart($("chart"), r.equity_curve, r.buy_and_hold_curve);
     tradesInto($("btTrades"), r.trades);
   } catch(e){ fail(e.message); }
@@ -663,6 +688,91 @@ function metricsInto(el, m){
   el.innerHTML = items.map(([k,v,c]) =>
     `<div class="metric"><div class="k">${k}</div><div class="v ${c}">${v}</div></div>`).join("");
 }
+function drawCandles(svg, ohlc, trades){
+  const W = svg.clientWidth || 720, H = 280, P = 44;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  if (!ohlc || !ohlc.length){ svg.innerHTML = ""; return; }
+  let min = Math.min(...ohlc.map(r=>r[3])), max = Math.max(...ohlc.map(r=>r[2]));
+  const pad = (max-min)*0.05 || 1; min -= pad; max += pad;
+  const t0 = new Date(ohlc[0][0]).getTime(), t1 = new Date(ohlc[ohlc.length-1][0]).getTime();
+  const X = t => t0===t1 ? P : P + (W-2*P)*(new Date(t).getTime()-t0)/(t1-t0);
+  const Y = v => H-P - (H-2*P)*(v-min)/(max-min);
+  const n = ohlc.length, cw = Math.max(1.5, (W-2*P)/n*0.66);
+  let s = `<line x1="${P}" y1="${H-P}" x2="${W-P/2}" y2="${H-P}" stroke="var(--border)"/>
+    <line x1="${P}" y1="${P/2}" x2="${P}" y2="${H-P}" stroke="var(--border)"/>
+    <text x="${P-5}" y="${Y(max)+4}" text-anchor="end" font-size="10" fill="var(--muted)">${max.toFixed(0)}</text>
+    <text x="${P-5}" y="${Y(min)+4}" text-anchor="end" font-size="10" fill="var(--muted)">${min.toFixed(0)}</text>
+    <text x="${W/2}" y="${H-7}" text-anchor="middle" font-size="10" fill="var(--muted)">
+      ${new Date(ohlc[0][0]).toLocaleDateString()} → ${new Date(ohlc[ohlc.length-1][0]).toLocaleDateString()}</text>`;
+  ohlc.forEach(r => {
+    const x = X(r[0]), col = r[4]>=r[1] ? "var(--good)" : "var(--bad)";
+    s += `<line x1="${x}" y1="${Y(r[2])}" x2="${x}" y2="${Y(r[3])}" stroke="${col}" stroke-width="1"/>` +
+         `<rect x="${(x-cw/2).toFixed(1)}" y="${Y(Math.max(r[1],r[4])).toFixed(1)}" width="${cw.toFixed(1)}" height="${Math.max(1, Math.abs(Y(r[1])-Y(r[4]))).toFixed(1)}" fill="${col}"/>`;
+  });
+  (trades||[]).forEach(t => {
+    const win = t.return_pct >= 0, mc = win ? "var(--good)" : "var(--bad)";
+    s += `<path d="M${X(t.entry_ts).toFixed(1)},${(Y(t.entry_price)+8).toFixed(1)} l5,-9 l-10,0 z" fill="${mc}" opacity=".95"/>`;
+    s += `<path d="M${X(t.exit_ts).toFixed(1)},${(Y(t.exit_price)-8).toFixed(1)} l5,9 l-10,0 z" fill="${mc}" opacity=".95"/>`;
+  });
+  s += `<text x="${W-P}" y="${P/2}" text-anchor="end" font-size="10" fill="var(--muted)">▲ entry · ▼ exit · green = winning trade</text>`;
+  svg.innerHTML = s;
+}
+
+async function renderStrategies(){
+  const list = $("builtinList");
+  list.innerHTML = Object.entries(S.strategies).map(([n,v]) =>
+    `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
+       <b>${esc(n)}</b> <span class="dim">· params: ${esc(v.params.join(", ")||"none")}</span>
+       <div class="hint">${esc(v.doc)}</div>
+     </div>`).join("");
+  const sel = $("sgKind");
+  sel.innerHTML = Object.keys(S.strategies).map(n=>`<option>${esc(n)}</option>`).join("");
+  sel.onchange = renderSgParams;
+  renderSgParams();
+  await refreshPresets();
+}
+function renderSgParams(){
+  const names = S.strategies[$("sgKind").value]?.params || [];
+  $("sgParams").innerHTML = names.map(p =>
+    `<div class="row"><div><label>${esc(p)}</label>
+     <input type="number" step="any" data-param="sg:${esc(p)}" value="${paramDefaults[p] ?? ""}"></div></div>`).join("");
+}
+async function refreshPresets(){
+  try {
+    const { presets } = await api("/api/presets");
+    S.presets = presets;
+    $("presetsTable").innerHTML = presets.length
+      ? `<tr><th>name</th><th>kind</th><th>params</th><th></th></tr>` + presets.map(p =>
+        `<tr><td>${esc(p.name)}</td><td>${esc(p.kind)}</td>
+         <td style="text-align:left" class="dim">${esc(Object.entries(p.params||{}).map(([k,v])=>k+"="+v).join(", "))}</td>
+         <td><button class="small" onclick='editPreset(${JSON.stringify(JSON.stringify(p))})'>✎ edit</button>
+             <button class="small danger" onclick="delPreset(${p.id})">✕</button></td></tr>`).join("")
+      : `<tr><td colspan="4" class="dim">no presets yet — tune parameters and save one</td></tr>`;
+  } catch(e){ $("presetsTable").innerHTML = `<tr><td class="dim">${esc(e.message)}</td></tr>`; }
+}
+window.editPreset = (json) => {
+  const p = JSON.parse(json);
+  $("sgName").value = p.name; $("sgKind").value = p.kind; renderSgParams();
+  Object.entries(p.params||{}).forEach(([k,v]) => {
+    const inp = document.querySelector(`[data-param="sg:${k}"]`); if (inp) inp.value = v;
+  });
+  $("sgName").scrollIntoView({block:"center"});
+};
+window.delPreset = async (id) => {
+  if (!confirm("Delete this preset?")) return;
+  try { await api(`/api/presets/${id}`, {}, "DELETE"); refreshPresets(); }
+  catch(e){ fail(e.message); }
+};
+$("btnSavePreset2").onclick = async () => {
+  ok(); busy($("btnSavePreset2"), true, "Save preset");
+  try {
+    await api("/api/presets", { name: $("sgName").value.trim(), kind: $("sgKind").value,
+      params: collectParams("sg") });
+    await refreshPresets();
+  } catch(e){ fail(e.message); }
+  finally { busy($("btnSavePreset2"), false, "Save preset"); }
+};
+
 function drawChart(svg, eq, bh){
   const W = svg.clientWidth || 720, H = 250, P = 36;
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);

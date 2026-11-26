@@ -114,6 +114,18 @@ def _load_bars_for_api(payload: dict[str, Any]) -> list[Any]:
     return load_scan_bars(fetch, interval, source=src, days=days)
 
 
+def _ohlc_payload(bars: list[Any], max_points: int = 400) -> list[list[float]]:
+    """Downsampled OHLC rows [ts, open, high, low, close] for candlestick charts."""
+    step = max(1, len(bars) // max_points)
+    picked = bars[::step]
+    if picked and picked[-1] is not bars[-1]:
+        picked.append(bars[-1])
+    return [
+        [b.ts.isoformat(), b.open, b.high, b.low, b.close]
+        for b in picked
+    ]
+
+
 def api_backtest(payload: dict[str, Any]) -> dict[str, Any]:
     """Run one backtest and serialize metrics, equity curve and trades."""
     strategy_name = payload.get("strategy", "sma_cross")
@@ -186,6 +198,7 @@ def api_backtest(payload: dict[str, Any]) -> dict[str, Any]:
             "metrics": result.metrics,
             "equity_curve": equity_points,
             "buy_and_hold_curve": bh_points,
+            "ohlc": _ohlc_payload(bars),
             "trades": trades,
             "halted_reason": result.halted_reason,
         }
@@ -468,6 +481,7 @@ def api_bot_run(bot_id: int) -> dict[str, Any]:
                 "params": bot.get("params") or {}, "metrics": result.metrics,
                 "equity": equity_points, "buy_and_hold": bh_points,
                 "trades": trades_payload, "bars": len(bars),
+                "ohlc": _ohlc_payload(bars),
             },
         )
         run = store.get_run(conn, run_id)
@@ -477,6 +491,7 @@ def api_bot_run(bot_id: int) -> dict[str, Any]:
         {
             "run": run,
             "equity_curve": equity_points, "buy_and_hold_curve": bh_points,
+            "ohlc": _ohlc_payload(bars),
             "trades": trades_payload, "halted_reason": result.halted_reason,
             "initial_equity": result.initial_equity, "final_equity": result.final_equity,
         }
