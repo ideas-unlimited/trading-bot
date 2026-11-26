@@ -44,6 +44,61 @@ python -m unittest discover -s tests
 `backtest` writes `runs/trades.csv` and (with `--plot`) `runs/equity.png`.
 `paper` replays bars through the same engine and narrates fills — no orders.
 
+## Alpaca paper trading (stocks + crypto)
+
+The bot connects to [Alpaca](https://alpaca.markets) — free account, official
+API, **paper endpoint hard-coded** (no code path reaches a real broker).
+
+1. Create a free Paper-Only account at <https://app.alpaca.markets>.
+2. Copy `.env.example` to `.env` and fill in your paper API keys
+   (`ALPACA_KEY_ID` / `ALPACA_SECRET_KEY`).  `.env` is git-ignored.
+3. Verify the keys:
+
+```bash
+python -m bot account                     # paper account summary + positions
+```
+
+**Backtest on real bars** (SIP history on the free plan is 15-min delayed;
+crypto history is unrestricted):
+
+```bash
+python -m bot backtest --source alpaca --symbol SPY     --interval 1d --start 2024-01-01 --strategy sma_cross
+python -m bot backtest --source alpaca --symbol BTC/USD --interval 4h --strategy sma_cross
+```
+
+**Rank strategies across timeframes** (the strategy/timeframe scan):
+
+```bash
+python -m bot scan --symbol BTC/USD --timeframes 1h,4h,6h,1d --strategies sma_cross --days 365
+python -m bot scan --symbol SPY,QQQ --timeframes 1d --strategies sma_cross,rsi_meanrev
+```
+
+Writes a ranked table (by Sharpe) and `runs/scan.csv`.  `6h` is not a native
+Alpaca timeframe; it is aggregated client-side from 1-hour bars (most useful
+for 24/7 crypto).
+
+**Paper-trade live** — the loop polls freshly-closed bars, computes signals
+with the same no-lookahead semantics as the backtester, sizes positions from
+the stop distance, and sends orders to the *paper* account (stocks as bracket
+orders with the ATR stop; crypto as market orders with a locally-managed stop):
+
+```bash
+python -m bot live --symbol BTC/USD --interval 1h --strategy sma_cross --poll 60
+python -m bot live --symbol SPY --interval 1d --strategy sma_cross --once   # single dry cycle
+```
+
+State (last processed bar, crypto stops) lives in `runs/live_state.json`.
+
+## TradingView (optional companion)
+
+`pine/` contains Pine Script v5 ports of the strategies for TradingView's
+Strategy Tester and its paper-trading broker emulation, plus a webhook
+payload.  `python -m bot tv-bars` downloads TradingView bars via the
+unofficial `tvDatafeed` package (`pip install tradingview-datafeed`), and
+`python -m bot serve-alerts` mirrors TradingView paper-fill alerts into this
+engine's risk rules on simulation money.  See `pine/README.md`.  Webhook
+alerts require a paid TradingView plan; the Alpaca route above needs none.
+
 ## What the output looks like
 
 ```

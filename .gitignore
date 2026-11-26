@@ -7,3 +7,4 @@ runs/
 data/*.csv
 .pytest_cache/
 .mypy_cache/
+.env

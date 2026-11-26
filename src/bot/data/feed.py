@@ -146,6 +146,41 @@ def generate_synthetic(
     return bars
 
 
+def aggregate_bars(bars: Sequence[Bar], factor: int) -> list[Bar]:
+    """Combine consecutive bars into larger buckets (e.g. 1h -> 6h).
+
+    Buckets are aligned to UTC multiples of ``factor`` hours.  A trailing
+    partial bucket (fewer than ``factor`` source bars) is dropped, so the
+    result never contains a still-forming bar.  Most useful for 24/7 crypto;
+    for equities the market session rarely fills an exact bucket.
+    """
+    from collections import OrderedDict
+
+    if factor <= 1:
+        return list(bars)
+    groups: OrderedDict[int, list[Bar]] = OrderedDict()
+    for b in bars:
+        epoch_hours = int(b.ts.timestamp()) // 3600
+        bucket = (epoch_hours // factor) * factor
+        groups.setdefault(bucket, []).append(b)
+    out: list[Bar] = []
+    for group in groups.values():
+        if len(group) < factor:
+            continue
+        first, last = group[0], group[-1]
+        out.append(
+            Bar(
+                ts=first.ts,
+                open=first.open,
+                high=max(g.high for g in group),
+                low=min(g.low for g in group),
+                close=last.close,
+                volume=sum(g.volume for g in group),
+            )
+        )
+    return out
+
+
 class Feed:
     """Replays a bar sequence.  One call to ``next`` == one time step."""
 
