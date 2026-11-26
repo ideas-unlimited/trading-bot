@@ -504,7 +504,7 @@ async function loadDashboard(){
 /* ================= bots ================= */
 function botPayload(){
   return { name: $("botName").value.trim(), symbol: $("botSymbol").value,
-    timeframe: S.botTf, kind: $("botStrategy").value, params: collectParams("bo"),
+    timeframe: selTf("botTf"), kind: $("botStrategy").value, params: collectParams("bo"),
     ...costPayload("bot") };
 }
 async function loadBots(){
@@ -590,7 +590,7 @@ $("btnBacktest").onclick = async () => {
   ok(); busy($("btnBacktest"), true, "Run backtest");
   try {
     const r = await api("/api/backtest", {
-      source: S.feed.bt, symbol: currentSymbol("btSymbol"), interval: S.btTf,
+      source: S.feed.bt, symbol: currentSymbol("btSymbol"), interval: selTf("btTf"),
       strategy: $("btStrategy").value, params: collectParams("bt"),
       days: Number($("btDays").value), ...costPayload("bt"),
     });
