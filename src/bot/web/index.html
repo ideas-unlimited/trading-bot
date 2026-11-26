@@ -125,6 +125,7 @@
         </div>
         <label>Ticker</label>
         <select id="botSymbol"></select>
+        <div class="hint" id="botFeedHint"></div>
         <label>Timeframe</label>
         <div class="chips" id="botTf"></div>
         <label>Strategy</label>
@@ -178,6 +179,11 @@
           <span class="chip on" data-mkt="crypto">Crypto</span>
           <span class="chip" data-mkt="stocks">Stocks</span>
         </div>
+        <label>Data feed</label>
+        <div class="chips" id="btFeedChips">
+          <span class="chip on" data-feed="alpaca">Alpaca</span>
+          <span class="chip" data-feed="tv">TradingView</span>
+        </div>
         <label>Ticker</label>
         <select id="btSymbol"></select>
         <label>Timeframe</label>
@@ -221,6 +227,11 @@
         <h2>Scan timeframes × strategies</h2>
         <label>Symbols (comma separated)</label>
         <input type="text" id="scSymbols" value="BTC/USD">
+        <label>Data feed</label>
+        <div class="chips" id="scFeedChips">
+          <span class="chip on" data-feed="alpaca">Alpaca</span>
+          <span class="chip" data-feed="tv">TradingView</span>
+        </div>
         <label>Timeframes</label>
         <div class="chips" id="scTf"></div>
         <label>Strategies</label>
@@ -262,6 +273,11 @@
           <span class="chip on" data-mkt="crypto">Crypto</span>
           <span class="chip" data-mkt="stocks">Stocks</span>
         </div>
+        <label>Data feed</label>
+        <div class="chips" id="ingFeedChips">
+          <span class="chip on" data-feed="alpaca">Alpaca</span>
+          <span class="chip" data-feed="tv">TradingView</span>
+        </div>
         <label>Ticker</label>
         <select id="ingSymbol"></select>
         <label>Timeframes</label>
@@ -285,7 +301,9 @@ const fmt = (x, dp=2, suffix="") => (x==null || x!==x) ? "–" : (x>=0?"+":"") +
 const cls = (x) => (x==null || x!==x) ? "" : (x>=0 ? "pos" : "neg");
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-let S = { strategies: {}, presets: [], symbols: {stocks:[],crypto:[]}, market: {bots:"crypto", bt:"crypto", ing:"crypto"},
+let S = { strategies: {}, presets: [], symbols: {}, symbolMeta: {},
+          market: {bots:"crypto", bt:"crypto", ing:"crypto"},
+          feed: {bt:"alpaca", sc:"alpaca", ing:"alpaca"},
           botTf: "1h", btTf: "4h", scTf: ["1h","4h","6h","1d"], ingTf: ["1d"], scStrategies: [] };
 
 function fail(m){ $("err").textContent = m; $("err").classList.remove("hidden"); }
@@ -371,6 +389,46 @@ function marketChips(containerId, key, onSelect){
     S.market[key] = c.dataset.mkt; fillSymbolDropdown(key + "Symbol", c.dataset.mkt);
     if (onSelect) onSelect(c.dataset.mkt);
   });
+}
+function feedChips(containerId, key){
+  const box = $(containerId); if (!box) return;
+  [...box.children].forEach(c => c.onclick = () => {
+    [...box.children].forEach(x=>x.classList.remove("on")); c.classList.add("on");
+    S.feed[key] = c.dataset.feed;
+  });
+}
+function autoFeed(key, symbol){
+  /* pairs without an Alpaca listing force the TradingView feed */
+  const meta = S.symbolMeta[symbol];
+  if (meta && meta.alpaca === false && S.feed[key] === "alpaca"){
+    S.feed[key] = "tv";
+    const map = {bt:"btFeedChips", ing:"ingFeedChips"};
+    if (map[key]) [...$(map[key]).children].forEach(c =>
+      c.classList.toggle("on", c.dataset.feed === "tv"));
+    return "not on Alpaca — using TradingView data (backtest only)";
+  }
+  return null;
+}
+function currentSymbol(dropdownId){
+  const sel = $(dropdownId);
+  if (sel.value !== "__custom__") return sel.value;
+  const custom = prompt("Symbol (EXCHANGE:TICKER for TradingView, plain TICKER for Alpaca):\ne.g. BINANCE:BNBUSDT  or  SPY");
+  if (!custom){ sel.selectedIndex = 0; return currentSymbol(dropdownId); }
+  S.symbolMeta[custom] = {symbol: custom, alpaca: !custom.includes(":")};
+  const opt = document.createElement("option"); opt.value = custom; opt.textContent = custom;
+  sel.insertBefore(opt, sel.options[sel.options.length-1]); sel.value = custom;
+  return custom;
+}
+function fillSymbolDropdown(dropdownId, market){
+  const sel = $(dropdownId); if (!sel) return;
+  const entries = S.symbols[market] || [];
+  const prev = sel.value;
+  sel.innerHTML = entries.map(e => {
+    const tags = [e.alpaca ? "A" : null, e.tv ? "TV" : null].filter(Boolean).join("+");
+    const label = e.label ? `${e.symbol} · ${e.label}` : e.symbol;
+    return `<option value="${esc(e.symbol)}">${esc(label)}  [${tags}]</option>`;
+  }).join("") + `<option value="__custom__">✎ custom…</option>`;
+  if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
 }
 function fillSymbolDropdown(dropdownId, market){
   const sel = $(dropdownId);
@@ -508,7 +566,7 @@ $("btnBacktest").onclick = async () => {
   ok(); busy($("btnBacktest"), true, "Run backtest");
   try {
     const r = await api("/api/backtest", {
-      source: "alpaca", symbol: $("btSymbol").value, interval: S.btTf,
+      source: S.feed.bt, symbol: currentSymbol("btSymbol"), interval: S.btTf,
       strategy: $("btStrategy").value, params: collectParams("bt"),
       days: Number($("btDays").value), ...costPayload("bt"),
     });
@@ -525,7 +583,7 @@ $("btnScan").onclick = async () => {
   ok(); busy($("btnScan"), true, "Run scan");
   try {
     const tfs = String(selTf("scTf", true)).split(",").filter(Boolean);
-    const body = { source: "alpaca",
+    const body = { source: S.feed.sc,
       symbols: $("scSymbols").value.split(",").map(s=>s.trim()).filter(Boolean),
       timeframes: tfs, strategies: S.scStrategies, days: Number($("scDays").value) };
     const { rows } = await api("/api/scan", body);
@@ -572,7 +630,7 @@ $("btnIngest").onclick = async () => {
   ok(); busy($("btnIngest"), true, "Ingest bars");
   try {
     const tfs = String(selTf("ingTf", true)).split(",").filter(Boolean);
-    const r = await api("/api/ingest", { symbol: $("ingSymbol").value, timeframes: tfs, days: Number($("ingDays").value) });
+    const r = await api("/api/ingest", { source: S.feed.ing, symbol: currentSymbol("ingSymbol"), timeframes: tfs, days: Number($("ingDays").value) });
     ok("ingested: " + r.ingested.map(i=>`${i.timeframe}=${i.bars}`).join(", "));
     renderBars(r.counts);
   } catch(e){ fail(e.message); }

@@ -26,7 +26,7 @@ from .data.feed import Bar
 from .envdot import load_env
 
 PAPER_TRADING_BASE = "https://paper-api.alpaca.markets"
-DATA_BASE = "https://data-api.alpaca.markets"
+DATA_BASE = "https://data.alpaca.markets"   # official Market Data API base URL
 
 #: CLI timeframe aliases -> Alpaca ``timeframe`` strings (stocks & crypto).
 TIMEFRAMES: dict[str, str] = {
