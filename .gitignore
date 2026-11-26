@@ -8,3 +8,5 @@ data/*.csv
 .pytest_cache/
 .mypy_cache/
 .env
+logs/
+start_trader.log
