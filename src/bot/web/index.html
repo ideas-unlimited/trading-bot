@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>trading-bot · terminal</title>
+<style>
+  :root {
+    --bg: #0a0d13; --panel: #111623; --panel2: #161d2c; --border: #222b3f;
+    --text: #e7ecf5; --muted: #8a94a9; --accent: #4f9cf9; --accent2: #f5a623;
+    --good: #3fb970; --bad: #e5534b; --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 13.5px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; min-height: 100vh; }
+
+  /* ---- sidebar ---- */
+  nav { width: 190px; background: var(--panel); border-right: 1px solid var(--border);
+        padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; }
+  .logo { font-weight: 700; font-size: 15px; letter-spacing: .5px; padding: 4px 10px 14px; }
+  .logo span { color: var(--accent); }
+  nav a { display: block; padding: 9px 12px; border-radius: 8px; color: var(--muted);
+          text-decoration: none; font-size: 13.5px; cursor: pointer; }
+  nav a:hover { background: var(--panel2); color: var(--text); }
+  nav a.on { background: var(--accent); color: #fff; }
+  nav .foot { margin-top: auto; font-size: 10.5px; color: var(--muted); padding: 10px; }
+
+  /* ---- main ---- */
+  main { flex: 1; min-width: 0; }
+  .topbar { display: flex; align-items: center; gap: 14px; padding: 10px 20px;
+            border-bottom: 1px solid var(--border); background: var(--panel); }
+  .topbar .title { font-weight: 600; font-size: 14px; }
+  #accountChip { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  #accountChip b { color: var(--text); }
+  .view { display: none; padding: 18px 20px 60px; max-width: 1280px; }
+  .view.on { display: block; }
+  .grid { display: grid; gap: 14px; }
+  .cols-2 { grid-template-columns: 340px 1fr; align-items: start; }
+  @media (max-width: 980px) { .cols-2 { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .card h2 { font-size: 11.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 0 0 10px; }
+  label { display: block; font-size: 11.5px; color: var(--muted); margin: 9px 0 3px; }
+  input, select { width: 100%; padding: 7px 9px; background: var(--bg); color: var(--text);
+                  border: 1px solid var(--border); border-radius: 7px; font: inherit; }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip { padding: 4px 11px; border: 1px solid var(--border); border-radius: 999px;
+          cursor: pointer; font-size: 12.5px; color: var(--muted); user-select: none; }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .row { display: flex; gap: 7px; } .row > * { flex: 1; }
+  button.primary { width: 100%; margin-top: 12px; padding: 9px; border: 0; border-radius: 8px;
+                   background: var(--accent); color: #fff; font: 600 13.5px inherit; cursor: pointer; }
+  button.primary:disabled { opacity: .55; cursor: wait; }
+  button.ghost, button.small { background: transparent; border: 1px solid var(--border); color: var(--text);
+                 border-radius: 7px; cursor: pointer; font: inherit; }
+  button.ghost { width: 100%; margin-top: 7px; padding: 8px; }
+  button.small { padding: 3px 9px; font-size: 12px; }
+  button.danger { color: var(--bad); border-color: #3a2023; }
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+  th { text-align: right; color: var(--muted); font-weight: 500; padding: 5px 7px;
+       border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  td { text-align: right; padding: 5px 7px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  tr:hover td { background: var(--panel2); }
+  .pos { color: var(--good); } .neg { color: var(--bad); } .dim { color: var(--muted); }
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 9px; }
+  .metric { background: var(--panel2); border: 1px solid var(--border); border-radius: 9px; padding: 9px 11px; }
+  .metric .k { font-size: 10.5px; color: var(--muted); }
+  .metric .v { font-family: var(--mono); font-size: 15px; margin-top: 1px; }
+  svg#chart, svg#eqChart { width: 100%; height: 250px; display: block; }
+  .error { background: #2a1416; border: 1px solid var(--bad); color: #f3b0ab;
+           border-radius: 9px; padding: 9px 13px; margin: 10px 0; }
+  .scroll { max-height: 320px; overflow: auto; }
+  .hidden { display: none !important; }
+  .spin { display: inline-block; width: 13px; height: 13px; border: 2px solid #fff5;
+          border-top-color: #fff; border-radius: 50%; animation: r .9s linear infinite; vertical-align: -2px; }
+  @keyframes r { to { transform: rotate(360deg); } }
+  .hint { font-size: 11.5px; color: var(--muted); margin-top: 7px; }
+</style>
+</head>
+<body>
+<nav>
+  <div class="logo">trading<span>bot</span></div>
+  <a data-view="dashboard" class="on">◆ Dashboard</a>
+  <a data-view="bots">⚙ Bots</a>
+  <a data-view="backtest">↯ Backtest</a>
+  <a data-view="scan">≡ Scan</a>
+  <a data-view="trades">$ Trades &amp; P&L</a>
+  <a data-view="data">⛃ Data</a>
+  <div class="foot">PAPER ONLY<br>no real orders possible</div>
+</nav>
+<main>
+  <div class="topbar">
+    <span class="title" id="viewTitle">Dashboard</span>
+    <span id="accountChip">account: checking…</span>
+  </div>
+
+  <div id="err" class="error hidden" style="margin:14px 20px 0"></div>
+
+  <!-- ================= DASHBOARD ================= -->
+  <div class="view on" id="view-dashboard">
+    <div class="metrics" id="dashMetrics" style="margin-bottom:14px"></div>
+    <div class="grid cols-2">
+      <div class="card">
+        <h2>Open positions (paper)</h2>
+        <table id="dashPositions"></table>
+      </div>
+      <div class="card">
+        <h2>Recent runs</h2>
+        <table id="dashRuns"></table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= BOTS ================= -->
+  <div class="view" id="view-bots">
+    <div class="grid cols-2">
+      <div class="card">
+        <h2>Create bot</h2>
+        <label>Bot name</label>
+        <input type="text" id="botName" placeholder="e.g. BTC hourly SMA">
+        <label>Market</label>
+        <div class="chips" id="marketChips">
+          <span class="chip on" data-mkt="crypto">Crypto</span>
+          <span class="chip" data-mkt="stocks">Stocks</span>
+        </div>
+        <label>Ticker</label>
+        <select id="botSymbol"></select>
+        <label>Timeframe</label>
+        <div class="chips" id="botTf"></div>
+        <label>Strategy</label>
+        <select id="botStrategy"></select>
+        <label>My presets</label>
+        <div class="row">
+          <select id="botPreset"><option value="">— none —</option></select>
+          <button class="small ghost" id="btnReloadPresets" style="flex:0 0 auto">↻</button>
+        </div>
+        <div id="botParams"></div>
+        <details style="margin-top:8px">
+          <summary style="cursor:pointer;font-size:11.5px;color:var(--muted)">Risk &amp; costs</summary>
+          <div class="row">
+            <div><label>Initial $</label><input type="number" id="botInitialCash" value="10000"></div>
+            <div><label>Risk/trade %</label><input type="number" id="botRisk" value="1" step="0.1"></div>
+          </div>
+          <div class="row">
+            <div><label>Fee bps</label><input type="number" id="botFee" value="10"></div>
+            <div><label>Max DD %</label><input type="number" id="botMaxDD" value="25"></div>
+          </div>
+        </details>
+        <button class="primary" id="btnCreateBot">Create bot</button>
+        <button class="ghost" id="btnSavePreset">Save current settings as strategy preset</button>
+      </div>
+      <div>
+        <div class="card" style="margin-bottom:14px">
+          <h2>Bots</h2>
+          <table id="botsTable"></table>
+        </div>
+        <div class="card">
+          <h2>Run history</h2>
+          <div class="scroll"><table id="runsTable"></table></div>
+        </div>
+      </div>
+    </div>
+    <div class="card hidden" id="botRunCard" style="margin-top:14px">
+      <h2 id="botRunTitle">Run</h2>
+      <div class="metrics" id="botRunMetrics"></div>
+      <svg id="eqChart"></svg>
+      <div class="scroll" style="margin-top:10px"><table id="botRunTrades"></table></div>
+    </div>
+  </div>
+
+  <!-- ================= BACKTEST ================= -->
+  <div class="view" id="view-backtest">
+    <div class="grid cols-2">
+      <div class="card">
+        <h2>Backtest</h2>
+        <label>Market</label>
+        <div class="chips" id="btMarketChips">
+          <span class="chip on" data-mkt="crypto">Crypto</span>
+          <span class="chip" data-mkt="stocks">Stocks</span>
+        </div>
+        <label>Ticker</label>
+        <select id="btSymbol"></select>
+        <label>Timeframe</label>
+        <div class="chips" id="btTf"></div>
+        <label>Strategy</label>
+        <select id="btStrategy"></select>
+        <div id="btParams"></div>
+        <label>Lookback (days)</label>
+        <input type="number" id="btDays" value="365" min="30" max="3000">
+        <details style="margin-top:8px">
+          <summary style="cursor:pointer;font-size:11.5px;color:var(--muted)">Costs &amp; risk</summary>
+          <div class="row">
+            <div><label>Initial $</label><input type="number" id="btInitialCash" value="10000"></div>
+            <div><label>Risk/trade %</label><input type="number" id="btRisk" value="1" step="0.1"></div>
+          </div>
+          <div class="row">
+            <div><label>Fee bps</label><input type="number" id="btFee" value="10"></div>
+            <div><label>Slippage bps</label><input type="number" id="btSlip" value="5"></div>
+          </div>
+          <div class="row">
+            <div><label>Max pos %</label><input type="number" id="btMaxPos" value="95"></div>
+            <div><label>Max DD %</label><input type="number" id="btMaxDD" value="25"></div>
+          </div>
+        </details>
+        <button class="primary" id="btnBacktest">Run backtest</button>
+      </div>
+      <div class="card" id="btResult">
+        <h2 id="btTitle">Results</h2>
+        <div class="metrics" id="btMetrics"></div>
+        <svg id="chart"></svg>
+        <h2 style="margin-top:14px">Trades (last 50)</h2>
+        <div class="scroll"><table id="btTrades"></table></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= SCAN ================= -->
+  <div class="view" id="view-scan">
+    <div class="grid cols-2">
+      <div class="card">
+        <h2>Scan timeframes × strategies</h2>
+        <label>Symbols (comma separated)</label>
+        <input type="text" id="scSymbols" value="BTC/USD">
+        <label>Timeframes</label>
+        <div class="chips" id="scTf"></div>
+        <label>Strategies</label>
+        <div class="chips" id="scStrategies"></div>
+        <label>Lookback (days)</label>
+        <input type="number" id="scDays" value="365" min="30" max="3000">
+        <button class="primary" id="btnScan">Run scan</button>
+        <div class="hint">Compares every (symbol × timeframe × strategy) backtest on the same costs. Ranked by Sharpe. Watch the buy &amp; hold column and the trade count — small samples lie.</div>
+      </div>
+      <div class="card">
+        <h2>Results</h2>
+        <table id="scanTable"></table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= TRADES ================= -->
+  <div class="view" id="view-trades">
+    <div class="metrics" id="pnlMetrics" style="margin-bottom:14px"></div>
+    <div class="grid cols-2">
+      <div class="card">
+        <h2>Per-symbol P&L</h2>
+        <table id="pnlSummary"></table>
+      </div>
+      <div class="card">
+        <h2>Paper account fills <button class="small ghost" id="btnSyncTrades" style="float:right">↻ Sync from Alpaca</button></h2>
+        <div class="scroll"><table id="tradesTable"></table></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= DATA ================= -->
+  <div class="view" id="view-data">
+    <div class="grid cols-2">
+      <div class="card">
+        <h2>Ingest market data → Postgres</h2>
+        <label>Market</label>
+        <div class="chips" id="ingMarketChips">
+          <span class="chip on" data-mkt="crypto">Crypto</span>
+          <span class="chip" data-mkt="stocks">Stocks</span>
+        </div>
+        <label>Ticker</label>
+        <select id="ingSymbol"></select>
+        <label>Timeframes</label>
+        <div class="chips" id="ingTf"></div>
+        <label>Lookback (days)</label>
+        <input type="number" id="ingDays" value="365" min="7" max="2000">
+        <button class="primary" id="btnIngest">Ingest bars</button>
+        <div class="hint">Cached bars make backtests instant. Backtests run from the cache when it covers the range, otherwise they fetch from Alpaca and cache automatically.</div>
+      </div>
+      <div class="card">
+        <h2>Cached bars</h2>
+        <table id="barsTable"></table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const fmt = (x, dp=2, suffix="") => (x==null || x!==x) ? "–" : (x>=0?"+":"") + Number(x).toFixed(dp) + suffix;
+const cls = (x) => (x==null || x!==x) ? "" : (x>=0 ? "pos" : "neg");
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+let S = { strategies: {}, presets: [], symbols: {stocks:[],crypto:[]}, market: {bots:"crypto", bt:"crypto", ing:"crypto"},
+          botTf: "1h", btTf: "4h", scTf: ["1h","4h","6h","1d"], ingTf: ["1d"], scStrategies: [] };
+
+function fail(m){ $("err").textContent = m; $("err").classList.remove("hidden"); }
+function ok(){ $("err").classList.add("hidden"); }
+async function api(path, body, method){
+  const res = await fetch(path, body!==undefined
+    ? {method: method||"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body||{})}
+    : {method: method||"GET"});
+  let data; try { data = await res.json(); } catch { throw new Error("HTTP "+res.status); }
+  if (data && data.error) throw new Error(data.error);
+  return data;
+}
+const busy = (btn, on, label) => { btn.disabled = on; btn.innerHTML = on ? '<span class="spin"></span> running…' : label; };
+const dt = (iso) => iso ? new Date(iso).toLocaleString([], {month:"short",day:"numeric",year:"2-digit",hour:"2-digit",minute:"2-digit"}) : "–";
+
+/* ================= nav ================= */
+document.querySelectorAll("nav a").forEach(a => a.onclick = () => {
+  document.querySelectorAll("nav a").forEach(x=>x.classList.remove("on"));
+  document.querySelectorAll(".view").forEach(v=>v.classList.remove("on"));
+  a.classList.add("on");
+  $("view-"+a.dataset.view).classList.add("on");
+  $("viewTitle").textContent = a.textContent.trim().replace(/^[^\w$]+/,"");
+  if (a.dataset.view==="dashboard") loadDashboard();
+  if (a.dataset.view==="bots") { loadBots(); loadRuns(); loadPresets(); }
+  if (a.dataset.view==="trades") syncTrades();
+  if (a.dataset.view==="data") loadBars();
+});
+
+/* ================= shared controls ================= */
+async function loadStrategies(){
+  S.strategies = await api("/api/strategies");
+  ["botStrategy","btStrategy"].forEach(id => {
+    $(id).innerHTML = Object.keys(S.strategies).map(n=>`<option value="${n}">${n}</option>`).join("");
+    $(id).onchange = () => renderParams(id);
+  });
+  renderParams("botStrategy"); renderParams("btStrategy");
+  const sc = $("scStrategies");
+  sc.innerHTML = Object.keys(S.strategies).map(n =>
+    `<span class="chip${n==="sma_cross"?" on":""}" data-s="${n}">${n}</span>`).join("");
+  [...sc.children].forEach(c => c.onclick = () => {
+    c.classList.toggle("on");
+    S.scStrategies = [...sc.children].filter(x=>x.classList.contains("on")).map(x=>x.dataset.s);
+    if (!S.scStrategies.length){ c.classList.add("on"); S.scStrategies=[c.dataset.s]; }
+  });
+  S.scStrategies = ["sma_cross"];
+}
+const paramDefaults = { fast:20, slow:50, atr_mult:2.5, rsi_window:14, entry:30, exit_level:55, trend_window:200 };
+function renderParams(selId){
+  const kind = $(selId).value;
+  const names = S.strategies[kind]?.params || [];
+  const prefix = selId.slice(0,2);
+  $(prefix+"Params").innerHTML = names.map(p =>
+    `<div class="row"><div><label>${p}</label>
+     <input type="number" step="any" data-param="${prefix}:${p}" value="${paramDefaults[p] ?? ""}"></div></div>`).join("");
+}
+function collectParams(prefix){
+  const p = {};
+  document.querySelectorAll(`[data-param^="${prefix}:"`).forEach(i => {
+    if (i.value!=="") p[i.dataset.param.split(":")[1]] = Number(i.value);
+  });
+  return p;
+}
+function timeframes(containerId, initial, multi){
+  const el = $(containerId); el.innerHTML = "";
+  ["1h","4h","6h","1d","1w"].forEach(tf => {
+    const c = document.createElement("span");
+    c.className = "chip" + ((multi ? initial.includes(tf) : initial===tf) ? " on" : "");
+    c.textContent = tf;
+    c.onclick = () => {
+      if (multi){ c.classList.toggle("on");
+        const sel = [...el.children].filter(x=>x.classList.contains("on")).map(x=>x.textContent);
+        if (!sel.length){ c.classList.add("on"); sel.push(tf); }
+        return sel; }
+      [...el.children].forEach(x=>x.classList.remove("on")); c.classList.add("on");
+    };
+    el.appendChild(c);
+  });
+}
+const selTf = (id, multi) => [...$(id).children].filter(x=>x.classList.contains("on")).map(x=>x.textContent).join(",") || (multi?[]:"1h");
+function marketChips(containerId, key, onSelect){
+  [...$(containerId).children].forEach(c => c.onclick = () => {
+    [...$(containerId).children].forEach(x=>x.classList.remove("on")); c.classList.add("on");
+    S.market[key] = c.dataset.mkt; fillSymbolDropdown(key + "Symbol", c.dataset.mkt);
+    if (onSelect) onSelect(c.dataset.mkt);
+  });
+}
+function fillSymbolDropdown(dropdownId, market){
+  const sel = $(dropdownId);
+  if (!sel) return;
+  sel.innerHTML = (S.symbols[market]||[]).map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join("");
+}
+function costPayload(prefix){
+  const g = (id) => Number($(id).value);
+  return { initial_cash: g(prefix+"InitialCash"), fee_bps: g(prefix+"Fee"),
+    slippage_bps: g(prefix+"Slip"), risk_per_trade: g(prefix+"Risk")/100,
+    max_position_pct: g(prefix+"MaxPos")/100, max_drawdown_stop: g(prefix+"MaxDD")/100 };
+}
+
+/* ================= dashboard ================= */
+async function loadAccount(){
+  try {
+    const a = await api("/api/account");
+    if (a.error) throw new Error(a.error);
+    $("accountChip").innerHTML = `account <b>${a.account_number}</b> · equity <b>$${Number(a.equity).toLocaleString()}</b> · cash $${Number(a.cash).toLocaleString()} · positions ${a.positions.length}`;
+    return a;
+  } catch(e){ $("accountChip").textContent = "account: " + e.message; return null; }
+}
+async function loadDashboard(){
+  const a = await loadAccount();
+  const cards = a ? [
+    ["Equity", "$"+Number(a.equity).toLocaleString()], ["Cash", "$"+Number(a.cash).toLocaleString()],
+    ["Buying power", "$"+Number(a.buying_power).toLocaleString()], ["Positions", a.positions.length],
+  ] : [["Account","offline (check .env keys)"]];
+  $("dashMetrics").innerHTML = cards.map(([k,v]) =>
+    `<div class="metric"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+  $("dashPositions").innerHTML = (a && a.positions.length)
+    ? `<tr><th>symbol</th><th>qty</th><th>entry</th><th>p&l</th></tr>` + a.positions.map(p =>
+      `<tr><td>${esc(p.symbol)}</td><td>${p.qty}</td><td>${p.avg_entry_price}</td>
+       <td class="${cls(p.unrealized_pl)}">${fmt(p.unrealized_pl)}</td></tr>`).join("")
+    : `<tr><td colspan="4" class="dim">no open positions</td></tr>`;
+  try {
+    const { runs } = await api("/api/runs");
+    $("dashRuns").innerHTML = runs.length
+      ? `<tr><th>when</th><th>symbol</th><th>tf</th><th>strategy</th><th>return</th><th>sharpe</th></tr>` +
+        runs.slice(0,10).map(r =>
+          `<tr><td>${dt(r.started_at)}</td><td>${esc(r.symbol)}</td><td>${esc(r.timeframe)}</td><td>${esc(r.strategy)}</td>
+           <td class="${cls(r.metrics?.total_return)}">${fmt((r.metrics?.total_return||0)*100,1,"%")}</td>
+           <td>${fmt(r.metrics?.sharpe)}</td></tr>`).join("")
+      : `<tr><td colspan="6" class="dim">no runs yet — create a bot or run a backtest</td></tr>`;
+  } catch(e){
+    $("dashRuns").innerHTML = `<tr><td colspan="6" class="dim">${esc(e.message)}</td></tr>`;
+  }
+}
+
+/* ================= bots ================= */
+function botPayload(){
+  return { name: $("botName").value.trim(), symbol: $("botSymbol").value,
+    timeframe: S.botTf, kind: $("botStrategy").value, params: collectParams("bo"),
+    ...costPayload("bot") };
+}
+async function loadBots(){
+  try {
+    const { bots } = await api("/api/bots");
+    $("botsTable").innerHTML = bots.length
+      ? `<tr><th>name</th><th>symbol</th><th>tf</th><th>strategy</th><th>last return</th><th></th></tr>` +
+        bots.map(b => `<tr><td>${esc(b.name)}</td><td>${esc(b.symbol)}</td><td>${esc(b.timeframe)}</td>
+          <td>${esc(b.kind)}</td>
+          <td class="${cls(b.last_metrics?.total_return)}">${fmt((b.last_metrics?.total_return||0)*100,1,"%")}</td>
+          <td><button class="small" onclick="runBot(${b.id})">▶ backtest</button>
+              <button class="small danger" onclick="delBot(${b.id})">✕</button></td></tr>`).join("")
+      : `<tr><td colspan="6" class="dim">no bots yet — create one on the left</td></tr>`;
+  } catch(e){ $("botsTable").innerHTML = `<tr><td class="dim">${esc(e.message)}</td></tr>`; }
+}
+window.runBot = async (id) => {
+  ok(); const btn = event.target; busy(btn, true, "…");
+  try {
+    const r = await api(`/api/bots/${id}/run`, {}, "GET");
+    $("botRunCard").classList.remove("hidden");
+    $("botRunTitle").textContent = `${r.run.symbol} @ ${r.run.timeframe} · ${r.run.strategy} · ${r.run.bars} bars`;
+    metricsInto($("botRunMetrics"), r.run.metrics);
+    drawChart($("eqChart"), r.equity_curve, r.buy_and_hold_curve);
+    tradesInto($("botRunTrades"), r.trades);
+    loadBots(); loadRuns();
+  } catch(e){ fail(e.message); }
+  finally { busy(btn, false, "▶ backtest"); }
+};
+window.delBot = async (id) => {
+  if (!confirm("Delete this bot and its run history?")) return;
+  try { await api(`/api/bots/${id}`, {}, "DELETE"); loadBots(); }
+  catch(e){ fail(e.message); }
+};
+$("btnCreateBot").onclick = async () => {
+  ok(); busy($("btnCreateBot"), true, "Create bot");
+  try { await api("/api/bots", botPayload()); loadBots(); }
+  catch(e){ fail(e.message); }
+  finally { busy($("btnCreateBot"), false, "Create bot"); }
+};
+async function loadRuns(){
+  try {
+    const { runs } = await api("/api/runs");
+    $("runsTable").innerHTML = runs.length
+      ? `<tr><th>when</th><th>bot</th><th>symbol</th><th>tf</th><th>strategy</th><th>return</th><th>sharpe</th><th>trades</th></tr>` +
+        runs.map(r => `<tr><td>${dt(r.started_at)}</td><td>${r.bot_id?("#"+r.bot_id):"—"}</td>
+          <td>${esc(r.symbol)}</td><td>${esc(r.timeframe)}</td><td>${esc(r.strategy)}</td>
+          <td class="${cls(r.metrics?.total_return)}">${fmt((r.metrics?.total_return||0)*100,1,"%")}</td>
+          <td>${fmt(r.metrics?.sharpe)}</td><td>${r.metrics?.trades ?? "–"}</td></tr>`).join("")
+      : `<tr><td colspan="8" class="dim">no runs yet</td></tr>`;
+  } catch(e){ $("runsTable").innerHTML = `<tr><td class="dim">${esc(e.message)}</td></tr>`; }
+}
+async function loadPresets(){
+  try {
+    const { presets } = await api("/api/presets");
+    S.presets = presets;
+    $("botPreset").innerHTML = `<option value="">— none —</option>` +
+      presets.map(p => `<option value="${p.id}">${esc(p.name)} (${esc(p.kind)})</option>`).join("");
+  } catch(e){ $("botPreset").innerHTML = `<option value="">— (presets need DB) —</option>`; }
+}
+$("botPreset").onchange = () => {
+  const p = S.presets.find(x => x.id == $("botPreset").value);
+  if (!p) return;
+  $("botStrategy").value = p.kind; renderParams("botStrategy");
+  Object.entries(p.params||{}).forEach(([k,v]) => {
+    const inp = document.querySelector(`[data-param="bo:${k}"]`);
+    if (inp) inp.value = v;
+  });
+};
+$("btnReloadPresets").onclick = loadPresets;
+$("btnSavePreset").onclick = async () => {
+  ok();
+  const name = prompt("Preset name:");
+  if (!name) return;
+  try {
+    await api("/api/presets", { name, kind: $("botStrategy").value, params: collectParams("bo") });
+    loadPresets();
+  } catch(e){ fail(e.message); }
+};
+
+/* ================= backtest ================= */
+$("btnBacktest").onclick = async () => {
+  ok(); busy($("btnBacktest"), true, "Run backtest");
+  try {
+    const r = await api("/api/backtest", {
+      source: "alpaca", symbol: $("btSymbol").value, interval: S.btTf,
+      strategy: $("btStrategy").value, params: collectParams("bt"),
+      days: Number($("btDays").value), ...costPayload("bt"),
+    });
+    $("btTitle").textContent = `${r.symbol} @ ${r.interval} · ${r.strategy} · ${r.bars} bars`;
+    metricsInto($("btMetrics"), r.metrics);
+    drawChart($("chart"), r.equity_curve, r.buy_and_hold_curve);
+    tradesInto($("btTrades"), r.trades);
+  } catch(e){ fail(e.message); }
+  finally { busy($("btnBacktest"), false, "Run backtest"); }
+};
+
+/* ================= scan ================= */
+$("btnScan").onclick = async () => {
+  ok(); busy($("btnScan"), true, "Run scan");
+  try {
+    const tfs = String(selTf("scTf", true)).split(",").filter(Boolean);
+    const body = { source: "alpaca",
+      symbols: $("scSymbols").value.split(",").map(s=>s.trim()).filter(Boolean),
+      timeframes: tfs, strategies: S.scStrategies, days: Number($("scDays").value) };
+    const { rows } = await api("/api/scan", body);
+    $("scanTable").innerHTML = `<tr><th>symbol</th><th>tf</th><th>strategy</th><th>return</th><th>b&h</th>
+      <th>sharpe</th><th>maxdd</th><th>trades</th><th>win%</th><th>PF</th></tr>` +
+      rows.map(r => r.error
+        ? `<tr><td>${esc(r.symbol)}</td><td>${esc(r.timeframe)}</td><td colspan="8" class="dim">${esc(r.error)}</td></tr>`
+        : `<tr><td>${esc(r.symbol)}</td><td>${esc(r.timeframe)}</td><td>${esc(r.strategy)}${r.halted?" ⛔":""}</td>
+           <td class="${cls(r.total_return)}">${fmt(r.total_return*100,2,"%")}</td>
+           <td class="${cls(r.buy_and_hold)}">${fmt(r.buy_and_hold*100,2,"%")}</td>
+           <td>${fmt(r.sharpe)}</td><td class="neg">${fmt(r.max_drawdown*100,2,"%")}</td>
+           <td>${r.trades}</td><td>${fmt(r.win_rate*100,1,"%")}</td><td>${fmt(r.profit_factor)}</td></tr>`).join("");
+  } catch(e){ fail(e.message); }
+  finally { busy($("btnScan"), false, "Run scan"); }
+};
+
+/* ================= trades ================= */
+async function syncTrades(){
+  try {
+    const { trades, summary } = await api("/api/paper/trades");
+    const total = summary.reduce((a,s)=>a+(s.realized_pnl||0),0);
+    $("pnlMetrics").innerHTML = [
+      ["Realized P&L", "$"+total.toFixed(2), cls(total)],
+      ["Fills", trades.length, ""],
+      ["Symbols traded", summary.length, ""],
+    ].map(([k,v,c]) => `<div class="metric"><div class="k">${k}</div><div class="v ${c}">${v}</div></div>`).join("");
+    $("pnlSummary").innerHTML = summary.length
+      ? `<tr><th>symbol</th><th>realized p&l</th><th>open qty</th></tr>` + summary.map(s =>
+        `<tr><td>${esc(s.symbol)}</td><td class="${cls(s.realized_pnl)}">$${(s.realized_pnl||0).toFixed(2)}</td>
+         <td>${s.open_qty}</td></tr>`).join("")
+      : `<tr><td colspan="3" class="dim">no paper fills yet — run a bot live or trade manually in TradingView paper</td></tr>`;
+    $("tradesTable").innerHTML = trades.length
+      ? `<tr><th>time</th><th>symbol</th><th>side</th><th>qty</th><th>price</th><th>notional</th></tr>` +
+        trades.map(t => `<tr><td>${dt(t.filled_at)}</td><td>${esc(t.symbol)}</td>
+          <td class="${t.side==="buy"?"pos":"neg"}">${esc(t.side)}</td><td>${t.qty}</td>
+          <td>${t.price.toFixed(2)}</td><td>$${(t.qty*t.price).toLocaleString(undefined,{maximumFractionDigits:2})}</td></tr>`).join("")
+      : `<tr><td colspan="6" class="dim">no fills synced yet</td></tr>`;
+  } catch(e){ fail(e.message); }
+}
+$("btnSyncTrades").onclick = syncTrades;
+
+/* ================= data ================= */
+$("btnIngest").onclick = async () => {
+  ok(); busy($("btnIngest"), true, "Ingest bars");
+  try {
+    const tfs = String(selTf("ingTf", true)).split(",").filter(Boolean);
+    const r = await api("/api/ingest", { symbol: $("ingSymbol").value, timeframes: tfs, days: Number($("ingDays").value) });
+    ok("ingested: " + r.ingested.map(i=>`${i.timeframe}=${i.bars}`).join(", "));
+    renderBars(r.counts);
+  } catch(e){ fail(e.message); }
+  finally { busy($("btnIngest"), false, "Ingest bars"); }
+};
+async function loadBars(){
+  try { renderBars((await api("/api/bars")).counts); }
+  catch(e){ $("barsTable").innerHTML = `<tr><td class="dim">${esc(e.message)}</td></tr>`; }
+}
+function renderBars(counts){
+  $("barsTable").innerHTML = counts.length
+    ? `<tr><th>symbol</th><th>tf</th><th>bars</th><th>from</th><th>to</th></tr>` + counts.map(c =>
+      `<tr><td>${esc(c.symbol)}</td><td>${esc(c.timeframe)}</td><td>${c.n}</td>
+       <td>${c.first_ts.slice(0,10)}</td><td>${c.last_ts.slice(0,10)}</td></tr>`).join("")
+    : `<tr><td colspan="5" class="dim">cache empty — ingest a ticker</td></tr>`;
+}
+
+/* ================= charts & tables ================= */
+function metricsInto(el, m){
+  m = m || {};
+  const items = [
+    ["Total return", fmt((m.total_return||0)*100,2,"%"), cls(m.total_return)],
+    ["Buy & hold", fmt((m.buy_and_hold||0)*100,2,"%"), cls(m.buy_and_hold)],
+    ["CAGR", fmt((m.cagr||0)*100,2,"%"), cls(m.cagr)],
+    ["Sharpe", fmt(m.sharpe), ""], ["Sortino", fmt(m.sortino), ""],
+    ["Max DD", fmt((m.max_drawdown||0)*100,2,"%"), "neg"],
+    ["Trades", m.trades ?? "–", ""], ["Win rate", fmt((m.win_rate||0)*100,1,"%"), ""],
+    ["Profit factor", fmt(m.profit_factor), ""],
+  ];
+  el.innerHTML = items.map(([k,v,c]) =>
+    `<div class="metric"><div class="k">${k}</div><div class="v ${c}">${v}</div></div>`).join("");
+}
+function drawChart(svg, eq, bh){
+  const W = svg.clientWidth || 720, H = 250, P = 36;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  if (!eq || !eq.length){ svg.innerHTML = ""; return; }
+  const scale = bh && bh.length ? eq[0][1]/bh[0][1] : 1;
+  const bhS = (bh||[]).map(p=>[p[0], p[1]*scale]);
+  const all = eq.map(p=>p[1]).concat(bhS.map(p=>p[1]));
+  let min = Math.min(...all), max = Math.max(...all);
+  const pad = (max-min)*0.06 || 1; min -= pad; max += pad;
+  const t0 = new Date(eq[0][0]).getTime(), t1 = new Date(eq[eq.length-1][0]).getTime();
+  const X = t => t0===t1 ? 0 : P + (W-2*P)*(new Date(t).getTime()-t0)/(t1-t0);
+  const Y = v => H-P - (H-2*P)*(v-min)/(max-min);
+  const path = pts => pts.map((p,i)=>`${i?"L":"M"}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" ");
+  svg.innerHTML = `
+    <line x1="${P}" y1="${H-P}" x2="${W-P/2}" y2="${H-P}" stroke="var(--border)"/>
+    <line x1="${P}" y1="${P/2}" x2="${P}" y2="${H-P}" stroke="var(--border)"/>
+    <text x="${P-5}" y="${Y(max)+4}" text-anchor="end" font-size="10" fill="var(--muted)">${max.toFixed(0)}</text>
+    <text x="${P-5}" y="${Y(min)+4}" text-anchor="end" font-size="10" fill="var(--muted)">${min.toFixed(0)}</text>
+    <text x="${W/2}" y="${H-7}" text-anchor="middle" font-size="10" fill="var(--muted)">
+      ${new Date(eq[0][0]).toLocaleDateString()} → ${new Date(eq[eq.length-1][0]).toLocaleDateString()}</text>
+    <path d="${path(eq)}" fill="none" stroke="var(--accent)" stroke-width="1.8"/>
+    ${bhS.length?`<path d="${path(bhS)}" fill="none" stroke="var(--muted)" stroke-width="1.1" stroke-dasharray="4 3"/>`:""}
+    <text x="${W-P}" y="${P/2}" text-anchor="end" font-size="10" fill="var(--accent)">strategy</text>
+    <text x="${W-P}" y="${P/2+13}" text-anchor="end" font-size="10" fill="var(--muted)">buy &amp; hold</text>`;
+}
+function tradesInto(el, trades){
+  el.innerHTML = trades.length
+    ? `<tr><th>entry</th><th>exit</th><th>qty</th><th>entry px</th><th>exit px</th><th>return</th><th>exit reason</th></tr>` +
+      trades.map(x => `<tr><td>${dt(x.entry_ts)}</td><td>${dt(x.exit_ts)}</td>
+        <td>${Number(x.qty).toFixed(3)}</td><td>${Number(x.entry_price).toFixed(2)}</td>
+        <td>${Number(x.exit_price).toFixed(2)}</td>
+        <td class="${cls(x.return_pct)}">${fmt(x.return_pct*100,2,"%")}</td>
+        <td>${esc((x.reason_close||x.reason_open||"").slice(0,40))}</td></tr>`).join("")
+    : `<tr><td colspan="7" class="dim">no trades</td></tr>`;
+}
+
+/* ================= boot ================= */
+["bo","bt"].forEach(prefix => {
+  const conf = { bo: ["botTf","botTf",false], bt: ["btTf","btTf",false] };
+});
+timeframes("botTf", "1h"); timeframes("btTf", "4h");
+timeframes("scTf", ["1h","4h","6h","1d"], true); timeframes("ingTf", ["1d"], true);
+["bots","bt","ing"].forEach(key => {
+  const chips = $("ingMarketChips");
+});
+marketChips("marketChips", "bots"); marketChips("btMarketChips", "bt"); marketChips("ingMarketChips", "ing");
+["botSymbol","btSymbol","ingSymbol"].forEach(id => {
+  const key = id.startsWith("bot") ? "bots" : id.startsWith("bt") ? "bt" : "ing";
+  $(id).addEventListener("focus", () => fillSymbolDropdown(id, S.market[key]));
+});
+setInterval(() => { fillSymbolDropdown("botSymbol", S.market.bots);
+  fillSymbolDropdown("btSymbol", S.market.bt); fillSymbolDropdown("ingSymbol", S.market.ing); }, 400);
+
+(async function boot(){
+  try { S.symbols = await api("/api/symbols"); } catch(e){ S.symbols = {stocks:[],crypto:[]}; }
+  fillSymbolDropdown("botSymbol", "crypto"); fillSymbolDropdown("btSymbol", "crypto"); fillSymbolDropdown("ingSymbol", "crypto");
+  await loadStrategies();
+  loadAccount(); loadDashboard();
+})();
+</script>
+</body>
+</html>

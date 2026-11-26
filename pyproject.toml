@@ -11,6 +11,7 @@ dependencies = ["pandas>=2.0", "numpy>=1.26"]
 
 [project.optional-dependencies]
 charts = ["matplotlib>=3.8"]
+web = ["psycopg[binary]>=3.1"]
 
 [project.scripts]
 bot = "bot.cli:main"
@@ -19,4 +20,4 @@ bot = "bot.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-bot = ["py.typed"]
+bot = ["py.typed", "web/*.html"]

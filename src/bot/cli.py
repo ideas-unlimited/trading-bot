@@ -393,6 +393,15 @@ def cmd_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_web(args: argparse.Namespace) -> int:
+    """Serve the local web terminal."""
+    from .web import WebApp
+
+    app = WebApp(args.host, args.port)
+    app.serve_forever()
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bot", description="Backtest and paper-trade a strategy.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -467,6 +476,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_scan.add_argument("--n-bars", type=int, default=10000)
     p_scan.add_argument("--outdir", default="runs")
     p_scan.set_defaults(func=cmd_scan)
+
+    p_web = sub.add_parser("web", help="run the local web trader terminal")
+    p_web.add_argument("--host", default="127.0.0.1")
+    p_web.add_argument("--port", type=int, default=9000)
+    p_web.set_defaults(func=cmd_web)
 
     return parser
 
