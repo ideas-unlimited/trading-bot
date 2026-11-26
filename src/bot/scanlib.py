@@ -52,8 +52,13 @@ def merge_bars(cached: list[Any], fresh: list[Any]) -> list[Any]:
     return [seen[k] for k in sorted(seen)]
 
 
-#: deep-history start for Alpaca backfills (the API clamps to what exists).
-BACKFILL_START = datetime(2015, 1, 1, tzinfo=timezone.utc)
+#: how much history we keep, per user decision: 3 years is plenty for
+#: regime coverage, and every backfill/prune clamps to it.
+MAX_HISTORY_DAYS = 1095
+
+
+def _backfill_start(now: datetime) -> datetime:
+    return now - timedelta(days=MAX_HISTORY_DAYS)
 
 
 def _fetch_source(
@@ -150,8 +155,9 @@ def load_scan_bars(
                         start=last + spacing, n_bars=n_bars,
                     )
         else:
-            # first run for this symbol/timeframe: pull all available history
-            deep_start = BACKFILL_START if (backfill and source == "alpaca") else start_eff
+            # first run for this symbol/timeframe: pull all history up to
+            # the 3-year window, then it's deltas from there
+            deep_start = _backfill_start(now) if (backfill and source == "alpaca") else start_eff
             fresh = _fetch_source(
                 source, symbol, timeframe,
                 start=deep_start, n_bars=n_bars if source == "alpaca" else min(n_bars, 5_000),
@@ -160,6 +166,7 @@ def load_scan_bars(
         if fresh:
             try:
                 store.upsert_bars(conn, display, timeframe, fresh)
+                store.prune_bars(conn, keep_days=MAX_HISTORY_DAYS)
             except store.DatabaseError:
                 pass
         merged = merge_bars(cached, fresh)

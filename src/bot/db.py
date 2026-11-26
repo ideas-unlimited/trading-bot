@@ -200,6 +200,15 @@ def load_bars(
     ]
 
 
+def prune_bars(conn: "psycopg.Connection", keep_days: int = 1095) -> int:
+    """Delete bars older than ``keep_days``; returns the number removed."""
+    cur = conn.execute(
+        "DELETE FROM bars WHERE ts < now() - make_interval(days => %s)",
+        (keep_days,),
+    )
+    return cur.rowcount
+
+
 def bar_counts(conn: "psycopg.Connection") -> list[dict[str, Any]]:
     rows = conn.execute(
         "SELECT symbol, timeframe, COUNT(*) AS n, MIN(ts) AS first_ts, MAX(ts) AS last_ts "
