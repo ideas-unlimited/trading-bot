@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trading-bot"
+version = "0.1.0"
+description = "A small, honest backtesting and paper-trading framework"
+requires-python = ">=3.11"
+dependencies = ["pandas>=2.0", "numpy>=1.26"]
+
+[project.optional-dependencies]
+charts = ["matplotlib>=3.8"]
+
+[project.scripts]
+bot = "bot.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+bot = ["py.typed"]
