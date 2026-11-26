@@ -111,7 +111,7 @@ def _load_bars_for_api(payload: dict[str, Any]) -> list[Any]:
     interval = payload.get("interval", "1d")
     days = int(payload.get("days") or 365)
     src, fetch = _resolve_feed(symbol, source)
-    return load_scan_bars(fetch, interval, source=src, days=days)
+    return load_scan_bars(fetch, interval, source=src, days=days, cache_key=symbol)
 
 
 def _ohlc_payload(bars: list[Any], max_points: int = 400) -> list[list[float]]:
@@ -271,7 +271,8 @@ def run_scan_rows(
         src, fetch = feeds[symbol]
         for tf in timeframes:
             try:
-                bars = load_scan_bars(fetch, tf, source=src, days=days, n_bars=10_000)
+                bars = load_scan_bars(fetch, tf, source=src, days=days, n_bars=10_000,
+                                      cache_key=symbol)
             except Exception as exc:  # noqa: BLE001 - report per-combination failures
                 rows.append({"symbol": symbol, "timeframe": tf, "strategy": "-",
                              "error": str(exc)[:160]})
@@ -600,7 +601,8 @@ def api_ingest(payload: dict[str, Any]) -> dict[str, Any]:
     ingested = []
     try:
         for tf in timeframes:
-            bars = load_scan_bars(fetch, tf, source=src, days=days, n_bars=10_000)
+            bars = load_scan_bars(fetch, tf, source=src, days=days, n_bars=10_000,
+                                  cache_key=symbol)
             n = store.upsert_bars(conn, symbol, tf, bars)
             ingested.append(
                 {"timeframe": tf, "bars": n, "source": src,

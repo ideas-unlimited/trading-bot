@@ -11,9 +11,77 @@ from typing import Any
 from .alpaca_client import AlpacaClient
 from .backtest import run_backtest
 from .config import BotConfig, CostConfig, RiskConfig
-from .data.feed import generate_synthetic
+from .data.feed import Bar, generate_synthetic
 from .metrics import infer_bars_per_year
 from .strategy import build
+from . import db as store
+
+
+def cache_is_sufficient(bars: list[Any], start: Any, *, now: Any) -> bool:
+    """True when the cached bars fully cover the requested range and are fresh.
+
+    Coverage: at least 60 bars and the oldest cached bar at or before the
+    requested start.  Freshness: the newest bar is within a few bar-spacings
+    of now (measured from the cache's own bar spacing, so 1d stock bars
+    survive weekends).
+    """
+    if len(bars) < 60:
+        return False
+    if start is not None and bars[0].ts > start:
+        return False
+    tail = bars[-11:]
+    spans = [b.ts - a.ts for a, b in zip(tail, tail[1:]) if b.ts > a.ts]
+    spacing = sorted(spans)[len(spans) // 2] if spans else None
+    if spacing is None:
+        return False
+    return (now - bars[-1].ts) <= max(4 * spacing, spacing)
+
+
+def _spacing(bars: list[Any]) -> timedelta | None:
+    """Median spacing of the last bars, as a timedelta."""
+    tail = bars[-11:]
+    spans = [b.ts - a.ts for a, b in zip(tail, tail[1:]) if b.ts > a.ts]
+    return sorted(spans)[len(spans) // 2] if spans else None
+
+
+def merge_bars(cached: list[Any], fresh: list[Any]) -> list[Any]:
+    """Union of two bar lists by timestamp, sorted; fresh wins on collisions."""
+    seen = {b.ts: b for b in cached}
+    for b in fresh:
+        seen[b.ts] = b
+    return [seen[k] for k in sorted(seen)]
+
+
+#: deep-history start for Alpaca backfills (the API clamps to what exists).
+BACKFILL_START = datetime(2015, 1, 1, tzinfo=timezone.utc)
+
+
+def _fetch_source(
+    source: str,
+    symbol: str,
+    timeframe: str,
+    *,
+    start: datetime | None = None,
+    end: datetime | None = None,
+    n_bars: int = 10_000,
+) -> list[Any]:
+    """Raw fetch from Alpaca or TradingView (6h aggregated from 1h on TV)."""
+    if source == "tv":
+        from .data.feed import aggregate_bars
+        from .data.tvfeed import fetch_tv_bars
+
+        exchange, _, sym = symbol.partition(":")
+        if not sym:
+            sym, exchange = exchange, "BINANCE"
+        tf = "1h" if timeframe == "6h" else timeframe
+        bars = fetch_tv_bars(sym, exchange, tf, n_bars)
+        if timeframe == "6h":
+            bars = aggregate_bars(bars, 6)
+        if start is not None:
+            bars = [b for b in bars if b.ts >= start]
+        return bars
+    client = AlpacaClient()
+    return client.fetch_bars(symbol, timeframe, start=start, end=end, limit=n_bars)
 
 
 def load_scan_bars(
@@ -24,29 +92,83 @@ def load_scan_bars(
     days: int = 365,
     start: datetime | None = None,
     n_bars: int = 10_000,
+    cache_key: str | None = None,
+    backfill: bool = True,
 ) -> list[Any]:
-    """Fetch bars for one symbol/timeframe.
+    """Bars for one symbol/timeframe, served from our own Postgres history DB.
 
-    ``source``: alpaca (stocks + Alpaca crypto pairs), tv (TradingView data
-    for anything else, symbol given as ``EXCHANGE:TICKER``), or synthetic.
+    Incremental sync (delta fetching):
+    - empty cache  -> one deep backfill (all history the feed allows)
+    - cached bars  -> only the missing tail is fetched (last cached bar -> now)
+    - deep gap     -> an extra fetch covers the older gap (Alpaca only;
+                      TradingView cannot fetch by end-date)
+    Fresh caches skip the API entirely.  Everything fetched is upserted
+    (idempotent ON CONFLICT), so repeated research runs never re-pay the API
+    cost and respect Alpaca rate limits.
+
+    ``cache_key`` is the canonical display symbol used in the cache (e.g.
+    "BNB/USDT" even when fetched as "BINANCE:BNBUSDT").  The returned bars
+    are sliced to the requested window (``start`` or ``days``) so callers see
+    consistent ranges regardless of how deep the cache is.
     """
-    if source == "synthetic":
-        return generate_synthetic(2_000, seed=11, step=timedelta(hours=1))
-    if source == "tv":
-        from .data.feed import aggregate_bars
-        from .data.tvfeed import fetch_tv_bars
+    display = cache_key or symbol
+    now = datetime.now(timezone.utc)
+    start_eff = start if start is not None else (
+        now - timedelta(days=days) if days else None
+    )
 
-        exchange, _, sym = symbol.partition(":")
-        if not sym:
-            sym, exchange = exchange, "BINANCE"
-        if timeframe == "6h":
-            raw = fetch_tv_bars(sym, exchange, "1h", n_bars)
-            return aggregate_bars(raw, 6)
-        return fetch_tv_bars(sym, exchange, timeframe, n_bars)
-    if start is None and days:
-        start = datetime.now(timezone.utc) - timedelta(days=days)
-    client = AlpacaClient()
-    return client.fetch_bars(symbol, timeframe, start=start, limit=n_bars)
+    if source == "synthetic" or not store.is_available():
+        if source == "synthetic":
+            return generate_synthetic(2_000, seed=11, step=timedelta(hours=1))
+        return _fetch_source(source, symbol, timeframe, start=start_eff, n_bars=n_bars)
+
+    conn = store.connect()
+    try:
+        cached = store.load_bars(conn, display, timeframe)
+        fresh: list[Any] = []
+
+        if cached:
+            spacing = _spacing(cached) or timedelta(hours=1)
+            last = cached[-1].ts
+            gap_behind = (
+                start_eff is not None
+                and cached[0].ts - start_eff > max(timedelta(hours=72), 4 * spacing)
+            )
+            is_fresh = cache_is_sufficient(cached, start_eff, now=now)
+
+            if is_fresh and not gap_behind:
+                fresh = []                      # fully served from our own DB
+            else:
+                if gap_behind and source == "alpaca":
+                    fresh = _fetch_source(
+                        source, symbol, timeframe,
+                        start=start_eff, end=cached[0].ts - spacing, n_bars=n_bars,
+                    ) + fresh
+                if now - last > spacing:
+                    fresh = fresh + _fetch_source(
+                        source, symbol, timeframe,
+                        start=last + spacing, n_bars=n_bars,
+                    )
+        else:
+            # first run for this symbol/timeframe: pull all available history
+            deep_start = BACKFILL_START if (backfill and source == "alpaca") else start_eff
+            fresh = _fetch_source(
+                source, symbol, timeframe,
+                start=deep_start, n_bars=n_bars if source == "alpaca" else min(n_bars, 5_000),
+            )
+
+        if fresh:
+            try:
+                store.upsert_bars(conn, display, timeframe, fresh)
+            except store.DatabaseError:
+                pass
+        merged = merge_bars(cached, fresh)
+    finally:
+        conn.close()
+
+    if start_eff is not None:
+        merged = [b for b in merged if b.ts >= start_eff]
+    return merged
 
 
 def make_config(bars: list[Any], **overrides: Any) -> BotConfig:
