@@ -24,11 +24,27 @@ from pathlib import Path
 from .alpaca_client import AlpacaClient, resolve_timeframe
 from .alerts import AlertServer, MirrorAccount, random_token
 from .backtest import run_backtest
+from .book import (
+    BookConfig,
+    format_summary as format_book,
+    last_signal,
+    load_bars_from_csv,
+    save_book,
+    simulate_book,
+)
 from .config import BotConfig, CostConfig, RiskConfig
 from .data.feed import generate_synthetic, load_csv, write_bars
 from .data.tvfeed import fetch_latest_tv_bars, fetch_tv_bars
 from .metrics import format_metrics
 from .paper import PaperTrader
+from .portfolio import (
+    RotationConfig,
+    closes_from_bars,
+    format_summary as format_rotation,
+    load_closes_from_csv,
+    save_rotation,
+    simulate_rotation,
+)
 from .report import save_equity_chart, save_trades_csv, summary_text
 from .strategy import REGISTRY, build
 
@@ -402,6 +418,105 @@ def cmd_web(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rotate(args: argparse.Namespace) -> int:
+    """Backtest the multi-coin trend rotation (the researched portfolio rule)."""
+    symbols = [s.strip() for s in args.coins.split(",") if s.strip()]
+    if len(symbols) < 2:
+        raise SystemExit("--coins needs at least two symbols")
+
+    if args.source == "csv":
+        closes = load_closes_from_csv(args.dir, symbols, args.timeframe)
+    else:
+        client = AlpacaClient()
+        print(f"fetching {len(symbols)} symbols @ {args.timeframe} from Alpaca ...", file=sys.stderr)
+        bars = {}
+        for sym in symbols:
+            bars[sym] = client.fetch_bars(sym, args.timeframe, limit=args.n_bars)
+            print(f"  {sym:<10} {len(bars[sym]):>5} bars", file=sys.stderr)
+        closes = closes_from_bars(bars)
+
+    if args.start:
+        from datetime import datetime, timezone
+
+        cutoff = datetime.fromisoformat(args.start).replace(tzinfo=timezone.utc)
+        closes = closes[closes.index >= cutoff]
+    if len(closes) < 300:
+        raise SystemExit(f"only {len(closes)} bars; need at least 300")
+
+    regime = args.regime_symbol or next(
+        (s for s in symbols if "BTC" in s.upper()), symbols[0]
+    )
+    config = RotationConfig(
+        lookback=args.lookback,
+        top_n=args.top,
+        regime_ma=args.regime_ma,
+        vol_target=args.vol_target,
+        rebalance_days=args.rebalance_days,
+        initial_cash=args.initial_cash,
+        fee_bps=args.fee_bps,
+        regime_symbol=regime,
+    )
+    result = simulate_rotation(closes, config)
+    print()
+    print(format_rotation(result))
+
+    paths = save_rotation(result, args.outdir)
+    print()
+    for name, path in paths.items():
+        print(f"{name:<8} {path}")
+    return 0
+
+
+def cmd_book(args: argparse.Namespace) -> int:
+    """Backtest one shared wallet across several coins, one slot at a time."""
+    symbols = [s.strip() for s in args.coins.split(",") if s.strip()]
+    if len(symbols) < 2:
+        raise SystemExit("--coins needs at least two symbols")
+
+    if args.source == "csv":
+        bars = load_bars_from_csv(args.dir, symbols, args.timeframe)
+    else:
+        client = AlpacaClient()
+        print(f"fetching {len(symbols)} symbols @ {args.timeframe} from Alpaca ...", file=sys.stderr)
+        bars = {}
+        for sym in symbols:
+            bars[sym] = client.fetch_bars(sym, args.timeframe, limit=args.n_bars)
+            print(f"  {sym:<10} {len(bars[sym]):>5} bars", file=sys.stderr)
+
+    if args.start:
+        from datetime import datetime, timezone
+
+        cutoff = datetime.fromisoformat(args.start).replace(tzinfo=timezone.utc)
+        bars = {sym: [b for b in rows if b.ts >= cutoff] for sym, rows in bars.items()}
+
+    config = BookConfig(
+        fast=args.fast, slow=args.slow, atr_mult=args.atr_mult,
+        risk_per_trade=args.risk_per_trade,
+        max_position_pct=args.max_position_pct,
+        max_positions=args.max_positions,
+        initial_cash=args.initial_cash,
+        fee_bps=args.fee_bps,
+        slippage_bps=args.slippage_bps,
+    )
+    result = simulate_book(bars, config)
+    print(f"rule       SMA {config.fast}/{config.slow} cross, {config.atr_mult:g} ATR stop")
+    print(f"coins      {', '.join(symbols)}  ({args.source}, {args.timeframe})")
+    print(f"slots      {config.max_positions}  risk {config.risk_per_trade:.1%} per trade")
+    print()
+    print(format_book(result))
+
+    paths = save_book(result, args.outdir)
+    print()
+    for name, path in paths.items():
+        print(f"{name:<8} {path}")
+
+    print()
+    print("next open (paper):")
+    for sym, text in last_signal(result, bars).items():
+        print(f"  {sym:<10} {text}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bot", description="Backtest and paper-trade a strategy.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -476,6 +591,45 @@ def build_parser() -> argparse.ArgumentParser:
     p_scan.add_argument("--n-bars", type=int, default=10000)
     p_scan.add_argument("--outdir", default="runs")
     p_scan.set_defaults(func=cmd_scan)
+
+    p_rot = sub.add_parser("rotate", help="backtest the top-N multi-coin trend rotation")
+    p_rot.add_argument("--coins", default="BTCUSDT,ETHUSDT,BNBUSDT,XRPUSDT,SOLUSDT",
+                       help="comma-separated symbols (csv filenames or Alpaca pairs, e.g. BTC/USD)")
+    p_rot.add_argument("--source", choices=["csv", "alpaca"], default="csv")
+    p_rot.add_argument("--dir", type=Path, default=Path("data/crypto"), help="csv directory")
+    p_rot.add_argument("--timeframe", default="1d")
+    p_rot.add_argument("--n-bars", type=int, default=5000)
+    p_rot.add_argument("--start", default=None, help="ignore bars before this date")
+    p_rot.add_argument("--top", type=int, default=2, help="concurrent positions")
+    p_rot.add_argument("--lookback", type=int, default=60, help="momentum lookback, bars")
+    p_rot.add_argument("--regime-ma", type=int, default=200)
+    p_rot.add_argument("--regime-symbol", default=None, help="defaults to the BTC symbol")
+    p_rot.add_argument("--vol-target", type=float, default=0.40)
+    p_rot.add_argument("--rebalance-days", type=int, default=7)
+    p_rot.add_argument("--initial-cash", type=float, default=1000.0)
+    p_rot.add_argument("--fee-bps", type=float, default=0.0)
+    p_rot.add_argument("--outdir", default="runs/rotation")
+    p_rot.set_defaults(func=cmd_rotate)
+
+    p_book = sub.add_parser("book", help="backtest one shared wallet across coins (one slot)")
+    p_book.add_argument("--coins", default="BTCUSDT,ETHUSDT,BNBUSDT,XRPUSDT,SOLUSDT",
+                        help="comma-separated symbols (csv filenames or Alpaca pairs)")
+    p_book.add_argument("--source", choices=["csv", "alpaca"], default="csv")
+    p_book.add_argument("--dir", type=Path, default=Path("data/crypto"), help="csv directory")
+    p_book.add_argument("--timeframe", default="4h")
+    p_book.add_argument("--n-bars", type=int, default=5000)
+    p_book.add_argument("--start", default=None, help="ignore bars before this date")
+    p_book.add_argument("--fast", type=int, default=30)
+    p_book.add_argument("--slow", type=int, default=50)
+    p_book.add_argument("--atr-mult", type=float, default=2.0)
+    p_book.add_argument("--risk-per-trade", type=float, default=0.02)
+    p_book.add_argument("--max-position-pct", type=float, default=0.95)
+    p_book.add_argument("--max-positions", type=int, default=1)
+    p_book.add_argument("--initial-cash", type=float, default=1000.0)
+    p_book.add_argument("--fee-bps", type=float, default=10.0)
+    p_book.add_argument("--slippage-bps", type=float, default=5.0)
+    p_book.add_argument("--outdir", default="runs/book")
+    p_book.set_defaults(func=cmd_book)
 
     p_web = sub.add_parser("web", help="run the local web trader terminal")
     p_web.add_argument("--host", default="127.0.0.1")

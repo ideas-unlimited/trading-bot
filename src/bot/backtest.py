@@ -72,10 +72,19 @@ class Engine:
         self.risk = RiskManager(config=self.config.risk)
         self.risk.update_equity(self.config.initial_cash)
 
+        if "atr" in self.df.columns:
+            self._atr = self.df["atr"]
+        else:
+            from . import indicators as ind
+
+            self._atr = ind.atr(self.df["high"], self.df["low"], self.df["close"], 14)
+
         self.i = 0
         self._pending: Signal | None = None
         self._stop: float | None = None
         self._take: float | None = None
+        self._trail_atr: float | None = None
+        self._peak: float | None = None
         self._equity: list[tuple[datetime, float]] = []
         self._exposure: list[tuple[datetime, float]] = []
         self._finished = False
@@ -95,6 +104,7 @@ class Engine:
             self._pending = None
 
         self._check_exits(row, ts)
+        self._ratchet_trail(row)
 
         equity = self.broker.equity(float(row["close"]))
         self.risk.update_equity(equity)
@@ -155,6 +165,8 @@ class Engine:
             if fill is not None:
                 self._stop = signal.stop_loss
                 self._take = signal.take_profit
+                self._trail_atr = signal.trail_atr
+                self._peak = fill.price
             return
 
         # SELL / CLOSE
@@ -162,6 +174,8 @@ class Engine:
             self.broker.sell(ts, open_px, reason=signal.reason)
             self._stop = None
             self._take = None
+            self._trail_atr = None
+            self._peak = None
 
     def _check_exits(self, row: pd.Series, ts: datetime) -> None:
         if not self.broker.in_position:
@@ -173,11 +187,38 @@ class Engine:
             price = min(open_px, self._stop)
             self.broker.sell(ts, price, reason=f"stop loss ({self._stop:.4f})")
             self._stop = self._take = None
+            self._trail_atr = None
+            self._peak = None
             return
         if self._take is not None and high >= self._take:
             price = max(open_px, self._take)
             self.broker.sell(ts, price, reason=f"take profit ({self._take:.4f})")
             self._stop = self._take = None
+            self._trail_atr = None
+            self._peak = None
+
+    def _ratchet_trail(self, row: pd.Series) -> None:
+        """Raise the stop to peak minus trail_atr ATRs; it never moves down.
+
+        The new stop is computed after this bar's exit check, so it can only
+        bind from the next bar onwards: no same-bar trail-and-fill.
+        """
+        if not self._trail_atr or not self.broker.in_position:
+            return
+        high = float(row["high"])
+        self._peak = high if self._peak is None else max(self._peak, high)
+        atr = self._atr_at(self.i)
+        if atr is None or atr <= 0:
+            return
+        candidate = self._peak - self._trail_atr * atr
+        if self._stop is None or candidate > self._stop:
+            self._stop = candidate
+
+    def _atr_at(self, i: int) -> float | None:
+        if self._atr is None:
+            return None
+        value = float(self._atr.iloc[i])
+        return None if pd.isna(value) else value
 
     def _maybe_signal(self) -> None:
         if self.i < self.strategy.warmup:

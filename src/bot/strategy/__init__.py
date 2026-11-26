@@ -6,6 +6,7 @@ from typing import Type
 
 from .base import Action, Signal, Strategy
 from .donchian import DonchianBreakout
+from .momentum_swing import MomentumSwing
 from .rsi_meanrev import RsiMeanReversion
 from .sma_cross import SmaCross
 
@@ -13,6 +14,7 @@ REGISTRY: dict[str, Type[Strategy]] = {
     SmaCross.name: SmaCross,
     RsiMeanReversion.name: RsiMeanReversion,
     DonchianBreakout.name: DonchianBreakout,
+    MomentumSwing.name: MomentumSwing,
 }
 
 
@@ -23,4 +25,4 @@ def build(name: str, **params: object) -> Strategy:
     return REGISTRY[name](**params)  # type: ignore[arg-type]
 
 
-__all__ = ["Action", "DonchianBreakout", "REGISTRY", "RsiMeanReversion", "Signal", "SmaCross", "Strategy", "build"]
+__all__ = ["Action", "DonchianBreakout", "MomentumSwing", "REGISTRY", "RsiMeanReversion", "Signal", "SmaCross", "Strategy", "build"]

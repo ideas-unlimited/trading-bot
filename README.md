@@ -44,6 +44,29 @@ python -m unittest discover -s tests
 `backtest` writes `runs/trades.csv` and (with `--plot`) `runs/equity.png`.
 `paper` replays bars through the same engine and narrates fills — no orders.
 
+## Crypto swing / rotation playbook
+
+Research on Binance daily bars (2017-2026, BTC/ETH/BNB/XRP/SOL) lives in
+`research/`; the two rules that survived are shipped:
+
+```bash
+python research/fetch_binance.py          # refresh data/crypto/*.csv (1d and 4h)
+
+# core: top-2 60-day momentum, weekly, BTC > 200d SMA gate, 40% vol target
+python -m bot rotate --coins BTCUSDT,ETHUSDT,BNBUSDT,XRPUSDT,SOLUSDT \
+                     --initial-cash 1000 --fee-bps 10
+
+# satellite: momentum breakout, 2.5 ATR initial stop, 3.5 ATR trailing stop,
+# no hard target (trail_atr=0 or reward_risk=N restore a fixed exit)
+python -m bot backtest --source csv --csv data/crypto/BTCUSDT_1d.csv \
+                       --strategy momentum_swing --risk-per-trade 0.02
+```
+
+Tested (10 bps fees): rotation CAGR 36.7%, Sharpe 1.25, max drawdown -36.6%;
+the 5-coin swing book at 2% risk CAGR 30.4%, Sharpe 1.42, drawdown -21.9%.
+Both win less than half their trades - the edge is payoff asymmetry, not hit
+rate. The full write-up is `runs/report/report.html`.
+
 ## Alpaca paper trading (stocks + crypto)
 
 The bot connects to [Alpaca](https://alpaca.markets) — free account, official

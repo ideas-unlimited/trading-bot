@@ -32,6 +32,9 @@ class Signal:
     reason: str = ""
     stop_loss: float | None = None
     take_profit: float | None = None
+    #: Trail the stop this many ATRs below the highest high since entry.
+    #: The engine only ever ratchets the stop upwards.  None disables it.
+    trail_atr: float | None = None
 
 
 class Strategy(ABC):
