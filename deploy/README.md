@@ -51,8 +51,8 @@ Re-running is safe; it never overwrites `.env`.
 ## 4. Add the Alpaca keys
 
 ```bash
-nano /opt/trading-bot/.env     # ALPACA_KEY_ID / ALPACA_SECRET_KEY
-systemctl enable --now tradingbot@btc tradingbot@eth tradingbot@sol
+sudo vi /opt/trading-bot/.env     # ALPACA_KEY_ID / ALPACA_SECRET_KEY
+sudo systemctl enable --now tradingbot@btc tradingbot@eth tradingbot@sol
 ```
 
 Until the placeholders are replaced the bots stay disabled on purpose; the
