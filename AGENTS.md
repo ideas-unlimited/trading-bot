@@ -154,6 +154,24 @@ when you hit a new environment quirk and solve it, add it here and commit.
   costs on both sides by default, paper trading only, no live-broker path.
   Do not weaken these.
 
+## Environments & promotion (agreed 2026-11-27)
+
+- **`master` = deployable line** (reviewed core + paper-grade strategies);
+  **`lab` = experiments, never deployed.** Core fixes land on master once and
+  reach both boxes on the next pull.
+- **paper and prod are deployments of master**, separated by activation
+  manifests (`promotions/paper/*.json`, `promotions/prod/*.json`), env files,
+  state dirs and databases — never by branches or forked code.
+- Gates, override/demote semantics: `deploy/PROMOTION.md`. Rationale:
+  `docs/DECISIONS.md`.
+- **Three databases:** `trading_common` (bars only), `trading_paper`,
+  `trading_prod`. The paper role must not be able to write prod rows.
+- A strategy runs only if an active manifest names it; the loader must fail
+  loud, never trade flat and silent.
+- **Team workspaces:** one per person is fine. Sync by `git pull` on master,
+  read this file and `docs/DECISIONS.md`, experiment on `lab`, promote as a
+  path-guarded package. Do not edit another agent's `research/` notes.
+
 ## Server rules (the OVH box is production)
 
 - **Production from day one.** Paper trading on the box is production: that
