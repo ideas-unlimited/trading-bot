@@ -17,7 +17,7 @@ Rule, evaluated on completed 4h bars and filled at the next open:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Mapping, Sequence
@@ -25,6 +25,7 @@ from typing import Mapping, Sequence
 import numpy as np
 import pandas as pd
 
+from . import analysis
 from .data.feed import Bar, load_csv
 from .strategy.base import Action
 from .strategy.sma_cross import SmaCross
@@ -38,11 +39,13 @@ class BookConfig:
     atr_window: int = 14
     score_window: int = 30
     max_positions: int = 1
-    risk_per_trade: float = 0.02
+    risk_per_trade: float = 0.03
     max_position_pct: float = 0.95
     initial_cash: float = 1_000.0
     fee_bps: float = 10.0
     slippage_bps: float = 5.0
+    damiani_filter: bool = False
+    stc_min: float | None = None
 
     def __post_init__(self) -> None:
         if self.fast >= self.slow:
@@ -55,6 +58,8 @@ class BookConfig:
             raise ValueError('max_position_pct must be in (0, 1]')
         if self.initial_cash <= 0:
             raise ValueError('initial_cash must be positive')
+        if self.stc_min is not None and not 0 <= self.stc_min <= 100:
+            raise ValueError('stc_min must be in [0, 100]')
 
 
 @dataclass
@@ -67,6 +72,7 @@ class BookResult:
     bars_per_year: float
     buy_hold: float
     fees: float = 0.0
+    positions: dict[str, dict[str, object]] = field(default_factory=dict)
 
     @property
     def final_equity(self) -> float:
@@ -106,13 +112,45 @@ def _bars_per_year(index: pd.DatetimeIndex) -> float:
     return max(1.0, round(365.25 * 24 * 3600 / median)) if median > 0 else 365.0
 
 
+def _entry_gates(
+    frames: Mapping[str, pd.DataFrame], config: BookConfig
+) -> dict[str, np.ndarray] | None:
+    '''Per-bar 'may open a new position' mask from the regime filters.
+
+    'damiani_filter' requires volatility to be awake (the Damiani
+    Volatmeter's 'green' state); 'stc_min' requires the Schaff Trend Cycle
+    at or above a level.  Both read the signal bar only, and only ever
+    *block* an entry -- exits are untouched, so a filter can never strand a
+    position.
+    '''
+    if not (config.damiani_filter or config.stc_min is not None):
+        return None
+    gates: dict[str, np.ndarray] = {}
+    for sym, frame in frames.items():
+        ok = pd.Series(True, index=frame.index)
+        if config.damiani_filter:
+            ok &= analysis.damiani_volatmeter(frame)['expanding'].fillna(False)
+        if config.stc_min is not None:
+            ok &= analysis.schaff_trend_cycle(frame['close']) >= config.stc_min
+        gates[sym] = ok.to_numpy(bool)
+    return gates
+
+
 def simulate_book(bars_by_symbol: Mapping[str, Sequence[Bar]],
-                  config: BookConfig | None = None) -> BookResult:
+                  config: BookConfig | None = None, *,
+                  close_at_end: bool = True) -> BookResult:
+    '''Replay the rule over the bars.
+
+    'close_at_end' force-closes whatever is still open at the last bar - the
+    backtest's convention.  A live paper book passes False so the open
+    position survives between polls.
+    '''
     config = config or BookConfig()
     if not bars_by_symbol:
         raise ValueError('no bars')
     strategy = SmaCross(config.fast, config.slow, config.atr_mult)
     frames = {sym: strategy.prepare(bars_to_frame(bars)) for sym, bars in bars_by_symbol.items()}
+    gates = _entry_gates(frames, config)
     timeline = sorted(set().union(*[set(f.index) for f in frames.values()]))
     ts_index = pd.DatetimeIndex(timeline)
     bars_per_year = _bars_per_year(ts_index)
@@ -220,6 +258,8 @@ def simulate_book(bars_by_symbol: Mapping[str, Sequence[Bar]],
             if sig.action is Action.CLOSE and sym in pos:
                 pending_sell.append(sym)
             elif sig.action is Action.BUY and sym not in pos and sig.stop_loss:
+                if gates is not None and not gates[sym][j]:
+                    continue
                 closes = frame['close'].to_numpy()
                 k = j - config.score_window
                 score = closes[j] / closes[k] - 1.0 if k >= 0 and closes[k] > 0 else -9.0
@@ -231,10 +271,21 @@ def simulate_book(bars_by_symbol: Mapping[str, Sequence[Bar]],
             for score, sym, stop in candidates[:free]:
                 pending_buy.append((score, sym, stop))
 
+    open_positions: dict[str, dict[str, object]] = {}
     if pos:
-        for sym in list(pos):
-            close_pos(sym, timeline[-1], last_close[sym] * (1.0 - slip), 'end')
-        equity[-1] = cash
+        if close_at_end:
+            for sym in list(pos):
+                close_pos(sym, timeline[-1], last_close[sym] * (1.0 - slip), 'end')
+            equity[-1] = cash
+        else:
+            for sym, p in pos.items():
+                px = float(last_close.get(sym, p['entry']))
+                open_positions[sym] = {
+                    'qty': float(p['qty']), 'entry': float(p['entry']),
+                    'stop': float(p['stop']), 'last': px,
+                    'bars': entry_bar.get(sym, 0),
+                    'upnl': float(p['qty']) * (px - float(p['entry'])),
+                }
 
     eq = pd.Series(equity, index=ts_index, name='equity')
     trade_df = pd.DataFrame(trades)
@@ -246,7 +297,8 @@ def simulate_book(bars_by_symbol: Mapping[str, Sequence[Bar]],
     buy_hold = float((aligned.iloc[-1] / aligned.iloc[0]).mean() - 1.0) if len(aligned) else float('nan')
 
     return BookResult(eq, trade_df, config, list(frames),
-                      bars_in / max(len(timeline), 1), bars_per_year, buy_hold, fees_paid)
+                      bars_in / max(len(timeline), 1), bars_per_year, buy_hold, fees_paid,
+                      open_positions)
 
 
 def summarize(result: BookResult) -> dict[str, float]:
@@ -322,15 +374,19 @@ def save_book(result: BookResult, outdir: str | Path) -> dict[str, Path]:
 def last_signal(result: BookResult, bars_by_symbol: Mapping[str, Sequence[Bar]]) -> dict[str, object]:
     '''What the rule says on the most recent completed bars, for the next open.'''
     strategy = SmaCross(result.config.fast, result.config.slow, result.config.atr_mult)
+    frames = {sym: strategy.prepare(bars_to_frame(bars)) for sym, bars in bars_by_symbol.items()}
+    gates = _entry_gates(frames, result.config)
     out: dict[str, object] = {}
-    for sym, bars in bars_by_symbol.items():
-        frame = strategy.prepare(bars_to_frame(bars))
+    for sym, frame in frames.items():
         i = len(frame) - 1
-        sig = strategy.signal(i, frame, 0.0)
+        held = 1.0 if sym in result.positions else 0.0
+        sig = strategy.signal(i, frame, held)
         if sig is None:
             out[sym] = 'flat / no setup'
         elif sig.action is Action.BUY:
-            out[sym] = f'BUY at next open, stop {sig.stop_loss:.4f}'
+            blocked = gates is not None and not bool(gates[sym][i])
+            out[sym] = (f'BUY at next open, stop {sig.stop_loss:.4f}'
+                        + ('  [filter blocks it]' if blocked else ''))
         else:
             out[sym] = sig.action.value
     return out

@@ -51,6 +51,36 @@ when you hit a new environment quirk and solve it, add it here and commit.
 - Free plan rate limit: 200 req/min — the delta-sync cache above is the
   mechanism that respects it.
 
+## Live paper books (`bot auto`)
+
+- `start_bots.cmd [seconds]` runs the three research books as $1,000 paper
+  wallets (A gated 3%, B gated 5%, C plain 3%) every 15 minutes, detached,
+  logging to `logs\bots_<ts>.log`. `python -m bot auto --once` is the same
+  cycle for Task Scheduler. **Nothing is ordered** - the wallets are simulated
+  so three books can hold the same coin at different sizes.
+- Each cycle: `scanlib.load_scan_bars` delta-syncs the cache, the still-forming
+  bar is dropped, then `simulate_book(..., close_at_end=False)` replays each
+  book. Because the replay is deterministic, a restart cannot corrupt state;
+  `runs/autobooks/status.json` holds every wallet, position and signal, and
+  `history` vs `live since deploy` are reported separately (deploy equity is
+  pinned on the first cycle - that line is the honest forward number).
+- `simulate_book` force-closes open positions at the last bar by default (the
+  backtest convention); live books pass `close_at_end=False`. Keep that flag
+  when touching the engine or the live books will look permanently flat.
+- Poll just after a 4h close (00/04/08/12/16/20 UTC). The replay fills at the
+  next bar's true open whenever it runs, so a late poll is exact against the
+  backtest but optimistic against a real order; prompt polling keeps it honest.
+
+## Market-data venues
+
+- The crypto books were researched on **Binance** klines, so live signals read
+  Binance too: `load_scan_bars(sym, tf, source="binance")` (public REST, no
+  key, cached in `bars` like everything else). Alpaca's crypto feed is the same
+  market from another venue; a 0.04% price difference moved the three-year
+  gated book from +581.6% to +184.5% because one cross landed a bar early.
+  Do not mix venues inside one book.
+- Alpaca stays the source for stocks and for `bot live` / `bot account`.
+
 ## Web terminal
 
 - Start/restart: `start_trader.cmd [port]` (default **9000**; 80xx ports are
@@ -80,6 +110,22 @@ when you hit a new environment quirk and solve it, add it here and commit.
 - Strategies should import from `bot.analysis` rather than re-implementing
   math inline; simple MAs stay in `bot.indicators`.
 
+## Backtest windows (hard rules from the user)
+
+- **Three-year cap.** Nothing older than the last three years goes into a
+  backtest or a strategy search (`MAX_HISTORY_DAYS`). The clock is the max
+  bar in the data, so the window always ends at the newest bar.
+- **Sub-4h means one year.** Any test, sweep or search on a timeframe faster
+  than 4h (1h, 30m, 15m, 5m ...) may only use the **last 12 months**. A
+  faster chart has more bars per unit of history, so a longer window there
+  multiplies noise and multiple-testing, not evidence. Compare a 1h result
+  against a 4h result on the same 12 months, never against a 3-year 4h run.
+- **Long only.** Spot book, no shorts, no margin - a "religion condition"
+  the user restated on 2026-11-26. Bear years are survived by sitting in
+  cash, not by selling short.
+- Report the window with every number. A return without its span and
+  timeframe is not a result.
+
 ## Repo conventions
 
 - `pine/` — TradingView strategy ports. `research/` — research scratch space
@@ -94,3 +140,47 @@ when you hit a new environment quirk and solve it, add it here and commit.
 - Honesty rules of this codebase: no lookahead (signals fill next bar open),
   costs on both sides by default, paper trading only, no live-broker path.
   Do not weaken these.
+
+## Deployment (VPS)
+
+- `deploy/` holds the server bundle: `install.sh` (Debian 13 / Ubuntu 24.04),
+  `run_bot.sh`, `backup.sh`, and four systemd units. See `deploy/README.md`.
+- Production layout: code in `/opt/trading-bot`, per-bot env files in
+  `/etc/tradingbot/<name>.env`, state in `/var/lib/tradingbot/*.json`,
+  dumps in `/var/backups/tradingbot`. Services run as the `trader` user,
+  web binds 127.0.0.1:9000 only (reach it over SSH or Tailscale).
+- One bot per symbol: they share one Alpaca paper account, so two bots on
+  the same symbol would close each other's position.
+- Heartbeat: every poll pings `HEARTBEAT_URL` (bot env file /
+  `--heartbeat-url`, throttled to 30 min) so an outside service alerts when
+  the loop stops. It fires on flat cycles too — the point is proving the
+  process turns, not that it trades. A failed ping must never stop the loop.
+- **Trading host (bought 2026-11-27): OVH VPS, Sydney** — 4 vCPU, 8 GB RAM,
+  75 GB local disk, 6 months prepaid, automated backup (1 rotation), Linux.
+  This is the only box that can reach Binance: `api.binance.com` answers US
+  IPs with HTTP 451, so exchange calls must originate outside the US.
+- **Paper/UI host: CometVPS "Standard 8GB", Seattle** — 4 vCPU, 8 GB,
+  100 GB NVMe, ~$70/yr. Binance is unreachable from it, so never run the
+  venue-matching bot or its data sync there; a paper book fed by Alpaca does
+  not validate a Binance execution venue.
+- Measured requirement is ~90 MB per bot/web process and a 28 MB database, so
+  either box runs the whole book with >10x headroom and stays under ~3 GB of
+  disk. Do not add a database server, cache or queue to either.
+- **Provisioned 2026-11-27 (OVH Sydney, 139.99.236.166):** Debian 13, Python
+  3.13, PostgreSQL 17. Log in as `debian` with the key
+  `sahilnow@gmail.com`; **root login is disabled**, the account has
+  passwordless sudo, so every privileged step is `sudo ...`. The service user
+  `trader` has no shell — reach the dashboard with
+  `ssh -L 9000:127.0.0.1:9000 debian@139.99.236.166`.
+  Verified on the box: web returns 200, 197 tests pass,
+  `load_scan_bars("BTC/USDT","4h",source="binance")` fetches 2,190 bars (no
+  451), so the venue path works from this IP.
+- **Public dashboard:** `https://139-99-236-166.sslip.io` — Caddy terminates
+  TLS (Let's Encrypt via the sslip.io name, auto-renewing) and enforces basic
+  auth, proxy to `127.0.0.1:9000`. Only 22/80/443 are open; port 9000 is not
+  reachable from the internet. The app has **no auth of its own** and its
+  endpoints create/delete bots, so Caddy is the only thing protecting it —
+  never bind the app to 0.0.0.0 or open 9000. Set up with
+  `deploy/public_web.sh`; the password hash lives in `/etc/caddy/Caddyfile`,
+  the plaintext is not stored anywhere on the box. Access log:
+  `/var/log/caddy/dashboard.log`.

@@ -193,8 +193,16 @@ class AlpacaClient:
             "timeframe": tf,
             "limit": str(min(limit, MAX_BARS_PER_PAGE)),
         }
-        if start:
-            params["start"] = start.isoformat()
+        newest = start is None
+        if newest:
+            # Alpaca defaults to "today" when no start is given, so a plain
+            # limit=400 returned a handful of bars and every caller that wanted
+            # "the last N bars" silently got one day.  Ask for a window wide
+            # enough to hold N bars; 2x covers stocks, whose bars only exist
+            # for ~6.5h of each day (crypto just pages back a bit further).
+            span = TIMEFRAME_DURATION[tf] * max(limit, 1) * 2
+            start = datetime.now(timezone.utc) - span
+        params["start"] = start.isoformat()
         if end:
             params["end"] = end.isoformat()
 
@@ -208,9 +216,17 @@ class AlpacaClient:
             payload = self._request(f"{base}?{urllib.parse.urlencode(params)}")
             bars.extend(bars_from_payload(payload))
             token = payload.get("next_page_token")
-            if not token or len(bars) >= limit:
+            if not token:
+                break
+            # With an explicit start the caller asked for "up to limit bars
+            # from here".  With no start they meant "the newest limit bars",
+            # which only exist at the end of the window -- so keep paging and
+            # trim below instead of stopping early.
+            if not newest and len(bars) >= limit:
                 break
             params["page_token"] = token
+        if newest:
+            bars = bars[-limit:]
         return bars
 
     # -- paper trading ------------------------------------------------------

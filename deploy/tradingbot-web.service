@@ -1,0 +1,30 @@
+[Unit]
+Description=Trading bot web terminal
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=trader
+Group=trader
+WorkingDirectory=/opt/trading-bot
+Environment=PYTHONUNBUFFERED=1
+# Same BLAS/malloc caps as the bots; each web request that backtests holds a
+# bars frame, so this is the one process allowed a larger ceiling.
+Environment=OMP_NUM_THREADS=1
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=MALLOC_ARENA_MAX=2
+ExecStart=/opt/trading-bot/.venv/bin/bot web --host 127.0.0.1 --port 9000
+Restart=always
+RestartSec=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/tradingbot /opt/trading-bot/runs /opt/trading-bot/logs
+MemoryHigh=512M
+MemoryMax=1G
+MemorySwapMax=0
+
+[Install]
+WantedBy=multi-user.target

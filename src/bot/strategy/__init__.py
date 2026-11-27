@@ -9,12 +9,16 @@ from .donchian import DonchianBreakout
 from .momentum_swing import MomentumSwing
 from .rsi_meanrev import RsiMeanReversion
 from .sma_cross import SmaCross
+from .volume_climax import VolumeClimax
+from .wvfx_stoch import WilliamVixFixStoch
 
 REGISTRY: dict[str, Type[Strategy]] = {
     SmaCross.name: SmaCross,
     RsiMeanReversion.name: RsiMeanReversion,
     DonchianBreakout.name: DonchianBreakout,
     MomentumSwing.name: MomentumSwing,
+    VolumeClimax.name: VolumeClimax,
+    WilliamVixFixStoch.name: WilliamVixFixStoch,
 }
 
 
@@ -25,4 +29,4 @@ def build(name: str, **params: object) -> Strategy:
     return REGISTRY[name](**params)  # type: ignore[arg-type]
 
 
-__all__ = ["Action", "DonchianBreakout", "MomentumSwing", "REGISTRY", "RsiMeanReversion", "Signal", "SmaCross", "Strategy", "build"]
+__all__ = ["Action", "DonchianBreakout", "MomentumSwing", "REGISTRY", "RsiMeanReversion", "Signal", "SmaCross", "Strategy", "VolumeClimax", "WilliamVixFixStoch", "build"]

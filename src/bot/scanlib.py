@@ -71,6 +71,11 @@ def _fetch_source(
     n_bars: int = 10_000,
 ) -> list[Any]:
     """Raw fetch from Alpaca or TradingView (6h aggregated from 1h on TV)."""
+    if source == "binance":
+        from .data.binance import fetch_binance_bars
+
+        return fetch_binance_bars(symbol, timeframe, start=start, end=end,
+                                  limit=min(n_bars, 1000))
     if source == "tv":
         from .data.feed import aggregate_bars
         from .data.tvfeed import fetch_tv_bars

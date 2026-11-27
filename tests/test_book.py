@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from bot.book import BookConfig, bars_to_frame, simulate_book, summarize
+from bot.book import BookConfig, _entry_gates, bars_to_frame, simulate_book, summarize
 from bot.data.feed import Bar
 
 
@@ -96,6 +96,26 @@ class BookTests(unittest.TestCase):
             BookConfig(risk_per_trade=0.0)
         with self.assertRaises(ValueError):
             BookConfig(max_positions=0)
+        with self.assertRaises(ValueError):
+            BookConfig(stc_min=101.0)
+
+    def test_entry_gates_only_block(self):
+        frame = bars_to_frame(make_bars([100.0 + (i % 7) for i in range(300)]))
+        self.assertIsNone(_entry_gates({'A': frame}, BookConfig()))
+        gates = _entry_gates({'A': frame}, BookConfig(damiani_filter=True, stc_min=50.0))
+        self.assertEqual(len(gates['A']), len(frame))
+        self.assertEqual(gates['A'].dtype, bool)
+        self.assertFalse(gates['A'].all())
+
+    def test_filters_never_add_trades(self):
+        closes = [100.0] * 20 + [100.0 + i for i in range(1, 40)] + [140.0 - i for i in range(1, 40)]
+        bars = make_bars(closes)
+        plain = simulate_book({'A': bars}, BookConfig(fast=2, slow=3, fee_bps=0.0, slippage_bps=0.0))
+        self.assertGreaterEqual(len(plain.trades), 1)
+        gated = simulate_book({'A': bars}, BookConfig(
+            fast=2, slow=3, fee_bps=0.0, slippage_bps=0.0,
+            damiani_filter=True, stc_min=70.0))
+        self.assertLessEqual(len(gated.trades), len(plain.trades))
 
     def test_bars_to_frame_dedupes(self):
         bars = make_bars([1.0, 2.0])

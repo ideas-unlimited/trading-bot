@@ -51,20 +51,51 @@ backtests and strategy selection are capped at the last three years - nothing
 older than `MAX_HISTORY_DAYS` is loaded.
 
 The rule that survived a 1,750-config search on the last 12 months and a
-3-year re-check is a 4h SMA 30/50 cross, 2 ATR stop, one position at a time:
+3-year re-check is a 4h SMA 30/50 cross, 2 ATR stop, one position at a time,
+gated on the signal bar by two regime filters ported from a Pine library:
+the Damiani Volatmeter must be green (volatility awake) and the Schaff Trend
+Cycle must be at or above 50. Filters only ever *block* an entry - exits are
+untouched, so a filter can never strand a position.
 
 ```bash
 python research/fetch_binance.py          # refresh data/crypto/*.csv (1d and 4h)
 
 python -m bot book --timeframe 4h --fast 30 --slow 50 --atr-mult 2.0 \
-                   --risk-per-trade 0.02 --initial-cash 1000 --fee-bps 10
+                   --risk-per-trade 0.03 --damiani-filter --stc-min 50 \
+                   --initial-cash 1000 --fee-bps 10
 ```
 
-One $1,000 wallet across the five coins, 10 bps fees and 5 bps slippage:
-**+40.6%** in the last 12 months (buy & hold -42.6%), Sharpe 1.50, drawdown
--12.4%; **+322.6%** over three years (CAGR 61.6%, Sharpe 1.61, drawdown
--24.8%). The tail pays for everything: one trade was 82% of the year. The
-full write-up is `runs/report/year.html`.
+One $1,000 wallet across the five coins, 3% risk per trade, 10 bps fees and
+5 bps slippage: **+581.6%** over three years (CAGR 89.5%, Sharpe 1.83,
+drawdown -30.5%, 60 round trips, exposure 39%, every one of the five coins
+profitable); **+31.0%** in the last 12 months (buy & hold -42.6%), Sharpe
+1.22, drawdown -12.8%. Without the filters the same rule makes **+443.1%**
+over three years (Sharpe 1.55, drawdown -30.2%, 104 round trips) and
+**+41.4%** in the last year - more trades, more recent return, weaker
+risk-adjusted numbers, and it loses money on BTC and BNB over the window.
+The filters buy the better Sharpe and the flatter coin mix, and cost recent
+return.
+
+Faster charts do not pay. Under the sub-4h rule (one year only) the same
+logic on 1h best-ed at **+6%** with a -15.8% drawdown (120/200 gated) and on
+15m at **+11%** (960/1600 gated, 11 trades) against **+31%** for the 4h book
+over the identical twelve months. Fees decide it: 624 round trips on 15m cost
+$474 of a $1,000 account, and 1h/15m plain variants lose 34-86% of the
+account. Choppy-bar noise plus 20 bps a round trip is not an edge you can
+tune away.
+
+Risk per trade runs into the position cap, and the cap, not the risk budget,
+decides size on most entries: at a 50% cap every risk setting from 2% to 6%
+produces the identical book ($4,074, -22.1% drawdown), because the cap always
+binds first. At the 95% cap, raising risk from 3% to 6% buys roughly another
+140 points of three-year return for four points of drawdown - and the
+last-12-month figure peaks at 3%, then slowly decays (+31.0%, +30.0%, +30.0%,
++29.0%). 3% is the most recent-year-efficient unit; 5% is the most dollars
+without a materially worse profile.
+
+The tail still pays for everything: over three years the single best trade is
+51% of all profit, and in the last 12 months one ETH trade is 89% of the
+year. The earlier write-up on the raw 2% rule is `runs/report/year.html`.
 
 Two older rules are kept as alternatives:
 
@@ -258,3 +289,33 @@ verify that simulated and live fills agree before scaling.
 
 Next steps worth doing, in order: walk-forward validation on real data, an
 out-of-sample holdout, then capital-scaled slippage.
+
+## Running the books live (paper)
+
+Three wallets of $1,000 each, replayed forward on Binance 4h bars:
+
+```bash
+start_bots.cmd            # background loop, one cycle every 15 min
+start_bots.cmd 300        # or pick the interval (seconds)
+python -m bot auto --once # single cycle, for Task Scheduler
+```
+
+| book | rule | wallet |
+|------|------|--------|
+| A | 4h SMA 30/50, Damiani + STC gate, 3% risk | $1,000 |
+| B | same signals, 5% risk | $1,000 |
+| C | plain 4h cross, no filters, 3% risk | $1,000 |
+
+Nothing is ordered. Each cycle delta-syncs the bars cache, cuts the bar that
+is still forming, replays every book over the three-year window and writes
+`runs/autobooks/status.json` plus `runs/autobooks/<book>/{equity,trades}.csv`.
+The replay is deterministic, so a restart cannot corrupt a wallet; the number
+that matters forward is **live since deploy**, which starts when the book
+first runs. The `history` line is the backtest, shown for context only.
+
+Run the cycle just after a 4h close (00:00, 04:00, 08:00, 12:00, 16:00,
+20:00 UTC). The replay always fills at the next bar's true open, so a late
+poll matches the backtest exactly - which is also its one optimism: a real
+order placed four hours late would not get that price. Prompt polling keeps
+the paper book honest rather than flattering.
+

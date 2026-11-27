@@ -25,6 +25,7 @@ from typing import Any, TextIO
 from .alpaca_client import TIMEFRAME_DURATION, AlpacaClient, resolve_timeframe, symbol_is_crypto
 from .config import BotConfig
 from .data.feed import Bar
+from .heartbeat import Heartbeat
 from .strategy.base import Action, Strategy
 
 
@@ -56,6 +57,10 @@ class LiveTrader:
         state_path: str | Path = "runs/live_state.json",
         poll: float = 60.0,
         lookback: int = 400,
+        max_catchup: int = 3,
+        capital: float | None = None,
+        heartbeat_url: str | None = None,
+        heartbeat_every: float = 1800.0,
         stream: TextIO | None = None,
         clock: Any = time.sleep,
     ) -> None:
@@ -63,11 +68,24 @@ class LiveTrader:
         self.strategy = strategy
         self.config = config
         self.symbol = symbol
-        self.timeframe = resolve_timeframe(timeframe)
+        # resolve_timeframe maps an alias ("4h") to Alpaca's name ("4Hour").
+        # fetch_bars wants the alias back, so keep both.
+        self.fetch_timeframe = timeframe.strip()
+        self.timeframe = resolve_timeframe(self.fetch_timeframe)
         self.duration = TIMEFRAME_DURATION[self.timeframe]
         self.state_path = Path(state_path)
         self.poll_seconds = max(1.0, poll)
         self.lookback = max(strategy.warmup + 2, lookback)
+        self.max_catchup = max(1, max_catchup)
+        # Per-bot wallet: the loop may never size from more than this, even
+        # though several bots share one Alpaca paper account.  None = the
+        # whole account equity (the old behaviour).
+        if capital is not None and capital <= 0:
+            raise ValueError("capital must be positive when given")
+        self.capital = capital
+        # Dead-man's switch: an outside service notices when these pings stop.
+        # A quiet market and a crashed process look identical from here.
+        self.heartbeat = Heartbeat(heartbeat_url, every=heartbeat_every)
         self.stream = stream if stream is not None else sys.stdout
         self.clock = clock
         self.state: dict[str, Any] = self._load_state()
@@ -90,30 +108,57 @@ class LiveTrader:
     def poll(self, now: datetime | None = None) -> int:
         """Run one cycle; returns the number of bars processed."""
         now = now or datetime.now(timezone.utc)
-        bars = self.client.fetch_bars(self.symbol, self.timeframe, limit=self.lookback)
+        bars = self.client.fetch_bars(self.symbol, self.fetch_timeframe, limit=self.lookback)
         if len(bars) < self.strategy.warmup + 2:
             self._emit(f"[live] only {len(bars)} bars fetched; waiting for more")
+            self.heartbeat.ping()
             return 0
 
         account = self.client.get_account()
         position = self._position_qty()
-        equity = float(account.get("equity") or 0.0)
+        equity = self._book_equity(account)
 
         last = self._last_ts()
         closed = [
             b for b in bars[:-1]
             if b.ts + self.duration <= now and (last is None or b.ts > last)
         ]
+        if closed and last is None:
+            # Fresh state file: anchor to the newest closed bar instead of
+            # replaying history.  Replaying would submit orders at today's
+            # price for signals that fired months ago.
+            self.state["last_ts"] = closed[-1].ts.isoformat()
+            self._save_state()
+            self._emit(
+                f"[live] fresh state: anchored to {closed[-1].ts:%Y-%m-%d %H:%M}, "
+                f"not trading {len(closed)} historical bars"
+            )
+            closed = []
+        elif len(closed) > self.max_catchup:
+            # Long gap (machine asleep, crash, days offline): acting on a
+            # backlog is not the plan, so resume on the most recent bars only.
+            skipped = len(closed) - self.max_catchup
+            self._emit(
+                f"[live] {skipped} missed bars skipped, resuming on the newest {self.max_catchup}"
+            )
+            closed = closed[-self.max_catchup:]
         for bar in closed:
             self._process_bar(bar, bars, equity, position, now)
             position = self._position_qty()
-            equity = float(self.client.get_account().get("equity") or equity)
+            equity = self._book_equity(self.client.get_account()) or equity
         if closed:
             self._save_state()
 
         self._check_crypto_stop(bars, now)
         self._status(bars, equity, position)
+        # Alive, even when there was nothing to trade: the ping is the proof.
+        self.heartbeat.ping()
         return len(closed)
+
+    def _book_equity(self, account: dict[str, Any]) -> float:
+        """Equity this bot may size from: honours the capital cap when set."""
+        equity = float(account.get("equity") or 0.0)
+        return min(equity, self.capital) if self.capital is not None else equity
 
     def _last_ts(self) -> datetime | None:
         raw = self.state.get("last_ts")

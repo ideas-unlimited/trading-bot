@@ -18,7 +18,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+from datetime import timedelta
 from pathlib import Path
 
 from .alpaca_client import AlpacaClient, resolve_timeframe
@@ -63,6 +65,8 @@ def _add_source_args(p: argparse.ArgumentParser, *, live: bool = False) -> None:
     p.add_argument("--start-price", type=float, default=100.0)
     p.add_argument("--bars-per-year", type=float, default=None,
                    help="annualisation factor; inferred from bar spacing by default")
+    p.add_argument("--max-years", type=float, default=3.0,
+                   help="keep only the last N years of bars (default 3; 0 disables)")
 
 
 def _add_strategy_args(p: argparse.ArgumentParser) -> None:
@@ -111,8 +115,8 @@ def _load_bars(args: argparse.Namespace) -> list:
     if args.source == "csv":
         if not args.csv:
             raise SystemExit("--source csv requires --csv PATH")
-        return load_csv(args.csv)
-    if args.source == "alpaca":
+        bars = load_csv(args.csv)
+    elif args.source == "alpaca":
         start = None
         if args.start:
             from datetime import datetime, timezone
@@ -121,18 +125,30 @@ def _load_bars(args: argparse.Namespace) -> list:
         client = AlpacaClient()
         print(f"fetching up to {args.n_bars} bars of {args.symbol} @ {args.interval} "
               f"from Alpaca (paper keys) ...", file=sys.stderr)
-        return client.fetch_bars(args.symbol, args.interval, start=start, limit=args.n_bars)
-    if args.source == "tv":
+        bars = client.fetch_bars(args.symbol, args.interval, start=start, limit=args.n_bars)
+    elif args.source == "tv":
         print(f"fetching {args.n_bars} bars of {args.exchange}:{args.symbol} "
               f"@ {args.interval} from TradingView ...", file=sys.stderr)
-        return fetch_tv_bars(args.symbol, args.exchange, args.interval, args.n_bars)
-    return generate_synthetic(args.bars, seed=args.seed, start_price=args.start_price)
+        bars = fetch_tv_bars(args.symbol, args.exchange, args.interval, args.n_bars)
+    else:
+        bars = generate_synthetic(args.bars, seed=args.seed, start_price=args.start_price)
+
+    # Hard user rule: backtests and strategy searches never see more than the
+    # last three years.  ``--max-years 0`` is the explicit research escape.
+    max_years = getattr(args, "max_years", 3.0)
+    if max_years and bars:
+        cutoff = bars[-1].ts - timedelta(days=365.25 * max_years)
+        bars = [b for b in bars if b.ts >= cutoff]
+    return bars
 
 
 def _config(args: argparse.Namespace, bars: list) -> BotConfig:
     from .metrics import infer_bars_per_year
 
-    bars_per_year = args.bars_per_year or infer_bars_per_year([b.ts for b in bars])
+    # Not every subparser adds --bars-per-year (the live loop defines its own
+    # --symbol/--interval instead of using _add_source_args), so read it
+    # defensively and fall back to inferring the factor from the bars.
+    bars_per_year = getattr(args, "bars_per_year", None) or infer_bars_per_year([b.ts for b in bars])
     return BotConfig(
         initial_cash=args.initial_cash,
         costs=CostConfig(fee_bps=args.fee_bps, slippage_bps=args.slippage_bps),
@@ -313,6 +329,9 @@ def cmd_live(args: argparse.Namespace) -> int:
         state_path=args.state,
         poll=args.poll,
         lookback=max(strategy.warmup + 2, args.lookback),
+        capital=args.capital,
+        heartbeat_url=args.heartbeat_url,
+        heartbeat_every=args.heartbeat_every,
     ).run(once=args.once)
     return 0
 
@@ -497,9 +516,18 @@ def cmd_book(args: argparse.Namespace) -> int:
         initial_cash=args.initial_cash,
         fee_bps=args.fee_bps,
         slippage_bps=args.slippage_bps,
+        damiani_filter=args.damiani_filter,
+        stc_min=args.stc_min,
     )
     result = simulate_book(bars, config)
     print(f"rule       SMA {config.fast}/{config.slow} cross, {config.atr_mult:g} ATR stop")
+    gate = []
+    if config.damiani_filter:
+        gate.append("Damiani volatility awake")
+    if config.stc_min is not None:
+        gate.append(f"STC >= {config.stc_min:g}")
+    if gate:
+        print("filter     " + " + ".join(gate))
     print(f"coins      {', '.join(symbols)}  ({args.source}, {args.timeframe})")
     print(f"slots      {config.max_positions}  risk {config.risk_per_trade:.1%} per trade")
     print()
@@ -514,6 +542,28 @@ def cmd_book(args: argparse.Namespace) -> int:
     print("next open (paper):")
     for sym, text in last_signal(result, bars).items():
         print(f"  {sym:<10} {text}")
+    return 0
+
+
+def cmd_auto(args: argparse.Namespace) -> int:
+    '''Run the paper books forward on live bars.  No orders are ever sent.'''
+    from .autobook import default_books, format_status, run_forever, run_once, select_books
+
+    books = select_books(args.books, cash=args.cash)
+    symbols = [s.strip() for s in args.coins.split(",") if s.strip()]
+    kwargs = dict(symbols=symbols, books=books, timeframe=args.timeframe,
+                  source=args.source, days=args.days, outdir=args.outdir)
+    print(f"books      {', '.join(b.key + ' ' + b.label for b in books)}")
+    print(f"wallets    ${books[0].cash:,.0f} each")
+    print(f"data       {args.source} {args.timeframe} {', '.join(symbols)}")
+    print()
+    if args.once:
+        payload = run_once(**kwargs)
+        print(format_status(payload))
+        print()
+        print(f"state      {payload['status_path']}")
+        return 0
+    run_forever(args.interval, **kwargs)
     return 0
 
 
@@ -577,7 +627,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_live.add_argument("--interval", default="1d", help="bar timeframe, e.g. 1h, 4h, 1d")
     p_live.add_argument("--poll", type=float, default=60.0, help="seconds between polls")
     p_live.add_argument("--lookback", type=int, default=400, help="bars fetched each poll")
+    p_live.add_argument("--capital", type=float, default=None,
+                       help="max equity this bot may size from (default: whole paper account) so "
+                            "several bots can share one Alpaca account with separate wallets")
     p_live.add_argument("--state", default="runs/live_state.json", help="loop state file")
+    p_live.add_argument("--heartbeat-url", default=os.environ.get("HEARTBEAT_URL", ""),
+                        help="ping this URL on each cycle; an outside service "
+                             "(healthchecks.io, Uptime Kuma) alerts when the pings stop")
+    p_live.add_argument("--heartbeat-every", type=float, default=1800.0,
+                        help="minimum seconds between pings (default 1800)")
     p_live.add_argument("--once", action="store_true", help="run a single poll cycle and exit")
     p_live.set_defaults(func=cmd_live)
 
@@ -622,14 +680,30 @@ def build_parser() -> argparse.ArgumentParser:
     p_book.add_argument("--fast", type=int, default=30)
     p_book.add_argument("--slow", type=int, default=50)
     p_book.add_argument("--atr-mult", type=float, default=2.0)
-    p_book.add_argument("--risk-per-trade", type=float, default=0.02)
+    p_book.add_argument("--risk-per-trade", type=float, default=0.03)
     p_book.add_argument("--max-position-pct", type=float, default=0.95)
     p_book.add_argument("--max-positions", type=int, default=1)
     p_book.add_argument("--initial-cash", type=float, default=1000.0)
     p_book.add_argument("--fee-bps", type=float, default=10.0)
     p_book.add_argument("--slippage-bps", type=float, default=5.0)
+    p_book.add_argument("--damiani-filter", action="store_true",
+                        help="only enter while volatility is awake (Damiani Volatmeter)")
+    p_book.add_argument("--stc-min", type=float, default=None,
+                        help="only enter when the Schaff Trend Cycle is at least this (0-100)")
     p_book.add_argument("--outdir", default="runs/book")
     p_book.set_defaults(func=cmd_book)
+
+    p_auto = sub.add_parser("auto", help="run the paper books forward on live bars (no orders sent)")
+    p_auto.add_argument("--coins", default="BTCUSDT,ETHUSDT,BNBUSDT,XRPUSDT,SOLUSDT")
+    p_auto.add_argument("--source", choices=["binance", "alpaca", "tv"], default="binance")
+    p_auto.add_argument("--timeframe", default="4h")
+    p_auto.add_argument("--days", type=int, default=1095, help="history window (3-year cap)")
+    p_auto.add_argument("--books", default="A,B,C", help="A,B,C or all")
+    p_auto.add_argument("--cash", type=float, default=1000.0, help="starting wallet per book")
+    p_auto.add_argument("--interval", type=int, default=900, help="seconds between cycles")
+    p_auto.add_argument("--once", action="store_true", help="one cycle then exit (Task Scheduler)")
+    p_auto.add_argument("--outdir", default="runs/autobooks")
+    p_auto.set_defaults(func=cmd_auto)
 
     p_web = sub.add_parser("web", help="run the local web trader terminal")
     p_web.add_argument("--host", default="127.0.0.1")

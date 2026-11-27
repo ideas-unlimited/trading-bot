@@ -74,3 +74,30 @@ class TestCli(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ConfigHelperTests(unittest.TestCase):
+    def test_config_tolerates_subparsers_without_bars_per_year(self) -> None:
+        """The live subcommand defines its own args and has no --bars-per-year;
+        _config must infer the factor instead of raising AttributeError."""
+        import argparse
+        from datetime import datetime, timedelta, timezone
+
+        from bot.cli import _config
+        from bot.data.feed import Bar
+
+        args = argparse.Namespace(
+            initial_cash=10_000.0,
+            fee_bps=10.0,
+            slippage_bps=5.0,
+            risk_per_trade=0.01,
+            max_position_pct=0.95,
+            max_drawdown_stop=0.25,
+        )  # deliberately no bars_per_year
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        bars = [
+            Bar(ts=start + timedelta(days=i), open=1.0, high=1.0, low=1.0,
+                close=1.0, volume=1.0)
+            for i in range(30)
+        ]
+        cfg = _config(args, bars)
+        self.assertAlmostEqual(cfg.bars_per_year, 365.0, delta=1.0)

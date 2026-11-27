@@ -1,0 +1,33 @@
+[Unit]
+Description=Trading bot %i (paper)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=trader
+Group=trader
+WorkingDirectory=/opt/trading-bot
+Environment=PYTHONUNBUFFERED=1
+# One bot measures ~90 MB.  Single-threaded BLAS keeps numpy from allocating a
+# buffer pool per core, and the 2-arena malloc cap stops glibc reserving a
+# 64 MB arena per thread.  MemoryHigh throttles a slow leak; MemoryMax kills
+# and restarts one bot instead of letting it take the box down.
+Environment=OMP_NUM_THREADS=1
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=MALLOC_ARENA_MAX=2
+ExecStart=/opt/trading-bot/deploy/run_bot.sh %i
+Restart=always
+RestartSec=15
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/tradingbot
+MemoryHigh=384M
+MemoryMax=768M
+MemorySwapMax=0
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+[Unit]
+Description=Dump the trading bot database
+
+[Service]
+Type=oneshot
+ExecStart=/opt/trading-bot/deploy/backup.sh
+MemoryMax=256M
+Nice=10

@@ -5,8 +5,10 @@ venv/
 *.egg-info/
 runs/
 data/*.csv
+data/crypto/*_15m.csv
 .pytest_cache/
 .mypy_cache/
 .env
 logs/
 start_trader.log
+probe_state.json
