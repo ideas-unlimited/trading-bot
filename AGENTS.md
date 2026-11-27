@@ -79,7 +79,18 @@ when you hit a new environment quirk and solve it, add it here and commit.
   market from another venue; a 0.04% price difference moved the three-year
   gated book from +581.6% to +184.5% because one cross landed a bar early.
   Do not mix venues inside one book.
-- Alpaca stays the source for stocks and for `bot live` / `bot account`.
+- Alpaca stays the source for stocks and for the existing `bot live` loop.
+- **Spot only (rule restated 2026-11-27).** Cash spot balances: no futures
+  (`/fapi`), no margin (`/sapi` margin endpoints), no leverage, no shorts.
+  The Binance broker only ever touches `/api/v3/*`.
+- **Binance demo trading (2026-11-27).** Rehearse live orders against
+  `https://demo-api.binance.com` — same endpoints, signing and order types as
+  production, keys issued from the real account, virtual balances. Verified
+  on closed 4h bars: demo opens/closes match production to the cent, highs
+  and lows differ by a few dollars and volume by ~0.6%; testnet's book is far
+  thinner (volume ~1/70th). So **signals always come from production klines**
+  (`api.binance.com`); only order routing points at demo. Never take signals
+  from demo or testnet candles.
 
 ## Web terminal
 
