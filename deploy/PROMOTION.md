@@ -76,7 +76,33 @@ the promoted size.
 }
 ```
 
-## 4. Revocation
+## 4. These gates are defaults, not walls
 
-Remove the manifest entry. The bot refuses to start on the next cycle (fail
-loud, never trade flat and silent). Flatten the position first, then delete.
+The owner can promote or demote any strategy at any time. The system's job is
+to make the decision visible, not to refuse it.
+
+**Override.** 'bot promote --force --reason "..."' promotes even when a check
+fails. The manifest records override=true, the reason, the failed checks
+verbatim, and who did it. The dashboard shows an OVERRIDE badge next to that
+bot for as long as the override is the reason it is live.
+
+**Demote.** 'bot demote <strategy> [--flatten]':
+
+- default (drain): the manifest entry goes inactive immediately, the bot opens
+  no new positions, keeps managing the existing stop and exits on its own
+  signal or stop;
+- '--flatten': market-close the position now, then go idle.
+
+Either way the bot stays running and reports 'revoked' rather than vanishing,
+so the dashboard shows why it is flat.
+
+**Hard invariants override cannot touch.** Spot only, long only, demo keys can
+never point at production, and the kill switch. Those are code, not policy; no
+manifest can enable futures, margin or shorting.
+
+## 5. Audit
+
+Every promotion, override and demotion is an append-only promotions row: who,
+when, which checks passed or failed, the reason string, and the evidence
+snapshot at that moment. Removing a strategy never deletes its history - a
+demoted strategy still shows its live statistics and its exit reason.
