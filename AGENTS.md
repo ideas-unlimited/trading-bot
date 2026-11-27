@@ -62,6 +62,24 @@ when you hit a new environment quirk and solve it, add it here and commit.
   PowerShell `Start-Process -FilePath ... -WindowStyle Hidden` so the
   process survives the parent session.
 
+## Analysis toolkit (bot.analysis)
+
+- `src/bot/analysis.py` is the shared "beyond simple tools" layer —
+  liquidity/structure (swing pivots, liquidity levels, sweep & reclaim,
+  level touches), regime (ADX, efficiency ratio, variance-ratio Hurst,
+  vol regime), statistics (z-score, skew/kurt, autocorr, drawdown),
+  volume (rolling VWAP, volume z-score, OBV slope, directional volume),
+  microstructure (wick ratio, range expansion) and divergences.
+- **When the user pastes an indicator** (Pine Script or other), port its
+  math into `analysis.py` following the module docstring conventions:
+  OHLCV DataFrame in, Series out, NaN on warmup, keyword-only params with
+  documented units, and **causal only** — proven by the prefix-stability
+  test in `tests/test_analysis.py` (recompute on truncated history, earlier
+  values must not change).  Add one provenance comment (source + date)
+  and at least one value-sanity test.
+- Strategies should import from `bot.analysis` rather than re-implementing
+  math inline; simple MAs stay in `bot.indicators`.
+
 ## Repo conventions
 
 - `pine/` — TradingView strategy ports. `research/` — research scratch space
