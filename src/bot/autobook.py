@@ -124,12 +124,19 @@ def _load_state(path: Path) -> dict[str, Any]:
     return {}
 
 
+def default_outdir() -> Path:
+    """Paper and prod must never share a status file."""
+    from . import envcfg
+
+    return envcfg.state_dir() / "autobooks"
+
+
 def run_once(symbols: Sequence[str] | None = None, *, books: Sequence[BookSpec] | None = None,
              timeframe: str = "4h", source: str = "binance", days: int = MAX_HISTORY_DAYS,
-             outdir: str | Path = "runs/autobooks", now: datetime | None = None,
+             outdir: str | Path | None = None, now: datetime | None = None,
              bars_by_symbol: Mapping[str, Sequence[Bar]] | None = None) -> dict[str, Any]:
     '''One cycle: load bars, replay every book, write state and CSVs.'''
-    outdir = Path(outdir)
+    outdir = Path(outdir) if outdir is not None else default_outdir()
     outdir.mkdir(parents=True, exist_ok=True)
     now = now or datetime.now(timezone.utc)
     specs = list(books or default_books())

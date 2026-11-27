@@ -69,7 +69,7 @@ when you hit a new environment quirk and solve it, add it here and commit.
 - Each cycle: `scanlib.load_scan_bars` delta-syncs the cache, the still-forming
   bar is dropped, then `simulate_book(..., close_at_end=False)` replays each
   book. Because the replay is deterministic, a restart cannot corrupt state;
-  `runs/autobooks/status.json` holds every wallet, position and signal, and
+  `runs/<env>/autobooks/status.json` holds every wallet, position and signal, and
   `history` vs `live since deploy` are reported separately (deploy equity is
   pinned on the first cycle - that line is the honest forward number).
 - `simulate_book` force-closes open positions at the last bar by default (the

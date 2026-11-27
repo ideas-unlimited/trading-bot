@@ -709,11 +709,11 @@ def cmd_promotions(args: argparse.Namespace) -> int:
     if not manifests:
         print(f"no promotions for {env}")
         return 0
-    print(f"{'strategy':<24}{'active':<8}{'capital':>10}  {'params':<22}{'promoted_at':<21}flag")
+    print(f"{'strategy':<24}{'active':<8}{'capital':>10}  {'params':<26}{'promoted_at':<21}flag")
     for m in manifests:
         flag = "OVERRIDE" if (m.override and m.active) else ("" if m.active else "revoked")
         print(f"{m.strategy:<24}{'yes' if m.active else 'no':<8}{m.capital:>10,.0f}  "
-              f"{m.params_hash:<22}{m.promoted_at:<21}{flag}")
+              f"{m.params_hash:<26}{m.promoted_at:<21}{flag}")
     return 0
 
 
@@ -852,7 +852,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_auto.add_argument("--cash", type=float, default=1000.0, help="starting wallet per book")
     p_auto.add_argument("--interval", type=int, default=900, help="seconds between cycles")
     p_auto.add_argument("--once", action="store_true", help="one cycle then exit (Task Scheduler)")
-    p_auto.add_argument("--outdir", default="runs/autobooks")
+    p_auto.add_argument("--outdir", default=None, help="defaults to runs/<env>/autobooks")
     p_auto.set_defaults(func=cmd_auto)
 
     p_env = sub.add_parser("env", help="show which environment and databases this shell uses")
