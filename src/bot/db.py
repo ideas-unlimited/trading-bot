@@ -193,9 +193,20 @@ def connect(*, create: bool = True, kind: str = "env") -> "psycopg.Connection":
     except psycopg.OperationalError as exc:
         if "does not exist" not in str(exc) or not create:
             raise DatabaseError(f"Postgres connection failed: {exc}") from exc
-        _create_database(url)
-        conn = psycopg.connect(url, row_factory=dict_row, autocommit=True)
-    _ensure_schema(conn, kind)
+        try:
+            _create_database(url)
+            conn = psycopg.connect(url, row_factory=dict_row, autocommit=True)
+        except psycopg.Error as exc:
+            raise DatabaseError(
+                f"database is missing and could not be created ({exc}); "
+                "create it once as the postgres superuser: "
+                "psql -U postgres -f deploy/create_databases.sql"
+            ) from exc
+    try:
+        _ensure_schema(conn, kind)
+    except psycopg.Error as exc:
+        conn.close()
+        raise DatabaseError(f"schema setup failed: {exc}") from exc
     return conn
 
 

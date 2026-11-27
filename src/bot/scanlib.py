@@ -5,6 +5,7 @@ Used by both the CLI (``python -m bot scan``) and the web UI (``/api/scan``).
 
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -15,6 +16,17 @@ from .data.feed import Bar, generate_synthetic
 from .metrics import infer_bars_per_year
 from .strategy import build
 from . import db as store
+
+
+_DB_WARNED = {"done": False}
+
+
+def _warn_db_down(exc: Exception) -> None:
+    """One loud line per process when the market-data DB is missing."""
+    if not _DB_WARNED["done"]:
+        _DB_WARNED["done"] = True
+        print(f"! market-data database unavailable ({exc}); fetching directly",
+              file=sys.stderr)
 
 
 def cache_is_sufficient(bars: list[Any], start: Any, *, now: Any) -> bool:
@@ -132,7 +144,15 @@ def load_scan_bars(
             return generate_synthetic(2_000, seed=11, step=timedelta(hours=1))
         return _fetch_source(source, symbol, timeframe, start=start_eff, n_bars=n_bars)
 
-    conn = store.connect_common()
+    try:
+        conn = store.connect_common()
+    except store.DatabaseError as exc:
+        _warn_db_down(exc)
+        fetched = _fetch_source(source, symbol, timeframe, start=start_eff, n_bars=n_bars)
+        if start_eff is not None:
+            fetched = [b for b in fetched if b.ts >= start_eff]
+        return fetched
+
     try:
         cached = store.load_bars(conn, display, timeframe)
         fresh: list[Any] = []
