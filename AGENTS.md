@@ -21,7 +21,9 @@ when you hit a new environment quirk and solve it, add it here and commit.
 ## Secrets
 
 - Secrets live in `.env` (git-ignored). Current keys: `ALPACA_KEY_ID`,
-  `ALPACA_SECRET_KEY`, `DATABASE_URL`.
+  `ALPACA_SECRET_KEY`, `BINANCE_DEMO_KEY`, `BINANCE_DEMO_SECRET`,
+  `DATABASE_URL`. The Binance pair is a *demo trading* key: it authenticates
+  against `demo-api.binance.com` only and holds virtual balances.
 - **Never** paste secrets in chat, never write them into files via tools
   (the sandbox refuses, rightly). Ask the user to edit `.env` themselves.
 
