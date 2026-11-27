@@ -409,7 +409,7 @@ def _bars_for_bot(bot: dict[str, Any], days: int = 730) -> list[Any]:
     conn = None
     if store.is_available():
         try:
-            conn = store.connect()
+            conn = store.connect_common()
             cached = store.load_bars(conn, symbol, tf, start=start)
             if len(cached) >= 200:
                 return cached

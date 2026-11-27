@@ -132,7 +132,7 @@ def load_scan_bars(
             return generate_synthetic(2_000, seed=11, step=timedelta(hours=1))
         return _fetch_source(source, symbol, timeframe, start=start_eff, n_bars=n_bars)
 
-    conn = store.connect()
+    conn = store.connect_common()
     try:
         cached = store.load_bars(conn, display, timeframe)
         fresh: list[Any] = []

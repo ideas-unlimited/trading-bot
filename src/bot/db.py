@@ -27,6 +27,32 @@ except ImportError as _exc:  # pragma: no cover
 
 DB_NAME = "trading_bot"
 
+#: market data, shared by both environments
+SCHEMA_COMMON = """
+CREATE TABLE IF NOT EXISTS bars (
+    symbol     text NOT NULL,
+    timeframe  text NOT NULL,
+    ts         timestamptz NOT NULL,
+    open       numeric NOT NULL,
+    high       numeric NOT NULL,
+    low        numeric NOT NULL,
+    close      numeric NOT NULL,
+    volume     numeric NOT NULL DEFAULT 0,
+    PRIMARY KEY (symbol, timeframe, ts)
+);
+CREATE INDEX IF NOT EXISTS bars_lookup ON bars (symbol, timeframe, ts DESC);
+CREATE TABLE IF NOT EXISTS book_snapshots (
+    symbol         text NOT NULL,
+    ts             timestamptz NOT NULL,
+    last_update_id bigint NOT NULL DEFAULT 0,
+    bids           jsonb NOT NULL,
+    asks           jsonb NOT NULL,
+    PRIMARY KEY (symbol, ts)
+);
+CREATE INDEX IF NOT EXISTS book_snapshots_lookup ON book_snapshots (symbol, ts DESC);
+"""
+
+#: per-environment tables: bots, trades, equity, events, promotions
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS strategies (
     id          serial PRIMARY KEY,
@@ -73,18 +99,64 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     bot_name   text NOT NULL DEFAULT '',
     synced_at  timestamptz NOT NULL DEFAULT now()
 );
-CREATE TABLE IF NOT EXISTS bars (
-    symbol     text NOT NULL,
-    timeframe  text NOT NULL,
-    ts         timestamptz NOT NULL,
-    open       numeric NOT NULL,
-    high       numeric NOT NULL,
-    low        numeric NOT NULL,
-    close      numeric NOT NULL,
-    volume     numeric NOT NULL DEFAULT 0,
-    PRIMARY KEY (symbol, timeframe, ts)
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS env text NOT NULL DEFAULT 'paper';
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'registered';
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS started_at timestamptz;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS stopped_at timestamptz;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS last_heartbeat_at timestamptz;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS capital numeric;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS strategy_name text NOT NULL DEFAULT '';
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS params_hash text NOT NULL DEFAULT '';
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS git_tag text NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS bot_trades (
+    id              bigserial PRIMARY KEY,
+    bot_id          int REFERENCES bots(id) ON DELETE CASCADE,
+    symbol          text NOT NULL,
+    side            text NOT NULL,
+    qty             numeric NOT NULL,
+    price           numeric NOT NULL,
+    fee             numeric NOT NULL DEFAULT 0,
+    realized_pnl    numeric,
+    opened_at       timestamptz,
+    closed_at       timestamptz,
+    closed_by       text NOT NULL DEFAULT '',
+    order_id        text NOT NULL DEFAULT '',
+    client_order_id text NOT NULL DEFAULT ''
 );
-CREATE INDEX IF NOT EXISTS bars_lookup ON bars (symbol, timeframe, ts DESC);
+CREATE INDEX IF NOT EXISTS bot_trades_lookup ON bot_trades (bot_id, id DESC);
+CREATE TABLE IF NOT EXISTS equity_snapshots (
+    bot_id       int REFERENCES bots(id) ON DELETE CASCADE,
+    ts           timestamptz NOT NULL,
+    equity       numeric NOT NULL,
+    cash         numeric,
+    position_qty numeric,
+    mark_price   numeric,
+    PRIMARY KEY (bot_id, ts)
+);
+CREATE TABLE IF NOT EXISTS events (
+    id      bigserial PRIMARY KEY,
+    bot_id  int,
+    ts      timestamptz NOT NULL DEFAULT now(),
+    level   text NOT NULL DEFAULT 'info',
+    kind    text NOT NULL,
+    message text NOT NULL DEFAULT '',
+    payload jsonb NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS events_lookup ON events (bot_id, id DESC);
+CREATE TABLE IF NOT EXISTS promotions (
+    id          bigserial PRIMARY KEY,
+    strategy    text NOT NULL,
+    env         text NOT NULL,
+    action      text NOT NULL,
+    params_hash text NOT NULL DEFAULT '',
+    capital     numeric,
+    checks      jsonb NOT NULL DEFAULT '[]',
+    override    boolean NOT NULL DEFAULT false,
+    reason      text NOT NULL DEFAULT '',
+    actor       text NOT NULL DEFAULT '',
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS promotions_lookup ON promotions (strategy, env, id DESC);
 """
 
 
@@ -92,27 +164,25 @@ class DatabaseError(RuntimeError):
     pass
 
 
-def database_url() -> str | None:
-    """DATABASE_URL from the environment or .env, else ``None``."""
-    load_env()
-    url = os.environ.get("DATABASE_URL")
-    if url and "/$" not in url and "YOUR_PASSWORD" not in url:
-        return url
-    return None
+def database_url(kind: str = "env") -> str | None:
+    """URL for one database: kind is env | common | paper | prod."""
+    from . import envcfg
+
+    return envcfg.database_url(kind)
 
 
 def is_available() -> bool:
     return psycopg is not None and database_url() is not None
 
 
-def connect(*, create: bool = True) -> "psycopg.Connection":
-    """Connect to ``trading_bot``, creating it (and the schema) if missing."""
+def connect(*, create: bool = True, kind: str = "env") -> "psycopg.Connection":
+    """Connect to the common or environment database, creating it if missing."""
     if psycopg is None:
         raise DatabaseError(
             "psycopg is not installed. Run:\n"
             '  .venv\\Scripts\\python -m pip install "psycopg[binary]"'
         )
-    url = database_url()
+    url = database_url(kind)
     if not url:
         raise DatabaseError(
             "DATABASE_URL is not configured. Add to .env:\n"
@@ -125,25 +195,29 @@ def connect(*, create: bool = True) -> "psycopg.Connection":
             raise DatabaseError(f"Postgres connection failed: {exc}") from exc
         _create_database(url)
         conn = psycopg.connect(url, row_factory=dict_row, autocommit=True)
-    _ensure_schema(conn)
+    _ensure_schema(conn, kind)
     return conn
 
 
 def _create_database(url: str) -> None:
-    base = url.rsplit("/", 1)[0]
-    admin = psycopg.connect(f"{base}/postgres", autocommit=True)
+    from urllib.parse import urlsplit, urlunsplit
+
+    parts = urlsplit(url)
+    name = parts.path.lstrip("/") or DB_NAME
+    admin_url = urlunsplit((parts.scheme, parts.netloc, "/postgres", "", ""))
+    admin = psycopg.connect(admin_url, autocommit=True)
     try:
         exists = admin.execute(
-            "SELECT 1 FROM pg_database WHERE datname = %s", (DB_NAME,)
+            "SELECT 1 FROM pg_database WHERE datname = %s", (name,)
         ).fetchone()
         if not exists:
-            admin.execute(f'CREATE DATABASE {DB_NAME}')
+            admin.execute(f'CREATE DATABASE "{name}"')
     finally:
         admin.close()
 
 
-def _ensure_schema(conn: "psycopg.Connection") -> None:
-    conn.execute(SCHEMA)
+def _ensure_schema(conn: "psycopg.Connection", kind: str = "env") -> None:
+    conn.execute(SCHEMA_COMMON if kind == "common" else SCHEMA)
 
 
 # -- bars cache -------------------------------------------------------------
@@ -219,6 +293,42 @@ def bar_counts(conn: "psycopg.Connection") -> list[dict[str, Any]]:
             "symbol": r["symbol"], "timeframe": r["timeframe"], "n": int(r["n"]),
             "first_ts": r["first_ts"].isoformat(), "last_ts": r["last_ts"].isoformat(),
         }
+        for r in rows
+    ]
+
+
+
+
+# -- order-book depth (production snapshots, recorded forward only) ---------
+def insert_book_snapshot(conn: "psycopg.Connection", snap: Any) -> None:
+    """Persist one depth snapshot; duplicate (symbol, ts) is ignored."""
+    conn.execute(
+        """
+        INSERT INTO book_snapshots (symbol, ts, last_update_id, bids, asks)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (symbol, ts) DO NOTHING
+        """,
+        (
+            snap.symbol,
+            snap.ts,
+            int(getattr(snap, "last_update_id", 0)),
+            json.dumps([[l.price, l.qty] for l in snap.bids]),
+            json.dumps([[l.price, l.qty] for l in snap.asks]),
+        ),
+    )
+
+
+def load_book_snapshots(conn: "psycopg.Connection", symbol: str, limit: int = 1) -> list[dict[str, Any]]:
+    """Newest-first snapshots for one symbol, bids/asks decoded to floats."""
+    rows = conn.execute(
+        "SELECT ts, last_update_id, bids, asks FROM book_snapshots "
+        "WHERE symbol = %s ORDER BY ts DESC LIMIT %s",
+        (symbol, int(limit)),
+    ).fetchall()
+    return [
+        {"ts": r["ts"], "last_update_id": int(r["last_update_id"]),
+         "bids": [[float(p), float(q)] for p, q in r["bids"]],
+         "asks": [[float(p), float(q)] for p, q in r["asks"]]}
         for r in rows
     ]
 
@@ -409,3 +519,193 @@ def _clean(obj: Any) -> Any:
     if isinstance(obj, (list, tuple)):
         return [_clean(v) for v in obj]
     return obj
+
+# -- environment separation -------------------------------------------------
+def connect_common(*, create: bool = True) -> "psycopg.Connection":
+    """The market-data database shared by paper and prod (bars, depth)."""
+    return connect(create=create, kind="common")
+
+
+# -- bot lifecycle ----------------------------------------------------------
+def register_bot(
+    conn: "psycopg.Connection",
+    name: str,
+    *,
+    symbol: str,
+    timeframe: str,
+    strategy_name: str,
+    params: dict[str, Any],
+    capital: float,
+    env: str,
+    git_tag: str = "",
+    config: dict[str, Any] | None = None,
+) -> dict:
+    """Insert a running bot row and return it."""
+    from .promotions import params_hash
+
+    row = conn.execute(
+        """
+        INSERT INTO bots (name, symbol, timeframe, kind, params, config, mode, env,
+                          status, started_at, capital, strategy_name, params_hash, git_tag)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'running', now(), %s, %s, %s, %s)
+        RETURNING id, name, symbol, timeframe, status, started_at, capital
+        """,
+        (name, symbol, timeframe, strategy_name, json.dumps(params),
+         json.dumps(config or {}), env, env, float(capital),
+         strategy_name, params_hash(params), git_tag),
+    ).fetchone()
+    bot = dict(row)
+    if bot.get("capital") is not None:
+        bot["capital"] = float(bot["capital"])
+    return bot
+
+
+def bot_heartbeat(conn: "psycopg.Connection", bot_id: int) -> None:
+    conn.execute(
+        "UPDATE bots SET last_heartbeat_at = now(), status = 'running' WHERE id = %s", (bot_id,)
+    )
+
+
+def stop_bot(conn: "psycopg.Connection", bot_id: int, status: str = "stopped") -> None:
+    conn.execute(
+        "UPDATE bots SET status = %s, stopped_at = now() WHERE id = %s", (status, bot_id)
+    )
+
+
+def record_trade(
+    conn: "psycopg.Connection",
+    bot_id: int,
+    *,
+    symbol: str,
+    side: str,
+    qty: float,
+    price: float,
+    fee: float = 0.0,
+    realized_pnl: float | None = None,
+    opened_at: datetime | None = None,
+    closed_at: datetime | None = None,
+    closed_by: str = "",
+    order_id: str = "",
+    client_order_id: str = "",
+) -> int:
+    row = conn.execute(
+        """
+        INSERT INTO bot_trades (bot_id, symbol, side, qty, price, fee, realized_pnl,
+                                opened_at, closed_at, closed_by, order_id, client_order_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+        """,
+        (bot_id, symbol, side, float(qty), float(price), float(fee), realized_pnl,
+         opened_at, closed_at, closed_by, order_id, client_order_id),
+    ).fetchone()
+    return int(row["id"])
+
+
+def record_equity(
+    conn: "psycopg.Connection",
+    bot_id: int,
+    *,
+    equity: float,
+    cash: float | None = None,
+    position_qty: float | None = None,
+    mark_price: float | None = None,
+    ts: datetime | None = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO equity_snapshots (bot_id, ts, equity, cash, position_qty, mark_price)
+        VALUES (%s, COALESCE(%s, now()), %s, %s, %s, %s)
+        ON CONFLICT (bot_id, ts) DO NOTHING
+        """,
+        (bot_id, ts, float(equity), cash, position_qty, mark_price),
+    )
+
+
+def log_event(
+    conn: "psycopg.Connection",
+    bot_id: int | None,
+    kind: str,
+    message: str = "",
+    *,
+    level: str = "info",
+    payload: dict[str, Any] | None = None,
+) -> None:
+    """Never pass secrets: only clientOrderId and venue error codes."""
+    conn.execute(
+        "INSERT INTO events (bot_id, level, kind, message, payload) VALUES (%s, %s, %s, %s, %s)",
+        (bot_id, level, kind, message, json.dumps(payload or {})),
+    )
+
+
+def bot_lifecycle(conn: "psycopg.Connection", limit: int = 100) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT id, name, symbol, timeframe, strategy_name, env, status, capital,
+               started_at, stopped_at, last_heartbeat_at, git_tag,
+               (SELECT COUNT(*) FROM bot_trades t WHERE t.bot_id = bots.id) AS trades,
+               (SELECT COALESCE(SUM(t.realized_pnl), 0) FROM bot_trades t WHERE t.bot_id = bots.id) AS realized,
+               (SELECT equity FROM equity_snapshots e WHERE e.bot_id = bots.id ORDER BY ts DESC LIMIT 1) AS equity
+        FROM bots ORDER BY started_at DESC NULLS LAST, id DESC LIMIT %s
+        """,
+        (limit,),
+    ).fetchall()
+    out = []
+    for r in rows:
+        row = dict(r)
+        for key in ("capital", "realized", "equity"):
+            if row.get(key) is not None:
+                row[key] = float(row[key])
+        out.append(row)
+    return out
+
+
+def latest_bot(conn: "psycopg.Connection", name: str) -> dict | None:
+    row = conn.execute(
+        "SELECT * FROM bots WHERE name = %s ORDER BY id DESC LIMIT 1", (name,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+# -- promotions audit -------------------------------------------------------
+def create_promotion(
+    conn: "psycopg.Connection",
+    *,
+    strategy: str,
+    env: str,
+    action: str,
+    params_hash: str = "",
+    capital: float | None = None,
+    checks: list[dict] | None = None,
+    override: bool = False,
+    reason: str = "",
+    actor: str = "",
+) -> int:
+    row = conn.execute(
+        """
+        INSERT INTO promotions (strategy, env, action, params_hash, capital, checks,
+                                override, reason, actor)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+        """,
+        (strategy, env, action, params_hash, capital, json.dumps(checks or []),
+         bool(override), reason, actor),
+    ).fetchone()
+    return int(row["id"])
+
+
+def list_promotions(conn: "psycopg.Connection", limit: int = 50) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT id, strategy, env, action, params_hash, capital, override, reason,
+               actor, created_at, checks
+        FROM promotions ORDER BY id DESC LIMIT %s
+        """,
+        (limit,),
+    ).fetchall()
+    out = []
+    for r in rows:
+        row = dict(r)
+        row["checks"] = _json_load(row.get("checks"))
+        row["capital"] = float(row["capital"]) if row.get("capital") is not None else None
+        row["created_at"] = row["created_at"].isoformat() if row.get("created_at") else None
+        out.append(row)
+    return out
+

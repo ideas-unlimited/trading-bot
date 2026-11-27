@@ -430,9 +430,14 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
 def cmd_web(args: argparse.Namespace) -> int:
     """Serve the local web terminal."""
+    from . import envcfg
     from .web import WebApp
 
-    app = WebApp(args.host, args.port)
+    port = args.port or envcfg.web_port()
+    label = "PRODUCTION - real money" if envcfg.env_name() == "prod" else "PAPER - simulated fills"
+    print(f"env        {envcfg.env_name()}  ({label})")
+    print(f"port       {port}")
+    app = WebApp(args.host, port)
     app.serve_forever()
     return 0
 
@@ -564,6 +569,151 @@ def cmd_auto(args: argparse.Namespace) -> int:
         print(f"state      {payload['status_path']}")
         return 0
     run_forever(args.interval, **kwargs)
+    return 0
+
+
+def cmd_env(_: argparse.Namespace) -> int:
+    """Show which world this shell is pointed at."""
+    from . import envcfg, db
+
+    info = envcfg.describe()
+    label = "PRODUCTION - real money" if info["env"] == "prod" else "PAPER - simulated fills"
+    print(f"env          {info['env']}  ({label})")
+    print(f"database     {info['database']}")
+    print(f"common db    {info['common_database']}")
+    print(f"state dir    {info['state_dir']}")
+    print(f"log dir      {info['log_dir']}")
+    print(f"web port     {info['web_port']}")
+    print(f"postgres     {'configured' if db.is_available() else 'not configured (DATABASE_URL missing)'}")
+    return 0
+
+
+def cmd_depth(args: argparse.Namespace) -> int:
+    """Show or record production Binance order-book snapshots."""
+    from .data import depth
+
+    symbols = [s.strip() for s in args.coins.split(",") if s.strip()]
+    if not symbols:
+        raise SystemExit("--coins needs at least one symbol")
+    conn = None
+    if not args.no_db:
+        from . import db
+
+        try:
+            conn = db.connect_common()
+        except Exception as exc:  # noqa: BLE001 - recorder must still show the book
+            print(f"! database unavailable ({exc}); showing without recording")
+
+    def show(snaps) -> None:
+        print(f"{chr(10)}{'symbol':<10}{'bid':>14}{'ask':>14}{'spread_bp':>11}{'imb5':>8}"
+              f"{'bid_10bp':>12}{'ask_10bp':>12}")
+        for s in snaps:
+            print(f"{s.symbol:<10}{s.best_bid:>14.6f}{s.best_ask:>14.6f}{s.spread_bps:>11.3f}"
+                  f"{s.imbalance(5):>8.3f}{s.notional('bid'):>12.0f}{s.notional('ask'):>12.0f}")
+
+    if args.once or args.every <= 0:
+        show(depth.record_once(symbols, limit=args.levels, conn=conn))
+        return 0
+    where = "recording to postgres" if conn is not None else "not recording"
+    print(f"depth recorder: {len(symbols)} books every {args.every:g}s, {where} - Ctrl-C to stop")
+    try:
+        depth.run_recorder(symbols, every=args.every, limit=args.levels, conn=conn, on_snapshot=show)
+    except KeyboardInterrupt:
+        print("stopped")
+    return 0
+
+
+def _promotion_conn(env: str):
+    from . import db
+
+    if not db.is_available():
+        print("! postgres not configured; manifest written, audit row skipped")
+        return None
+    try:
+        return db.connect(kind=env)
+    except Exception as exc:  # noqa: BLE001 - manifest is still the source of truth
+        print(f"! postgres unavailable ({exc}); manifest written, audit row skipped")
+        return None
+
+
+def cmd_promote(args: argparse.Namespace) -> int:
+    """Run the gate and activate a strategy in paper or prod."""
+    import json as _json
+    from pathlib import Path as _Path
+
+    from . import promotions as promo
+
+    try:
+        params = _json.loads(args.params or "{}")
+    except _json.JSONDecodeError as exc:
+        raise SystemExit(f"--params is not valid JSON: {exc}") from None
+    evidence = {}
+    if args.evidence:
+        try:
+            evidence = _json.loads(_Path(args.evidence).read_text(encoding="utf-8"))
+        except OSError as exc:
+            raise SystemExit(f"cannot read --evidence: {exc}") from None
+        except _json.JSONDecodeError as exc:
+            raise SystemExit(f"--evidence is not valid JSON: {exc}") from None
+    symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
+    capital = args.capital if args.capital is not None else promo.DEFAULT_CAPITAL
+    conn = _promotion_conn(args.to)
+    try:
+        manifest, checks, db_id = promo.promote(
+            args.strategy, env=args.to, params=params, symbols=symbols,
+            timeframe=args.timeframe, capital=capital, evidence=evidence,
+            actor=args.actor, force=args.force, reason=args.reason, conn=conn,
+        )
+    except promo.PromotionError as exc:
+        print(f"promotion refused: {exc}")
+        return 2
+    for check in checks:
+        print(f"{'PASS' if check['ok'] else 'FAIL'}  {check['name']:<24}{check['detail']}")
+    print()
+    print(f"activated  {manifest.strategy}  env={manifest.env}  capital=${manifest.capital:,.0f}")
+    print(f"params     {manifest.params_hash}")
+    print(f"manifest   {manifest.path}")
+    if db_id is not None:
+        print(f"audit      promotions row {db_id}")
+    if manifest.override:
+        print(f"OVERRIDE   {manifest.override_reason}")
+    return 0
+
+
+def cmd_demote(args: argparse.Namespace) -> int:
+    """Deactivate a strategy: drain by default, --flatten to close now."""
+    from . import promotions as promo
+
+    conn = _promotion_conn(args.env)
+    try:
+        manifest = promo.demote(args.strategy, env=args.env, reason=args.reason,
+                                actor=args.actor, conn=conn)
+    except promo.PromotionError as exc:
+        print(f"demote refused: {exc}")
+        return 2
+    print(f"demoted    {manifest.strategy}  env={manifest.env}")
+    print(f"manifest   {manifest.path}")
+    if args.flatten:
+        print("next       stop the bot, market-close the position, restart it")
+    else:
+        print("next       no new entries; the bot keeps managing its stop and exits on signal")
+    return 0
+
+
+def cmd_promotions(args: argparse.Namespace) -> int:
+    """List active and revoked strategies for one or both environments."""
+    from . import envcfg, promotions as promo
+
+    env = args.env or envcfg.env_name()
+    manifests = promo.load_manifests(env)
+    if not manifests:
+        print(f"no promotions for {env}")
+        return 0
+    print(f"{'strategy':<24}{'active':<8}{'capital':>10}  {'params':<22}{'promoted_at':<21}flag")
+    for m in manifests:
+        flag = "OVERRIDE" if (m.override and m.active) else ("" if m.active else "revoked")
+        print(f"{m.strategy:<24}{'yes' if m.active else 'no':<8}{m.capital:>10,.0f}  "
+              f"{m.params_hash:<22}{m.promoted_at:<21}{flag}")
     return 0
 
 
@@ -705,9 +855,44 @@ def build_parser() -> argparse.ArgumentParser:
     p_auto.add_argument("--outdir", default="runs/autobooks")
     p_auto.set_defaults(func=cmd_auto)
 
+    p_env = sub.add_parser("env", help="show which environment and databases this shell uses")
+    p_env.set_defaults(func=cmd_env)
+
+    p_depth = sub.add_parser("depth", help="show or record live Binance order-book depth")
+    p_depth.add_argument("--coins", default="BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT")
+    p_depth.add_argument("--levels", type=int, default=20)
+    p_depth.add_argument("--every", type=float, default=60.0)
+    p_depth.add_argument("--once", action="store_true")
+    p_depth.add_argument("--no-db", action="store_true")
+    p_depth.set_defaults(func=cmd_depth)
+
+    p_promo = sub.add_parser("promote", help="promote a strategy into paper or prod")
+    p_promo.add_argument("strategy")
+    p_promo.add_argument("--to", choices=["paper", "prod"], default="paper")
+    p_promo.add_argument("--symbols", default="BTCUSDT")
+    p_promo.add_argument("--timeframe", default="4h")
+    p_promo.add_argument("--params", default="{}", help="strategy parameters as JSON")
+    p_promo.add_argument("--capital", type=float, default=None)
+    p_promo.add_argument("--evidence", default="", help="path to a JSON evidence file")
+    p_promo.add_argument("--actor", default="")
+    p_promo.add_argument("--force", action="store_true", help="override failed checks")
+    p_promo.add_argument("--reason", default="", help="why the override is acceptable")
+    p_promo.set_defaults(func=cmd_promote)
+
+    p_demote = sub.add_parser("demote", help="deactivate a promoted strategy")
+    p_demote.add_argument("strategy")
+    p_demote.add_argument("--env", choices=["paper", "prod"], default="prod")
+    p_demote.add_argument("--flatten", action="store_true", help="market-close now instead of draining")
+    p_demote.add_argument("--reason", default="")
+    p_demote.add_argument("--actor", default="")
+    p_demote.set_defaults(func=cmd_demote)
+
+    p_promos = sub.add_parser("promotions", help="list promotions and their state")
+    p_promos.add_argument("--env", choices=["paper", "prod"], default=None)
+    p_promos.set_defaults(func=cmd_promotions)
     p_web = sub.add_parser("web", help="run the local web trader terminal")
     p_web.add_argument("--host", default="127.0.0.1")
-    p_web.add_argument("--port", type=int, default=9000)
+    p_web.add_argument("--port", type=int, default=None, help="defaults to 9000 paper, 9001 prod")
     p_web.set_defaults(func=cmd_web)
 
     return parser
