@@ -1,5 +1,7 @@
 # Deploy (Debian 13 / Ubuntu 24.04)
 
+Promotion flow (lab -> paper -> prod): see `PROMOTION.md`.
+
 **The trading box is production from day one — paper trading counts as
 production.** It is not a research machine:
 
