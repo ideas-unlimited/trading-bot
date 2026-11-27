@@ -30,11 +30,17 @@ when you hit a new environment quirk and solve it, add it here and commit.
 ## Postgres
 
 - Local server on `localhost:5432` (PostgreSQL 19, admin user `postgres`).
-- App database: `trading_bot`, app user: `tradingbot` (credentials in
-  `DATABASE_URL`). Schema auto-creates on first connect (`CREATE TABLE IF
-  NOT EXISTS`) — nothing destructive.
-- Tables: `bars` (market data cache), `bots`, `strategies` (presets),
-  `runs`, `paper_trades`.
+- **Three databases** (agreed 2026-11-27), app user `tradingbot`, credentials
+  in `DATABASE_URL` (the base URL; only the database name is swapped):
+  - `trading_common` — `bars`, `book_snapshots` (market data, both envs)
+  - `trading_paper` — bots, bot_trades, equity_snapshots, events, runs, promotions
+  - `trading_prod` — same schema, real money, plus its own promotions audit
+  `BOT_ENV=paper|prod` picks the world; `db.connect_common()` reaches the data
+  DB. The app user cannot create databases: bootstrap once with
+  `psql -U postgres -f deploy/create_databases.sql`. Legacy `trading_bot`
+  still holds the pre-split bars; they were copied into `trading_common`.
+- Schema auto-creates on first connect (`CREATE TABLE IF NOT EXISTS` and
+  `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) — nothing destructive.
 - Market-data policy: bars are **the** data store. Incremental sync lives in
   `src/bot/scanlib.load_scan_bars` — first run deep-backfills, later runs
   fetch only the delta since the last cached bar, fresh caches are served

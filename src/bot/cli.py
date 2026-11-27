@@ -627,12 +627,12 @@ def _promotion_conn(env: str):
     from . import db
 
     if not db.is_available():
-        print("! postgres not configured; manifest written, audit row skipped")
+        print("! postgres not configured; any audit row will be skipped")
         return None
     try:
         return db.connect(kind=env)
     except Exception as exc:  # noqa: BLE001 - manifest is still the source of truth
-        print(f"! postgres unavailable ({exc}); manifest written, audit row skipped")
+        print(f"! postgres unavailable ({exc}); any audit row will be skipped")
         return None
 
 
