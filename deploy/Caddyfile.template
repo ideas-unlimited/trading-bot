@@ -1,0 +1,21 @@
+# Rendered by deploy/public_web.sh into /etc/caddy/Caddyfile.
+# {{DOMAIN}} is the public hostname (a sslip.io name works without a domain),
+# {{USER}} / {{HASH}} are the basic-auth login and its bcrypt hash.
+{{DOMAIN}} {
+	basic_auth {
+		{{USER}} {{HASH}}
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+	reverse_proxy 127.0.0.1:9000
+	log {
+		output file /var/log/caddy/dashboard.log {
+			roll_size 5MB
+			roll_keep 5
+		}
+	}
+}

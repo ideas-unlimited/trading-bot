@@ -58,7 +58,23 @@ systemctl enable --now tradingbot@btc tradingbot@eth tradingbot@sol
 Until the placeholders are replaced the bots stay disabled on purpose; the
 web terminal runs regardless.
 
-## 5. Reach the dashboard
+## 5. Updates are git pulls
+
+The deployed tree is a clone, not a copy:
+
+```bash
+sudo bash /opt/trading-bot/deploy/update.sh
+```
+
+It fast-forwards `origin`, reinstalls the package, restarts the web service
+and any running bot unit. Hand-editing files inside `/opt/trading-bot` is
+what breaks this: change code locally, `git commit`, `git push`, pull here.
+
+Editorial config stays outside the clone — `/etc/caddy/Caddyfile` (rendered
+from `deploy/Caddyfile.template`) and `/etc/tradingbot/*.env` — because root
+daemons read them and they belong to the box, not to the repository.
+
+## 6. Reach the dashboard
 
 The server binds `127.0.0.1:9000` only. From your laptop:
 

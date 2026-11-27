@@ -32,20 +32,13 @@ PASS=${WEB_PASSWORD:-$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | cut -c1-20
 HASH=$(caddy hash-password --plaintext "$PASS" | tr -d '\n')
 
 install -d -o caddy -g caddy /var/log/caddy
-{
-  printf '%s {\n' "$DOMAIN"
-  printf '\tbasic_auth {\n\t\t%s %s\n\t}\n' "$USER_NAME" "$HASH"
-  printf '\theader {\n'
-  printf '\t\tStrict-Transport-Security "max-age=31536000"\n'
-  printf '\t\tX-Content-Type-Options nosniff\n'
-  printf '\t\tReferrer-Policy no-referrer\n'
-  printf '\t\t-Server\n'
-  printf '\t}\n'
-  printf '\treverse_proxy 127.0.0.1:9000\n'
-  printf '\tlog {\n\t\toutput file /var/log/caddy/dashboard.log {\n'
-  printf '\t\t\troll_size 5MB\n\t\t\troll_keep 5\n\t\t}\n\t}\n'
-  printf '}\n'
-} > /etc/caddy/Caddyfile
+TEMPLATE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/Caddyfile.template"
+if [[ ! -f "$TEMPLATE" ]]; then
+  echo "missing $TEMPLATE" >&2
+  exit 1
+fi
+sed -e "s|{{DOMAIN}}|$DOMAIN|" -e "s|{{USER}}|$USER_NAME|" -e "s|{{HASH}}|$HASH|" \
+  "$TEMPLATE" > /etc/caddy/Caddyfile
 
 systemctl enable caddy >/dev/null 2>&1 || true
 systemctl restart caddy

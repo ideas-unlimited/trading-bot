@@ -175,6 +175,14 @@ when you hit a new environment quirk and solve it, add it here and commit.
   Verified on the box: web returns 200, 197 tests pass,
   `load_scan_bars("BTC/USDT","4h",source="binance")` fetches 2,190 bars (no
   451), so the venue path works from this IP.
+- **Server layout (agreed 2026-11-27).** `/opt/trading-bot` is a git
+  clone — never hand-edit it; commit locally, push, then
+  `sudo bash /opt/trading-bot/deploy/update.sh`. Under `~`: `git/` for
+  extra clones, `tmp/` for scratch (delete when done), `wip/` is the user's
+  (do not touch), `workspace/` is shared project scratch. System config
+  stays in `/etc` (`caddy/Caddyfile`, `tradingbot/*.env`) since root daemons
+  read it and it belongs to the box backup; the repo holds the template
+  (`deploy/Caddyfile.template`) and the renderer that writes it.
 - **Public dashboard:** `https://139-99-236-166.sslip.io` — Caddy terminates
   TLS (Let's Encrypt via the sslip.io name, auto-renewing) and enforces basic
   auth, proxy to `127.0.0.1:9000`. Only 22/80/443 are open; port 9000 is not
