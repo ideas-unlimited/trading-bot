@@ -152,6 +152,19 @@ when you hit a new environment quirk and solve it, add it here and commit.
   costs on both sides by default, paper trading only, no live-broker path.
   Do not weaken these.
 
+## Server rules (the OVH box is production)
+
+- **Production from day one.** Paper trading on the box is production: that
+  loop, that schedule and that state file are the real thing, so a careless
+  change there is a production incident even though no money moves.
+- **All research and all testing happen locally.** No probes, sweeps,
+  backtests, test-suite runs or ad-hoc data pulls on the server.
+- **Git only, no file transfers.** No `scp`, `rsync`, or editing files under
+  `/opt/trading-bot`. Ship by committing and pushing locally, then
+  `sudo bash /opt/trading-bot/deploy/update.sh` on the box.
+- **Ask first** for anything beyond routine operation (status, logs, restart,
+  pull): the owner grants permission before the command runs.
+
 ## Deployment (VPS)
 
 - `deploy/` holds the server bundle: `install.sh` (Debian 13 / Ubuntu 24.04),

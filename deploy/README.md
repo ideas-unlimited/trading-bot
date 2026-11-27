@@ -1,6 +1,17 @@
 # Deploy (Debian 13 / Ubuntu 24.04)
 
-Paper trading only. Nothing here can reach a live broker.
+**The trading box is production from day one — paper trading counts as
+production.** It is not a research machine:
+
+- No experiments, probes, sweeps or test runs on the server. Research and
+  testing happen on the laptop, where a mistake costs nothing.
+- No `scp`, `rsync` or editor sessions against the deployed tree. Code
+  reaches the box exactly one way: commit → push → `sudo bash
+  /opt/trading-bot/deploy/update.sh`.
+- Anything past routine operation (status, logs, restart, pull) needs the
+  owner's permission first.
+
+No live broker path exists yet: orders go to Alpaca paper or Binance demo.
 
 Target hosts:
 
@@ -16,20 +27,18 @@ This installer is venue-agnostic: it runs the same on Debian 12 or 13.
 ## 1. Get the code on the box
 
 ```bash
-apt-get update && apt-get install -y git
-git clone https://github.com/ideas-unlimited/trading-bot /opt/trading-bot
+sudo apt-get update && sudo apt-get install -y git
+sudo git clone https://github.com/ideas-unlimited/trading-bot /opt/trading-bot
 ```
 
-Private repo? Use a deploy key, a fine-grained token, or copy from the laptop:
-
-```powershell
-scp -r .\src .\tests .\deploy .\pyproject.toml .\.env.example root@<ip>:/opt/trading-bot/
-```
+That clone is also the installer source: `install.sh` notices it is already
+running from `/opt/trading-bot` and skips its copy step. A private repo would
+need a deploy key — never a file copy.
 
 ## 2. Check the box first
 
 ```bash
-bash deploy/preflight.sh
+cd /opt/trading-bot && sudo bash deploy/preflight.sh
 ```
 
 Read-only: confirms the distro, RAM, disk, Python ≥ 3.11, and — the one that
