@@ -23,6 +23,25 @@ git fetch --quiet origin
 git merge --ff-only --quiet "@{u}"
 AFTER=$(git rev-parse --short HEAD)
 
+# Units and their env files are part of the deployment, not of a code change:
+# install them even when the checkout is already current, so an existing box
+# can be repaired with the same routine update.
+if [[ -f deploy/tradingbot-forward.service ]]; then
+  install -m 0644 deploy/tradingbot-forward.service /etc/systemd/system/
+fi
+if [[ -f /etc/systemd/system/tradingbot-forward.service ]]; then
+  if [[ ! -f /etc/tradingbot/forward.env ]]; then
+    printf '%s\n' 'BOT_ENV=paper' \
+      '# Ping URL from healthchecks.io / Uptime Kuma.  Empty = no heartbeat.' \
+      'HEARTBEAT_URL=' > /etc/tradingbot/forward.env
+    chown root:trader /etc/tradingbot/forward.env
+    chmod 640 /etc/tradingbot/forward.env
+  fi
+  systemctl daemon-reload
+  systemctl enable tradingbot-forward.service
+  systemctl is-active --quiet tradingbot-forward || systemctl start tradingbot-forward
+fi
+
 if [[ "$BEFORE" == "$AFTER" ]]; then
   echo "already at $AFTER"
   exit 0
@@ -30,18 +49,6 @@ fi
 
 .venv/bin/pip install -q -e ".[web]"
 chown -R trader:trader runs logs 2>/dev/null || true
-
-# New units ship in the repo; install them here so a plain update is enough.
-install -m 0644 deploy/tradingbot-forward.service /etc/systemd/system/
-if [[ ! -f /etc/tradingbot/forward.env ]]; then
-  printf '%s\n' 'BOT_ENV=paper' \
-    '# Ping URL from healthchecks.io / Uptime Kuma.  Empty = no heartbeat.' \
-    'HEARTBEAT_URL=' > /etc/tradingbot/forward.env
-  chown root:trader /etc/tradingbot/forward.env
-  chmod 640 /etc/tradingbot/forward.env
-fi
-systemctl daemon-reload
-systemctl enable tradingbot-forward.service
 
 for web_unit in tradingbot-web tradingbot-web-prod; do
   if systemctl cat "$web_unit" >/dev/null 2>&1; then
