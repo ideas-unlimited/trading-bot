@@ -54,7 +54,10 @@
     "profit_factor": 1.3319,
     "params_hash": "sha256:43d50c859a1e34ef",
     "command": "python -m bot backtest --source binance --symbol JUP/USDT --interval 15m --start 2025-11-28 --n-bars 40000 --strategy jup_liquidity_15m --risk-per-trade 0.05 --max-position-pct 0.5 --max-drawdown-stop 0.10 --fee-bps 10 --slippage-bps 5",
-    "note": "exact-2 4h/6h/1d demand cluster, ranked after filtering overhead/too-far bands; resting 3-tranche limit ladder at upper/mid/lower; next confirmed 15m demand centre arms a 1.5 ATR(15m) trail; no partial sale at target; 480-bar time exit; PF is dollar-weighted realized P&L (equal-notional percentage PF 1.77)"
+    "note": "exact-2 4h/6h/1d demand cluster, ranked after filtering overhead/too-far bands; resting 3-tranche limit ladder at upper/mid/lower; next confirmed 15m demand centre arms a 1.5 ATR(15m) trail; no partial sale at target; 480-bar time exit; PF is dollar-weighted realized P&L (equal-notional percentage PF 1.77)",
+    "risk_per_trade": 0.05,
+    "max_position_pct": 0.5,
+    "max_drawdown_stop": 0.1
   },
   "active": true,
   "demoted_at": "",

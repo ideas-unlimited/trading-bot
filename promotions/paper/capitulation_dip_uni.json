@@ -53,7 +53,10 @@
     "profit_factor": 9.82,
     "params_hash": "sha256:3520143553854675",
     "command": "python -m bot backtest --source binance --symbol UNI/USDT --interval 4h --start 2024-11-28 --strategy capitulation_dip_uni --risk-per-trade 0.05 --max-position-pct 0.5 --fee-bps 10 --slippage-bps 5",
-    "note": "next-open fills, stop-first intrabar, 1.5R target, 18-bar time exit; verified 2026-11-28"
+    "note": "next-open fills, stop-first intrabar, 1.5R target, 18-bar time exit; verified 2026-11-28",
+    "risk_per_trade": 0.05,
+    "max_position_pct": 0.5,
+    "max_drawdown_stop": 0.1
   },
   "active": true,
   "demoted_at": "",

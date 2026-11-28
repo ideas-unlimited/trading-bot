@@ -83,8 +83,32 @@ empty:
 - **`tradingbot@<name>`** is the actual bot. Until it is started, the owner's
   question "where is my bot?" has the honest answer "nowhere".
 
-Full release, in order, after commit -> push -> `sudo bash
+**The standard: a paper promotion is complete only when BOTH halves are
+live** - the forward sleeve replaying and the `tradingbot@<name>` unit
+running. A forward-only sleeve is a deliberate exception (e.g. two sleeves
+on one symbol) and must say so in its manifest evidence.
+
+Release is one command on the box, after commit -> push -> `sudo bash
 /opt/trading-bot/deploy/update.sh`:
+
+    sudo bash /opt/trading-bot/deploy/release_paper.sh <bot-name> <strategy-name>
+
+It reads the manifest (symbol, timeframe, capital and the three measured
+risk knobs from `evidence`), writes `/etc/tradingbot/<name>.env`, starts
+`tradingbot@<name>`, verifies the demo-account journal line, the Bots-page
+registration and the heartbeat, and refuses any manifest whose evidence
+does not carry `risk_per_trade`, `max_position_pct` and `max_drawdown_stop`.
+It never clobbers an existing env file and is idempotent - re-running a
+released bot just verifies it.
+
+After releasing (and any time the question "where is my bot?" comes up):
+
+    sudo bash /opt/trading-bot/deploy/reconcile_paper.sh
+
+Walks every released bot against the checklist below and prints PASS/FAIL.
+
+The manual steps the script performs, for understanding or when it is
+unavailable:
 
 1. **Manifest landed.** `journalctl -u tradingbot-forward -n 20` shows the
    new sleeve under `active runner(s)`, and
@@ -157,10 +181,11 @@ Full release, in order, after commit -> push -> `sudo bash
    bot that already owns the symbol. `STATE` lives under `/var/lib/tradingbot/`. A sub-4h strategy
    keeps the 1-year evidence cap everywhere, including here.
 6. **Reconcile after every release.** Re-walk this checklist against what
-   is actually running: units active, env risk knobs equal the measured
+   is actually running - `sudo bash /opt/trading-bot/deploy/reconcile_paper.sh`
+   does it automatically: units active, env risk knobs equal the measured
    profile, heartbeat fresh, forward sleeve present, no errors in
-   `journalctl`, no unexpected rows in `events`. Every incident so far was
-   a release step done halfway, not a code bug.
+   `journalctl`. Every incident so far was a release step done halfway, not
+   a code bug.
 7. **Secrets:** any credential touched during release goes into
    `C:\Git\tradingbot-secrets-2026-11-28.txt` (the master record) in the same
    edit that puts it anywhere else.
@@ -208,12 +233,22 @@ the promoted size.
   "checks": [{"name": "backtest_bars", "ok": true, "detail": "bars=4381"}],
   "evidence": {"bars": 4381, "window_days": 730, "trades": 19,
                "fee_bps": 10, "slippage_bps": 5,
-               "params_hash": "sha256:1f3c..."},
+               "params_hash": "sha256:1f3c...",
+               "risk_per_trade": 0.05, "max_position_pct": 0.5,
+               "max_drawdown_stop": 0.1,
+               "note": "forward-only release (reason) goes here if applicable"},
   "active": true,
   "demoted_at": "",
   "demote_reason": ""
 }
 ```
+
+**The evidence must carry the measured risk profile** (`risk_per_trade`,
+`max_position_pct`, `max_drawdown_stop`): the release script generates each
+bot's env file from it, and `deploy/reconcile_paper.sh` diffs the running
+config against it. A promotion without those three fields is unreleasable
+by the script - by design, since omitting them is how every live bot ended
+up at `run_bot.sh` defaults on 2026-11-28.
 
 ## 4. These gates are defaults, not walls
 
