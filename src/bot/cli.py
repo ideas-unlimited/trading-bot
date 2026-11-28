@@ -851,6 +851,9 @@ def cmd_watchdog(args: argparse.Namespace) -> int:
     heartbeat_url = args.heartbeat_url or os.environ.get("HEARTBEAT_URL", "")
     notifier = Notifier() if args.no_alerts else Notifier.from_env()
 
+    # A dry run reports and writes nothing, so it must not ping either: one
+    # stray ping would tell the dead-man switch the book is fine.
+    heartbeat = Heartbeat("" if args.dry_run else heartbeat_url)
     conn = db.connect()
     try:
         summary = run_once(
@@ -858,7 +861,7 @@ def cmd_watchdog(args: argparse.Namespace) -> int:
             state_path=state_path,
             stale_after=timedelta(minutes=stale_minutes),
             repeat_after=timedelta(hours=repeat_hours),
-            heartbeat=Heartbeat(heartbeat_url),
+            heartbeat=heartbeat,
             notifier=notifier,
             persist=not args.dry_run,
         )
