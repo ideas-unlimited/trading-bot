@@ -394,6 +394,12 @@ def run_all_forever(
     outage must never stop the record, so the ping never raises.
     """
     heartbeat = Heartbeat(heartbeat_url, every=heartbeat_every)
+    print(
+        f"[forward] heartbeat every {heartbeat_every:.0f}s"
+        if heartbeat_url
+        else "[forward] heartbeat off (set HEARTBEAT_URL)",
+        flush=True,
+    )
     while True:
         try:
             specs = active_specs(env)
@@ -417,6 +423,12 @@ def run_forever(
 ) -> None:
     """Poll loop; each cycle is independent and idempotent."""
     heartbeat = Heartbeat(heartbeat_url, every=heartbeat_every)
+    print(
+        f"[forward] heartbeat every {heartbeat_every:.0f}s"
+        if heartbeat_url
+        else "[forward] heartbeat off (set HEARTBEAT_URL)",
+        flush=True,
+    )
     while True:
         try:
             payload = run_cycle(**kwargs)
