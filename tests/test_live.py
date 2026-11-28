@@ -825,6 +825,39 @@ class LiveAnchorTests(unittest.TestCase):
             self.assertEqual(len(client.orders), 1)
             self.assertIn("pending entry", trader.stream.getvalue())
 
+    def test_live_refetches_when_warmup_needs_more_bars(self) -> None:
+        class SlicingClient(_FakeClient):
+            def fetch_bars(self, symbol, timeframe, limit=400, **kwargs):
+                return _bars(self.rows[-limit:])
+
+        class NeedsWarmup(BuyNow):
+            def prepare(self, df):
+                self.warmup = 800
+                return df
+
+            def signal(self, i, df, position):
+                return Signal(Action.BUY, "test entry", stop_loss=90.0)
+
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            client = SlicingClient(self._long_rows(900))
+            trader = LiveTrader(
+                client,
+                NeedsWarmup(),
+                BotConfig(initial_cash=10_000.0),
+                "BTC/USDT",
+                "1d",
+                state_path=tmp / "state.json",
+                poll=60,
+                lookback=40,
+                stream=io.StringIO(),
+                clock=lambda s: None,
+                startup_replay=True,
+            )
+            trader.poll(now=datetime(2026, 6, 19, tzinfo=timezone.utc))
+            self.assertIn("refetching 802", trader.stream.getvalue())
+            self.assertEqual(len(client.orders), 1)
+
     def test_startup_replay_stays_flat_without_a_signal(self) -> None:
         class NoSignal(BuyNow):
             def signal(self, i, df, position):

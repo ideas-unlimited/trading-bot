@@ -81,6 +81,14 @@ class LiveTrader:
         self.state_path = Path(state_path)
         self.poll_seconds = max(1.0, poll)
         self.lookback = max(strategy.warmup + 2, lookback)
+        # A fresh start replays the strategy's whole allowed window so an open
+        # position that began weeks ago is seen.  Other polls keep the much
+        # smaller steady-state window; one full fetch is not a per-minute cost.
+        _days = 730 if self.duration.total_seconds() >= 4 * 3600 else 365
+        self.startup_lookback = max(
+            self.lookback,
+            math.ceil(_days * 86_400 / self.duration.total_seconds()),
+        )
         self.max_catchup = max(1, max_catchup)
         # Per-bot wallet: the loop may never size from more than this, even
         # though several bots share one demo account.  None = the
@@ -150,8 +158,32 @@ class LiveTrader:
     def poll(self, now: datetime | None = None) -> int:
         """Run one cycle; returns the number of bars processed."""
         now = now or datetime.now(timezone.utc)
-        bars = self.client.fetch_bars(self.symbol, self.timeframe, limit=self.lookback)
-        if len(bars) < self.strategy.warmup + 2:
+        limit = self.lookback
+        if self.startup_replay and self._last_ts() is None:
+            limit = max(limit, self.startup_lookback)
+        bars = self.client.fetch_bars(self.symbol, self.timeframe, limit=limit)
+        # Some strategies only learn their warmup from the data itself: the
+        # 200-day regime SMA is 1,200 4h bars, not the 25 the constructor
+        # knows.  Prepare once, then refetch if the frame is still short.
+        prepared = None
+        if bars:
+            from .backtest import bars_to_frame
+
+            prepared = self.strategy.prepare(bars_to_frame(bars))
+            needed = int(self.strategy.warmup) + 2
+            self.lookback = max(self.lookback, needed)
+            if len(bars) < needed:
+                self._emit(
+                    f"[live] {len(bars)} bars < warmup {needed}; "
+                    f"refetching {self.lookback}"
+                )
+                bars = self.client.fetch_bars(
+                    self.symbol, self.timeframe, limit=self.lookback,
+                )
+                prepared = (
+                    self.strategy.prepare(bars_to_frame(bars)) if bars else None
+                )
+        if not bars or len(bars) < self.strategy.warmup + 2:
             self._emit(f"[live] only {len(bars)} bars fetched; waiting for more")
             self.heartbeat.ping()
             return 0
@@ -221,8 +253,7 @@ class LiveTrader:
                 f"[live] {skipped} missed bars skipped, resuming on the newest {self.max_catchup}"
             )
             closed = closed[-self.max_catchup:]
-        prepared = None
-        if closed:
+        if closed and prepared is None:
             from .backtest import bars_to_frame
 
             prepared = self.strategy.prepare(bars_to_frame(bars))
