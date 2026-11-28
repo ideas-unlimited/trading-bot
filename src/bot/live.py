@@ -337,31 +337,31 @@ class LiveTrader:
         """One best-effort alert for a fill the venue already accepted."""
         if self.notifier is None or not self.notifier.enabled:
             return
-        held_hours = None
-        if entry_ts is not None and ts is not None:
-            held_hours = (ts - entry_ts).total_seconds() / 3600.0
-        return_pct = None
-        if realized is not None and entry_price and qty:
-            return_pct = realized / (entry_price * qty)
-        event = {
-            "side": side,
-            "strategy": self.strategy.name,
-            "symbol": self.symbol,
-            "timeframe": self.timeframe,
-            "env": (os.environ.get("BOT_ENV") or "paper").strip().lower() or "paper",
-            "ts": ts,
-            "price": price,
-            "qty": qty,
-            "notional": float(qty) * float(price),
-            "stop": stop,
-            "take_profit": take_profit,
-            "reason": why,
-            "pnl": realized,
-            "return_pct": return_pct,
-            "held_hours": held_hours,
-            "wallet": equity if equity is not None else self._last_equity,
-        }
         try:
+            held_hours = None
+            if entry_ts is not None and ts is not None:
+                held_hours = (ts - entry_ts).total_seconds() / 3600.0
+            return_pct = None
+            if realized is not None and entry_price and qty:
+                return_pct = realized / (entry_price * qty)
+            event = {
+                "side": side,
+                "strategy": self.strategy.name,
+                "symbol": self.symbol,
+                "timeframe": self.timeframe,
+                "env": (os.environ.get("BOT_ENV") or "paper").strip().lower() or "paper",
+                "ts": ts,
+                "price": price,
+                "qty": qty,
+                "notional": float(qty) * float(price),
+                "stop": stop,
+                "take_profit": take_profit,
+                "reason": why,
+                "pnl": realized,
+                "return_pct": return_pct,
+                "held_hours": held_hours,
+                "wallet": equity if equity is not None else self._last_equity,
+            }
             self.notifier.send_trade(event)
         except Exception as exc:  # noqa: BLE001 - never stop managing a position
             if not self._alert_warned:
