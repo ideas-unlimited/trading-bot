@@ -1,59 +1,78 @@
 # Target symbols and per-symbol strategy rule
 
-`config/target_symbols.json` is the authoritative target list. It contains the
-21 symbols the user selected after removing RAY. Other agents may read it to
-build one strategy per symbol; do not add, remove or substitute symbols without
-the user's approval.
+`config/target_symbols.json` is the authoritative target list. It now contains
+**18 active Binance spot USDT pairs**. Other agents may read it to build one
+strategy per symbol; do not add, remove or substitute symbols without the
+user's approval.
 
-| # | Symbol | Status |
-|---:|---|---|
-| 1 | ETH/USDT | untuned |
-| 2 | BNB/USDT | untuned |
-| 3 | SOL/USDT | untuned |
-| 4 | XRP/USDT | untuned |
-| 5 | HYPE/USDT | untuned |
-| 6 | LINK/USDT | untuned |
-| 7 | UNI/USDT | untuned |
-| 8 | CC/USDC | untuned |
-| 9 | AVAX/USDT | untuned |
-| 10 | SUI/USDT | untuned |
-| 11 | TAO/USDT | untuned |
-| 12 | ONDO/USDT | untuned |
-| 13 | JUP/USDT | untuned |
-| 14 | RENDER/USDT | untuned |
-| 15 | LIT/USDT | untuned |
-| 16 | INJ/USDT | untuned |
-| 17 | CAKE/USDT | untuned |
-| 18 | PYTH/USDT | untuned |
-| 19 | FET/USDT | untuned |
-| 20 | AKT/USDT | untuned |
-| 21 | EDGE/USDT | untuned |
+## Hard trading rule
 
-## Rule
+- **Binance spot only.** Every trade and every backtest uses Binance spot
+  data. Binance is the default and only data source.
+- **USDT quote only.** No USDC, BTC, BUSD or other quote pairs; no futures,
+  margin, leverage or shorts.
+- Only symbols present and tradeable on Binance spot belong here. Do not
+  silently switch venue or quote, and do not substitute a different token.
+
+## Availability check
+
+Checked against Binance `exchangeInfo` on **2026-11-28**. The list was cleaned
+of every symbol that is not available on Binance spot, then XAUT was added:
+
+- **CC** — no Binance spot pair (previously shown as MEXC `CC/USDC`).
+- **LIT** — `LITUSDT` exists, but its status is `BREAK` (halted), so it is not
+  tradeable.
+- **AKT** — no Binance spot pair.
+- **EDGE** — no Binance spot pair.
+
+`XAUT/USDT` is an active Binance spot pair and is included as the 18th target.
+
+The removed entries and reasons are retained in the JSON's `removed` array for
+audit. They are not targets and must not be tuned or traded.
+
+## Target table
+
+| # | Symbol | Venue | Status |
+|---:|---|---|---|
+| 1 | ETH/USDT | Binance spot | untuned |
+| 2 | BNB/USDT | Binance spot | untuned |
+| 3 | SOL/USDT | Binance spot | untuned |
+| 4 | XRP/USDT | Binance spot | untuned |
+| 5 | HYPE/USDT | Binance spot | untuned |
+| 6 | LINK/USDT | Binance spot | untuned |
+| 7 | UNI/USDT | Binance spot | untuned |
+| 8 | AVAX/USDT | Binance spot | untuned |
+| 9 | SUI/USDT | Binance spot | untuned |
+| 10 | TAO/USDT | Binance spot | untuned |
+| 11 | ONDO/USDT | Binance spot | untuned |
+| 12 | JUP/USDT | Binance spot | untuned |
+| 13 | RENDER/USDT | Binance spot | untuned |
+| 14 | INJ/USDT | Binance spot | untuned |
+| 15 | CAKE/USDT | Binance spot | untuned |
+| 16 | PYTH/USDT | Binance spot | untuned |
+| 17 | FET/USDT | Binance spot | untuned |
+| 18 | XAUT/USDT | Binance spot | untuned |
+
+## Per-symbol strategy rule
 
 - **One strategy per symbol.** Tune its parameters on that symbol; do not
-  assume a parameter set that works on BTC works on EDGE or HYPE. Prefer one
-  registered strategy implementation with a per-symbol config block over 21
-  forked strategy files; fork the code only when the signal logic genuinely
-  differs.
-- Use **4h or 1d** bars, with the same **2-year (730-day)** cap as the rest of
-  the repo. A newer listing uses everything since inception. Sub-4h research
-  remains limited to the last 12 months.
-- Long-only spot, no shorts, no margin. Report the symbol, timeframe and
-  train/OOS window with every result.
-- Keep the train/test split honest: tune on the earlier slice, validate on the
-  later slice. Do not select parameters on the OOS slice.
+  assume a parameter set that works on BTC works on SUI or HYPE.
+- Prefer one registered strategy implementation with a per-symbol config
+  block over 18 forked strategy files; fork the code only when the signal
+  logic genuinely differs.
+- Tune on the earlier slice, validate on the later slice. Report the symbol,
+  timeframe, venue and both windows with every result; never select
+  parameters on the out-of-sample slice.
 
-## Venue caveat
+## Data and windows
 
-This file fixes the **symbols**, not their data venue. Binance spot is the
-house default. HYPE (`HYPE:HYPEUSDT`) and CC (`MEXC:CCUSDC`) are known to use
-non-Binance feeds; LIT, AKT and EDGE also need venue verification before a run.
-Record the resolved venue in the symbol's strategy note. Do not silently map an
-unlisted symbol to a different pair.
+- **4h or 1d** bars, with the repo-wide **2-year (730-day)** cap.
+- A newer listing uses everything since inception; do not fabricate history.
+- Sub-4h research remains limited to the last 12 months.
+- Long-only spot, no shorts, no margin.
 
-## Current strategy assignments
+## Current assignments
 
-All 21 are `untuned`; `strategy` and `params` in the JSON are placeholders.
-A completed assignment should name a registered strategy and its exact
-parameters, its timeframe, and its in-sample / out-of-sample dates.
+All 18 symbols are unassigned. `strategy`, `timeframe` and `params` in the JSON
+are placeholders; a completed assignment must name a registered strategy, its
+exact parameters, its timeframe and its in-sample / out-of-sample dates.

@@ -1,25 +1,55 @@
 {
-  "schema": 1,
+  "schema": 3,
   "updated": "2026-11-28",
-  "description": "Authoritative target symbols for per-symbol strategy research. One strategy/parameter set per symbol; do not replace these with a shared multi-symbol model.",
-  "rules": {
-    "one_strategy_per_symbol": true,
+  "description": "Authoritative target symbols. Binance spot USDT only; Binance is the default and only data source.",
+  "defaults": {
+    "venue": "binance",
+    "market": "spot",
+    "quote": "USDT",
+    "data_source": "binance",
     "timeframes": [
       "4h",
       "1d"
     ],
     "max_history_days": 730,
-    "sub_4h_max_history_days": 365,
+    "sub_4h_max_history_days": 365
+  },
+  "rules": {
+    "one_strategy_per_symbol": true,
     "long_only_spot": true,
     "tune_on_train_validate_out_of_sample": true
   },
-  "unresolved": "Venue/data source is not fixed by this file. Binance spot is the house default; HYPE and CC are known to use non-Binance feeds (Hyperliquid/MEXC). Resolve and record the venue before fetching or promoting a symbol.",
+  "availability_checked": "2026-11-28",
+  "availability_source": "https://data-api.binance.vision/api/v3/exchangeInfo",
+  "availability_note": "18 active Binance spot USDT pairs. The list was cleaned of symbols that are not available for trading on Binance spot, then XAUT was added.",
+  "removed": [
+    {
+      "symbol": "CC/USDT",
+      "reason": "No Binance spot pair; only MEXC CC/USDC was previously available."
+    },
+    {
+      "symbol": "LIT/USDT",
+      "reason": "Binance LITUSDT status is BREAK (trading halted), so it is not tradeable."
+    },
+    {
+      "symbol": "AKT/USDT",
+      "reason": "No Binance spot pair."
+    },
+    {
+      "symbol": "EDGE/USDT",
+      "reason": "No Binance spot pair."
+    }
+  ],
   "symbols": [
     {
       "symbol": "ETH/USDT",
       "base": "ETH",
       "quote": "USDT",
+      "venue": "binance",
+      "market": "spot",
+      "data_source": "binance",
       "status": "untuned",
+      "available": true,
       "strategy": null,
       "timeframe": null,
       "params": {}
@@ -28,7 +58,11 @@
       "symbol": "BNB/USDT",
       "base": "BNB",
       "quote": "USDT",
+      "venue": "binance",
+      "market": "spot",
+      "data_source": "binance",
       "status": "untuned",
+      "available": true,
       "strategy": null,
       "timeframe": null,
       "params": {}
@@ -37,7 +71,11 @@
       "symbol": "SOL/USDT",
       "base": "SOL",
       "quote": "USDT",
+      "venue": "binance",
+      "market": "spot",
+      "data_source": "binance",
       "status": "untuned",
+      "available": true,
       "strategy": null,
       "timeframe": null,
       "params": {}
@@ -46,7 +84,11 @@
       "symbol": "XRP/USDT",
       "base": "XRP",
       "quote": "USDT",
+      "venue": "binance",
+      "market": "spot",
+      "data_source": "binance",
       "status": "untuned",
+      "available": true,
       "strategy": null,
       "timeframe": null,
       "params": {}
@@ -55,7 +97,11 @@
       "symbol": "HYPE/USDT",
       "base": "HYPE",
       "quote": "USDT",
+      "venue": "binance",
+      "market": "spot",
+      "data_source": "binance",
       "status": "untuned",
+      "available": true,
       "strategy": null,
       "timeframe": null,
       "params": {}
@@ -64,7 +110,11 @@
       "symbol": "LINK/USDT",
       "base": "LINK",
       "quote": "USDT",
+      "venue": "binance",
+      "market": "spot",
+      "data_source": "binance",
       "status": "untuned",
+      "available": true,
       "strategy": null,
       "timeframe": null,
       "params": {}
@@ -73,16 +123,11 @@
       "symbol": "UNI/USDT",
       "base": "UNI",
       "quote": "USDT",
+      "venue": "binance",
+      "market": "spot",
+      "data_source": "binance",
       "status": "untuned",
-      "strategy": null,
-      "timeframe": null,
-      "params": {}
-    },
-    {
-      "symbol": "CC/USDC",
-      "base": "CC",
-      "quote": "USDC",
-      "status": "untuned",
+      "available": true,
       "strategy": null,
       "timeframe": null,
       "params": {}
@@ -91,7 +136,11 @@
       "symbol": "AVAX/USDT",
       "base": "AVAX",
       "quote": "USDT",
+      "venue": "binance",
+      "market": "spot",
+      "data_source": "binance",
       "status": "untuned",
+      "available": true,
       "strategy": null,
       "timeframe": null,
       "params": {}
@@ -100,7 +149,11 @@
       "symbol": "SUI/USDT",
       "base": "SUI",
       "quote": "USDT",
+      "venue": "binance",
+      "market": "spot",
+      "data_source": "binance",
       "status": "untuned",
+      "available": true,
       "strategy": null,
       "timeframe": null,
       "params": {}
@@ -109,7 +162,11 @@
       "symbol": "TAO/USDT",
       "base": "TAO",
       "quote": "USDT",
+      "venue": "binance",
+      "market": "spot",
+      "data_source": "binance",
       "status": "untuned",
+      "available": true,
       "strategy": null,
       "timeframe": null,
       "params": {}
@@ -118,7 +175,11 @@
       "symbol": "ONDO/USDT",
       "base": "ONDO",
       "quote": "USDT",
+      "venue": "binance",
+      "market": "spot",
+      "data_source": "binance",
       "status": "untuned",
+      "available": true,
       "strategy": null,
       "timeframe": null,
       "params": {}
@@ -127,7 +188,11 @@
       "symbol": "JUP/USDT",
       "base": "JUP",
       "quote": "USDT",
+      "venue": "binance",
+      "market": "spot",
+      "data_source": "binance",
       "status": "untuned",
+      "available": true,
       "strategy": null,
       "timeframe": null,
       "params": {}
@@ -136,16 +201,11 @@
       "symbol": "RENDER/USDT",
       "base": "RENDER",
       "quote": "USDT",
+      "venue": "binance",
+      "market": "spot",
+      "data_source": "binance",
       "status": "untuned",
-      "strategy": null,
-      "timeframe": null,
-      "params": {}
-    },
-    {
-      "symbol": "LIT/USDT",
-      "base": "LIT",
-      "quote": "USDT",
-      "status": "untuned",
+      "available": true,
       "strategy": null,
       "timeframe": null,
       "params": {}
@@ -154,7 +214,11 @@
       "symbol": "INJ/USDT",
       "base": "INJ",
       "quote": "USDT",
+      "venue": "binance",
+      "market": "spot",
+      "data_source": "binance",
       "status": "untuned",
+      "available": true,
       "strategy": null,
       "timeframe": null,
       "params": {}
@@ -163,7 +227,11 @@
       "symbol": "CAKE/USDT",
       "base": "CAKE",
       "quote": "USDT",
+      "venue": "binance",
+      "market": "spot",
+      "data_source": "binance",
       "status": "untuned",
+      "available": true,
       "strategy": null,
       "timeframe": null,
       "params": {}
@@ -172,7 +240,11 @@
       "symbol": "PYTH/USDT",
       "base": "PYTH",
       "quote": "USDT",
+      "venue": "binance",
+      "market": "spot",
+      "data_source": "binance",
       "status": "untuned",
+      "available": true,
       "strategy": null,
       "timeframe": null,
       "params": {}
@@ -181,25 +253,24 @@
       "symbol": "FET/USDT",
       "base": "FET",
       "quote": "USDT",
+      "venue": "binance",
+      "market": "spot",
+      "data_source": "binance",
       "status": "untuned",
+      "available": true,
       "strategy": null,
       "timeframe": null,
       "params": {}
     },
     {
-      "symbol": "AKT/USDT",
-      "base": "AKT",
+      "symbol": "XAUT/USDT",
+      "base": "XAUT",
       "quote": "USDT",
+      "venue": "binance",
+      "market": "spot",
+      "data_source": "binance",
       "status": "untuned",
-      "strategy": null,
-      "timeframe": null,
-      "params": {}
-    },
-    {
-      "symbol": "EDGE/USDT",
-      "base": "EDGE",
-      "quote": "USDT",
-      "status": "untuned",
+      "available": true,
       "strategy": null,
       "timeframe": null,
       "params": {}
