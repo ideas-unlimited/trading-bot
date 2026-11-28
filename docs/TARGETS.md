@@ -1,7 +1,7 @@
 # Target symbols and per-symbol strategy rule
 
 `config/target_symbols.json` is the authoritative target list. It now contains
-**18 active Binance spot USDT pairs**. Other agents may read it to build one
+**19 active Binance spot USDT pairs**. Other agents may read it to build one
 strategy per symbol; do not add, remove or substitute symbols without the
 user's approval.
 
@@ -52,6 +52,13 @@ audit. They are not targets and must not be tuned or traded.
 | 16 | PYTH/USDT | Binance spot | untuned |
 | 17 | FET/USDT | Binance spot | untuned |
 | 18 | XAUT/USDT | Binance spot | untuned |
+| 19 | ENA/USDT | Binance spot | sleeve: `swing_breakout_ena`, paper |
+
+ENA was added on 2026-11-28 with the owner's approval, after it was found by
+the broad $1B-coin sweep (`research/BROAD_UNIVERSE.md`) and the sleeve passed
+its own evidence pack: year 1 (tuning window) +45.4%, year 2 untouched
++43.0% / -16.6% / 24 trades, 5/5 timeframes and 12/12 neighbouring parameter
+cells positive.
 
 ## Per-symbol strategy rule
 

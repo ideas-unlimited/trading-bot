@@ -21,7 +21,7 @@
   },
   "availability_checked": "2026-11-28",
   "availability_source": "https://data-api.binance.vision/api/v3/exchangeInfo",
-  "availability_note": "18 active Binance spot USDT pairs. The list was cleaned of symbols that are not available for trading on Binance spot, then XAUT was added.",
+  "availability_note": "19 active Binance spot USDT pairs. The list was cleaned of symbols that are not available for trading on Binance spot, then XAUT was added.",
   "removed": [
     {
       "symbol": "CC/USDT",
@@ -273,6 +273,19 @@
       "available": true,
       "strategy": null,
       "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "ENA/USDT",
+      "base": "ENA",
+      "quote": "USDT",
+      "venue": "binance",
+      "market": "spot",
+      "data_source": "binance",
+      "status": "sleeve",
+      "available": true,
+      "strategy": "swing_breakout_ena",
+      "timeframe": "4h",
       "params": {}
     }
   ]

@@ -1,0 +1,64 @@
+{
+  "strategy": "swing_breakout_ena",
+  "env": "paper",
+  "params_hash": "sha256:44136fa355b3678a",
+  "symbols": [
+    "ENA/USDT"
+  ],
+  "timeframe": "4h",
+  "capital": 1000.0,
+  "promoted_at": "2026-11-28T11:57:24+00:00",
+  "promoted_by": "agent",
+  "override": false,
+  "override_reason": "",
+  "checks": [
+    {
+      "name": "backtest_bars",
+      "ok": true,
+      "detail": "bars=2191"
+    },
+    {
+      "name": "backtest_window",
+      "ok": true,
+      "detail": "window_days=365"
+    },
+    {
+      "name": "backtest_trades",
+      "ok": true,
+      "detail": "trades=24"
+    },
+    {
+      "name": "costs_modelled",
+      "ok": true,
+      "detail": "fee_bps=10.0, slippage_bps=5.0"
+    },
+    {
+      "name": "params_hash",
+      "ok": true,
+      "detail": "evidence=sha256:44136fa355b3678a expected=sha256:44136fa355b3678a"
+    }
+  ],
+  "evidence": {
+    "symbol": "ENA/USDT",
+    "timeframe": "4h",
+    "window": "2025-11-28 .. 2026-11-28",
+    "bars": 2191,
+    "window_days": 365,
+    "trades": 24,
+    "fee_bps": 10,
+    "slippage_bps": 5,
+    "return_pct": 0.43,
+    "max_drawdown": -0.1658,
+    "win_rate": 0.375,
+    "profit_factor": 1.98,
+    "params_hash": "sha256:44136fa355b3678a",
+    "command": "python research/broad_evidence.py --picks \"ENA/USDT|lab breakout 120h s3 t5\"  # swing_breakout_ena, ENA/USDT, 4h",
+    "note": "shipped sleeve re-run through Engine on its out-of-sample year: next-open fills, stop-first intrabar, 3 ATR Chandelier trail, 18-bar time exit, 3% risk, 95% max position, drawdown switch off (0.99), 10 bps fee + 5 bps slippage a side. Parameters were selected on 2024-11-28..2025-11-27 (best of 26 configs, +45.4%) and never fitted to this window. Two-year cross-check: +123.2% / -16.6% / 47 trades against ENA hold -85.7%. Forward replay uses Engine, so the trail is exact; the live loop needs the Chandelier trail (src/bot/live.py) before its bot half may be released - until then this is a deliberate forward-only sleeve.",
+    "risk_per_trade": 0.03,
+    "max_position_pct": 0.95,
+    "max_drawdown_stop": 0.99
+  },
+  "active": true,
+  "demoted_at": "",
+  "demote_reason": ""
+}
