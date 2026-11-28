@@ -116,8 +116,8 @@ when you hit a new environment quirk and solve it, add it here and commit.
   and `research/PER_SYMBOL.md` (peer analysis, same conclusion).
 - **The forward sleeve runner is the same replay for one strategy.**
   `bot forward --all` walks every active manifest in one loop and runs each
-  strategy/symbol through `Engine` (stop, target and time exit included),
-  with one folder per sleeve:
+  strategy/symbol through `Engine` (stop, target, trailing stop and time
+  exit included), with one folder per sleeve:
   `runs/<env>/<strategy>/forward/status.json` plus `<SYMBOL>.trades.csv` and
   `<SYMBOL>.equity.csv`. One process serves all sleeves and re-reads the
   manifests each cycle, so promote/demote needs no unit edit; a broken
@@ -125,11 +125,15 @@ when you hit a new environment quirk and solve it, add it here and commit.
   replays one sleeve by hand and refuses outside `BOT_LAB` without an
   active manifest, and refuses a parameter set whose hash differs from the
   promoted one. Use it to validate a target-bearing sleeve. `bot live` now
-  manages **both** the stop and the fixed-R target locally (Binance spot has
-  no brackets), checked against each closed bar with the stop first, so a bar
-  that touches both is booked as a loss exactly like the engine. A live bot
-  therefore runs the same exit rule its backtest measured; before 2026-11-28
-  it silently ignored `take_profit` and only exited on the stop or a signal.
+  manages the stop, the fixed-R target and the Chandelier trail locally
+  (Binance spot has no brackets), checked against each closed bar with the
+  stop first, so a bar that touches both is booked as a loss exactly like
+  the engine. The trail is persisted as `trails` next to `stops`/`tps`: the
+  peak and ATR distance survive a restart, the stop only ratchets upwards,
+  and the trail is applied after the bar's exit check so no bar can both
+  raise the stop and fill against it. A live bot therefore runs the same
+  exit rule its backtest measured; before 2026-11-28 it silently ignored
+  `take_profit` and the trail, exiting only on the stop or a signal.
 
 - **One risk profile per runner, and it must be the one the sleeves were
   measured at.** `tradingbot-forward.service` runs 3% risk, 95% max position

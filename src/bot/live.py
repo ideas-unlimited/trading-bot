@@ -7,9 +7,11 @@ approximated by a market order), and routes orders to
 ``demo-api.binance.com`` with demo keys.  There is no production order path.
 
 Spot has no bracket orders, so every entry's stop lives in a small state file
-and is checked on each closed bar.  The venue is the source of truth for
-balances and equity; the state file only remembers the last processed bar
-and any locally-managed stop.
+and is checked on each closed bar.  The same file carries a Chandelier trail:
+the stop ratchets to peak - trail_atr * ATR after each closed bar's exit
+check, never downwards, so a bar cannot both raise the trail and fill against
+it.  The venue is the source of truth for balances and equity; the state file
+only remembers the last processed bar and the locally-managed exits.
 """
 
 from __future__ import annotations
@@ -91,7 +93,7 @@ class LiveTrader:
         self.state: dict[str, Any] = self._load_state()
         # Older state files only carried last_ts + stops; give every loop the
         # same shape so the dashboard view never depends on how it started.
-        for key in ("stops", "entries", "tps"):
+        for key in ("stops", "entries", "tps", "trails"):
             self.state.setdefault(key, {})
         self._last_view: dict[str, Any] = {}
         self._trade_warned = False
@@ -181,14 +183,33 @@ class LiveTrader:
                 f"[live] {skipped} missed bars skipped, resuming on the newest {self.max_catchup}"
             )
             closed = closed[-self.max_catchup:]
+        prepared = None
+        if closed:
+            from .backtest import bars_to_frame
+
+            prepared = self.strategy.prepare(bars_to_frame(bars))
         for bar in closed:
-            self._process_bar(bar, bars, equity, position, now)
+            i = self._bar_index(prepared, bar)
+            if i is None:
+                continue
+            # A position's exits and trail belong to the bar that just
+            # closed.  Check the old stop first, then ratchet for the next
+            # bar, and only then let the strategy signal at this close.
+            self._check_exits_bar(bar)
+            position = self._position_qty()
+            if position > 0:
+                self._ratchet_trail(bar, prepared, i)
+            self._process_bar(
+                bar, bars, equity, position, now, prepared=prepared, i=i,
+            )
             position = self._position_qty()
             equity = self._book_equity(self.client.get_account()) or equity
         if closed:
             self._save_state()
-
-        self._check_exits(bars, now)
+        else:
+            # No new closed bar: still enforce an exit on the newest one,
+            # which is what a restart onto an open position needs.
+            self._check_exits(bars, now)
         position = self._position_qty()
         self._view(position, bars)
         self._status(bars, equity, position)
@@ -391,7 +412,7 @@ class LiveTrader:
             "sell", qty, price, realized=realized, closed_by=why,
             order_id=str((order or {}).get("id") or ""), closed_at=ts,
         )
-        for key in ("stops", "tps", "entries"):
+        for key in ("stops", "tps", "entries", "trails"):
             self.state.get(key, {}).pop(self.symbol, None)
         self._save_state()
         # State is saved before the (possibly slow) alert, so a crash during
@@ -415,17 +436,24 @@ class LiveTrader:
         pos = self.client.get_position(self.symbol)
         return float(pos["qty"]) if pos else 0.0
 
-    def _process_bar(
-        self, bar: Bar, bars: list[Bar], equity: float, position: float, now: datetime
-    ) -> None:
-        from .backtest import bars_to_frame
+    def _bar_index(self, prepared: Any, bar: Bar) -> int | None:
+        """Positional row for a closed bar in the prepared frame."""
+        if prepared is None or "ts" not in prepared.columns:
+            return None
+        idx = (prepared["ts"] == bar.ts).to_numpy().nonzero()[0]
+        return int(idx[0]) if len(idx) else None
 
-        df = bars_to_frame(bars)
-        prepared = self.strategy.prepare(df)
-        idx = df.index[df["ts"] == bar.ts]
-        if len(idx) == 0:
-            return
-        i = int(idx[0])
+    def _process_bar(
+        self, bar: Bar, bars: list[Bar], equity: float, position: float, now: datetime,
+        *, prepared: Any = None, i: int | None = None,
+    ) -> None:
+        if prepared is None or i is None:
+            from .backtest import bars_to_frame
+
+            prepared = self.strategy.prepare(bars_to_frame(bars))
+            i = self._bar_index(prepared, bar)
+            if i is None:
+                return
         signal = self.strategy.signal(i, prepared, position)
         if signal is None:
             self._emit(f"[live] {bar.ts:%Y-%m-%d %H:%M} no signal")
@@ -449,16 +477,21 @@ class LiveTrader:
                     stop=signal.stop_loss,
                     take_profit=signal.take_profit,
                 )
+                # A new position owns its exits: never inherit a stale
+                # target (SUI has none) from the previous trade.
+                self.state["stops"].pop(self.symbol, None)
+                self.state.setdefault("tps", {}).pop(self.symbol, None)
                 if signal.stop_loss is not None:
                     self.state["stops"][self.symbol] = signal.stop_loss
                 if signal.take_profit is not None:
-                    self.state.setdefault("tps", {})[self.symbol] = signal.take_profit
+                    self.state["tps"][self.symbol] = signal.take_profit
                 # Book what the venue actually filled, not what was asked for.
                 filled = float(order.get("filled_qty") or qty)
                 fill_px = float(order.get("filled_avg_price") or bar.close)
                 self.state.setdefault("entries", {})[self.symbol] = {
                     "qty": filled, "price": fill_px, "ts": bar.ts.isoformat(),
                 }
+                self._set_trail(signal, fill_px, bar.ts)
                 self._book_fill(
                     "buy", filled, fill_px, order_id=str(order.get("id") or ""),
                 )
@@ -479,6 +512,126 @@ class LiveTrader:
             self._emit(f"[live] {bar.ts:%Y-%m-%d %H:%M} signal {signal.action.value} ignored (position {position})")
         self.state["last_ts"] = bar.ts.isoformat()
 
+    def _set_trail(self, signal: Any, fill_px: float, ts: datetime) -> None:
+        """Persist the trail that belongs to this entry, or clear it.
+
+        The peak starts at the fill, not at a bar high that happened before
+        the entry.  The live loop fills at the signal bar's close, so it must
+        skip that same bar when it later ratchets.
+        """
+        trails = self.state.setdefault("trails", {})
+        trail_atr = getattr(signal, "trail_atr", None)
+        if trail_atr is None or not float(trail_atr) > 0:
+            trails.pop(self.symbol, None)
+            return
+        risk0 = (
+            float(fill_px) - float(signal.stop_loss)
+            if signal.stop_loss is not None and float(signal.stop_loss) < float(fill_px)
+            else None
+        )
+        trails[self.symbol] = {
+            "atr": float(trail_atr),
+            "after_r": float(getattr(signal, "trail_after_r", 0.0) or 0.0),
+            "after_price": (
+                float(signal.trail_after_price)
+                if getattr(signal, "trail_after_price", None) is not None
+                else None
+            ),
+            "entry": float(fill_px),
+            "risk0": risk0,
+            "peak": float(fill_px),
+            "entry_ts": ts.isoformat(),
+        }
+
+    def _atr_at(self, prepared: Any, i: int) -> float | None:
+        if prepared is None or i < 0 or i >= len(prepared):
+            return None
+        if "atr" in prepared.columns:
+            value = float(prepared["atr"].iloc[i])
+        else:
+            from . import indicators as ind
+
+            series = ind.atr(
+                prepared["high"], prepared["low"], prepared["close"], 14,
+            )
+            value = float(series.iloc[i])
+        return value if value > 0 else None
+
+    def _ratchet_trail(self, bar: Bar, prepared: Any, i: int) -> None:
+        """Raise this entry's stop to peak minus trail_atr ATRs, up only.
+
+        This runs after the bar's exit check, so the new stop can only bind
+        from the next bar onwards.  It also skips the entry bar because live
+        entries fill at that bar's close, after the high already happened.
+        """
+        trail = self.state.get("trails", {}).get(self.symbol)
+        if not trail or self._position_qty() <= 0:
+            return
+        if trail.get("entry_ts") == bar.ts.isoformat():
+            return
+        trail_atr = float(trail.get("atr") or 0.0)
+        if trail_atr <= 0:
+            return
+
+        high = float(bar.high)
+        after_price = trail.get("after_price")
+        if after_price is not None:
+            if high < float(after_price):
+                return
+            # Armed once price touches the level; later dips cannot disarm it.
+            trail["after_price"] = None
+
+        after_r = float(trail.get("after_r") or 0.0)
+        entry = float(trail.get("entry") or 0.0)
+        risk0 = trail.get("risk0")
+        if after_r > 0:
+            if risk0 is None or float(risk0) <= 0 or entry <= 0:
+                return
+            if (float(bar.close) - entry) / float(risk0) < after_r:
+                return
+
+        peak = max(float(trail.get("peak") or entry), high)
+        trail["peak"] = peak
+        atr = self._atr_at(prepared, i)
+        if atr is None:
+            return
+        candidate = peak - trail_atr * atr
+        current = self.state.get("stops", {}).get(self.symbol)
+        if current is None or candidate > float(current):
+            self.state.setdefault("stops", {})[self.symbol] = candidate
+            self._emit(
+                f"[live] {bar.ts:%Y-%m-%d %H:%M} TRAIL stop={candidate:.4f} "
+                f"(peak {peak:.4f} - {trail_atr:g} ATR {atr:.4f})"
+            )
+
+    def _check_exits_bar(self, bar: Bar) -> None:
+        """Check one closed bar's stop then target, with gap fills."""
+        entry = self.state.get("entries", {}).get(self.symbol) or {}
+        if entry.get("ts") == bar.ts.isoformat():
+            # Live fills at this bar's close; its low/high happened before
+            # the position existed.  The first exit check is the next bar.
+            return
+        stop = self.state.get("stops", {}).get(self.symbol)
+        target = self.state.get("tps", {}).get(self.symbol)
+        qty = self._position_qty()
+        if stop is not None and bar.low <= stop:
+            # Gap-through: the open is the honest fill when it is already
+            # below the stop.  A mere wick fills at the stop.
+            price = min(float(bar.open), float(stop))
+            self._exit(qty, price, "stop", bar.ts, equity=self._last_equity)
+            self._emit(
+                f"[live] {bar.ts:%Y-%m-%d %H:%M} STOP hit "
+                f"({stop:.2f} >= low {bar.low:.2f}) -> closed {self.symbol}"
+            )
+            return
+        if target is not None and bar.high >= target:
+            price = max(float(bar.open), float(target))
+            self._exit(qty, price, "target", bar.ts, equity=self._last_equity)
+            self._emit(
+                f"[live] {bar.ts:%Y-%m-%d %H:%M} TARGET hit "
+                f"({target:.2f} <= high {bar.high:.2f}) -> closed {self.symbol}"
+            )
+
     def _check_exits(self, bars: list[Bar], now: datetime) -> None:
         """Spot stops and targets are local: Binance spot has no brackets.
 
@@ -491,17 +644,7 @@ class LiveTrader:
         latest = bars[-1]
         if latest.ts + self.duration > now:
             return
-        stop = self.state.get("stops", {}).get(self.symbol)
-        target = self.state.get("tps", {}).get(self.symbol)
-        qty = self._position_qty()
-        if stop is not None and latest.low <= stop:
-            self._exit(qty, stop, "stop", latest.ts, equity=self._last_equity)
-            self._emit(f"[live] {latest.ts:%Y-%m-%d %H:%M} STOP hit ({stop:.2f} <= low {latest.low:.2f}) -> closed {self.symbol}")
-            return
-        if target is not None and latest.high >= target:
-            # Fill at the target level, the same convention the backtest uses.
-            self._exit(qty, target, "target", latest.ts, equity=self._last_equity)
-            self._emit(f"[live] {latest.ts:%Y-%m-%d %H:%M} TARGET hit ({target:.2f} <= high {latest.high:.2f}) -> closed {self.symbol}")
+        self._check_exits_bar(latest)
 
     def _status(self, bars: list[Bar], equity: float, position: float) -> None:
         if bars:

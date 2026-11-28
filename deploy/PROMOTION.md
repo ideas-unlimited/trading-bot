@@ -39,9 +39,10 @@ Entry requirements:
   the gate reads `bars`, `window_days`, `trades`, `fee_bps`,
   `slippage_bps` and `params_hash` (the hash of `--params`);
 - the forward runner reproduces the backtest's exits: `bot forward` replays
-  the same `Engine`, so the stop, take-profit and time exit are the measured
-  ones. `bot live` manages the same stop and fixed-R target locally on each
-  closed bar (stop checked first), so it no longer drops the target.
+  the same `Engine`, so the stop, take-profit, trailing stop and time exit
+  are the measured ones. `bot live` manages the same stop, fixed-R target
+  and Chandelier trail locally on each closed bar (stop checked first, then
+  the trail is raised for the next bar), so it no longer drops either one.
 
 Paper capital is **$1,000 per bot/strategy**. It is simulated money; the point
 is that every strategy is measured on the same stake.
@@ -172,10 +173,12 @@ unavailable:
      (NUMERIC columns) and the Bots page showed no bots at all while every
      unit and heartbeat was healthy.
    - `/var/lib/tradingbot/paper/<strategy>-paper.json` holds `last_ts`, and once the
-     bot is in a trade it holds **both** `stops` and `tps` for the symbol.
-     A stop without a target means the bot will hold past its fixed-R exit:
-     `bot live` checked only the stop until 2026-11-28, so a sleeve measured
-     with a target ran a different rule live than in its backtest.
+     bot is in a trade it holds `stops`, `tps` when the sleeve has a fixed-R
+     target, and `trails` when it has a Chandelier exit.  A trail entry
+     carries the peak, ATR distance and arming state, so a restart cannot
+     reset or lower the stop.  `bot live` checked only the stop until
+     2026-11-28, then added the target; a sleeve measured with a target or
+     trail therefore ran a different rule live until both landed.
    - the Bots page shows it running with the position, stop and target.
 4. **Trade alerts are shared, not per-bot.** Every live
    `tradingbot@<strategy>-paper` reads `/etc/tradingbot/alerts.env`; there is no

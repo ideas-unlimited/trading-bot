@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
+from bot.backtest import bars_to_frame
 from bot.config import BotConfig
 from bot.data.feed import Bar
 from bot.exchange.live_client import duration_for, interval_for, split_symbol
@@ -75,6 +76,59 @@ class _FakeClient:
     def close_position(self, symbol):
         self.closed.append(symbol)
         return {}
+
+
+class _TrackingClient(_FakeClient):
+    """Fake venue that actually goes flat when a position is closed."""
+
+    def __init__(self, rows: list[dict]):
+        super().__init__(rows)
+        self.qty = 0.0
+
+    def submit_order(self, symbol, side, qty, **kwargs):
+        order = super().submit_order(symbol, side, qty, **kwargs)
+        if side == "buy":
+            self.qty += float(qty)
+        else:
+            self.qty = max(0.0, self.qty - float(qty))
+        return order
+
+    def close_position(self, symbol):
+        self.qty = 0.0
+        return super().close_position(symbol)
+
+    def get_position(self, symbol):
+        return {"qty": self.qty} if self.qty else None
+
+
+class TrailBuy(Strategy):
+    """Enters once, then lets the trail be the only exit."""
+
+    name = "test_trail_buy"
+    warmup = 1
+    PARAMS = ("trail", "after", "arm")
+
+    def __init__(
+        self,
+        trail: float | None = 2.0,
+        after: float = 0.0,
+        arm: float | None = None,
+    ) -> None:
+        super().__init__(trail=trail, after=after, arm=arm)
+
+    def prepare(self, df):
+        out = df.copy()
+        out["atr"] = 2.0
+        return out
+
+    def signal(self, i, df, position):
+        if position <= 0 and i == 0:
+            return Signal(
+                Action.BUY, "test trail", stop_loss=90.0,
+                trail_atr=self.trail, trail_after_r=self.after,
+                trail_after_price=self.arm,
+            )
+        return None
 
 
 class LiveClientHelpersTests(unittest.TestCase):
@@ -310,6 +364,229 @@ class LiveTraderTests(unittest.TestCase):
             self.assertGreaterEqual(len(buys), 1)
             entry = price(120 - 1)  # last processed bar's price order of magnitude
             self.assertLessEqual(buys[0]["qty"] * entry, 1_000.0 * 1.01)
+
+
+class LiveTrailTests(unittest.TestCase):
+    """Chandelier trail in the live loop, with the engine's ordering."""
+
+    def _trader(self, tmp: Path, client: _TrackingClient, strategy=None) -> LiveTrader:
+        return LiveTrader(
+            client, strategy or TrailBuy(), BotConfig(initial_cash=10_000.0),
+            "BTC/USDT", "1d", state_path=tmp / "state.json",
+            stream=io.StringIO(), clock=lambda s: None,
+        )
+
+    def _rows(self) -> list[dict]:
+        def row(day: int, o: float, h: float, l: float, c: float) -> dict:
+            return {
+                "t": f"2024-01-{day:02d}T00:00:00Z",
+                "o": o, "h": h, "l": l, "c": c, "v": 1000.0,
+            }
+
+        return [
+            row(1, 100, 200, 99, 100),   # signal bar: huge high must never trail
+            row(2, 100, 120, 100, 118),  # peak 120 -> 2 ATR trail at 116
+            row(3, 118, 119, 115, 117),  # old stop 116 fills before any new trail
+            row(4, 117, 121, 116, 120),
+        ]
+
+    def _seed(self, trader: LiveTrader, bars: list[Bar]) -> None:
+        trader.state["entries"]["BTC/USDT"] = {
+            "qty": 1.0, "price": 100.0, "ts": bars[0].ts.isoformat(),
+        }
+        trader.state["stops"]["BTC/USDT"] = 90.0
+        trader._set_trail(
+            Signal(Action.BUY, "trail", stop_loss=90.0, trail_atr=2.0),
+            100.0, bars[0].ts,
+        )
+
+    def test_entry_bar_is_never_trailed(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            rows = self._rows()
+            client = _TrackingClient(rows)
+            client.qty = 1.0
+            trader = self._trader(tmp, client)
+            bars = _bars(rows)
+            prepared = trader.strategy.prepare(bars_to_frame(bars))
+            self._seed(trader, bars)
+            trader._ratchet_trail(bars[0], prepared, 0)
+            self.assertEqual(trader.state["stops"]["BTC/USDT"], 90.0)
+            trader._ratchet_trail(bars[1], prepared, 1)
+            self.assertAlmostEqual(trader.state["stops"]["BTC/USDT"], 116.0)
+
+    def test_entry_bar_cannot_stop_a_position_opened_at_its_close(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            rows = self._rows()
+            client = _TrackingClient(rows)
+            client.qty = 1.0
+            trader = self._trader(tmp, client)
+            bars = _bars(rows)
+            self._seed(trader, bars)
+            entry_bar = Bar(
+                ts=bars[0].ts, open=100.0, high=101.0, low=80.0,
+                close=100.0, volume=1.0,
+            )
+            trader._check_exits_bar(entry_bar)
+            self.assertEqual(client.closed, [])
+
+    def test_trail_never_moves_down(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            rows = self._rows()
+            client = _TrackingClient(rows)
+            client.qty = 1.0
+            trader = self._trader(tmp, client)
+            bars = _bars(rows)
+            prepared = trader.strategy.prepare(bars_to_frame(bars))
+            self._seed(trader, bars)
+            trader._ratchet_trail(bars[1], prepared, 1)
+            self.assertAlmostEqual(trader.state["stops"]["BTC/USDT"], 116.0)
+            trader._ratchet_trail(bars[2], prepared, 2)  # high 119 < old peak
+            self.assertAlmostEqual(trader.state["stops"]["BTC/USDT"], 116.0)
+            self.assertAlmostEqual(trader.state["trails"]["BTC/USDT"]["peak"], 120.0)
+
+    def test_exit_check_runs_before_the_trail_raises(self) -> None:
+        """A bar may not both lift the stop and fill against the lifted stop."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            rows = self._rows()
+            client = _TrackingClient(rows)
+            client.qty = 1.0
+            trader = self._trader(tmp, client)
+            bars = _bars(rows)
+            prepared = trader.strategy.prepare(bars_to_frame(bars))
+            self._seed(trader, bars)
+            trader.state["stops"]["BTC/USDT"] = 100.0
+            bar = Bar(
+                ts=bars[1].ts, open=107.0, high=110.0, low=105.0,
+                close=107.0, volume=1.0,
+            )
+            trader._check_exits_bar(bar)  # low 105 is above the old stop 100
+            self.assertEqual(client.closed, [])
+            trader._ratchet_trail(bar, prepared, 1)  # then lifts to 106
+            self.assertAlmostEqual(trader.state["stops"]["BTC/USDT"], 106.0)
+
+    def test_signal_without_a_trail_keeps_the_fixed_stop(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            rows = self._rows()
+            client = _TrackingClient(rows)
+            client.qty = 1.0
+            trader = self._trader(tmp, client)
+            bars = _bars(rows)
+            prepared = trader.strategy.prepare(bars_to_frame(bars))
+            trader._set_trail(
+                Signal(Action.BUY, "fixed", stop_loss=90.0, trail_atr=None),
+                100.0, bars[0].ts,
+            )
+            trader.state["stops"]["BTC/USDT"] = 90.0
+            self.assertNotIn("BTC/USDT", trader.state["trails"])
+            trader._ratchet_trail(bars[1], prepared, 1)
+            self.assertEqual(trader.state["stops"]["BTC/USDT"], 90.0)
+
+    def test_trail_after_r_waits_for_the_configured_gain(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            rows = self._rows()
+            client = _TrackingClient(rows)
+            client.qty = 1.0
+            trader = self._trader(tmp, client)
+            bars = _bars(rows)
+            prepared = trader.strategy.prepare(bars_to_frame(bars))
+            trader._set_trail(
+                Signal(Action.BUY, "trail", stop_loss=90.0, trail_atr=2.0,
+                       trail_after_r=1.0),
+                100.0, bars[0].ts,
+            )
+            trader.state["stops"]["BTC/USDT"] = 90.0
+            early = Bar(
+                ts=bars[1].ts, open=104.0, high=105.0, low=104.0,
+                close=105.0, volume=1.0,
+            )
+            trader._ratchet_trail(early, prepared, 1)  # 0.5R: not armed
+            self.assertEqual(trader.state["stops"]["BTC/USDT"], 90.0)
+            late = Bar(
+                ts=bars[2].ts, open=105.0, high=111.0, low=105.0,
+                close=111.0, volume=1.0,
+            )
+            trader._ratchet_trail(late, prepared, 2)  # 1.1R: peak 111 -> 107
+            self.assertAlmostEqual(trader.state["stops"]["BTC/USDT"], 107.0)
+
+    def test_trail_can_wait_for_a_price_level(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            rows = self._rows()
+            client = _TrackingClient(rows)
+            client.qty = 1.0
+            trader = self._trader(tmp, client)
+            bars = _bars(rows)
+            prepared = trader.strategy.prepare(bars_to_frame(bars))
+            trader._set_trail(
+                Signal(Action.BUY, "trail", stop_loss=90.0, trail_atr=2.0,
+                       trail_after_price=130.0),
+                100.0, bars[0].ts,
+            )
+            trader.state["stops"]["BTC/USDT"] = 90.0
+            trader._ratchet_trail(bars[1], prepared, 1)  # high 120 < 130
+            self.assertEqual(trader.state["stops"]["BTC/USDT"], 90.0)
+            self.assertEqual(trader.state["trails"]["BTC/USDT"]["after_price"], 130.0)
+
+    def test_trail_state_survives_a_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            rows = self._rows()
+            client = _TrackingClient(rows)
+            client.qty = 1.0
+            trader = self._trader(tmp, client)
+            bars = _bars(rows)
+            prepared = trader.strategy.prepare(bars_to_frame(bars))
+            self._seed(trader, bars)
+            trader._ratchet_trail(bars[1], prepared, 1)
+            trader._save_state()
+            restarted = self._trader(tmp, client)
+            lower = _bars([
+                {"t": "2024-01-03T00:00:00Z", "o": 118, "h": 118,
+                 "l": 117, "c": 117, "v": 1000.0},
+            ])[0]
+            restarted._ratchet_trail(lower, prepared, 2)
+            self.assertAlmostEqual(restarted.state["stops"]["BTC/USDT"], 116.0)
+            self.assertAlmostEqual(restarted.state["trails"]["BTC/USDT"]["peak"], 120.0)
+
+    def test_poll_trails_then_stops_on_the_middle_bar(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            rows = self._rows()
+            client = _TrackingClient(rows)
+            trader = self._trader(tmp, client)
+            # Pretend the previous poll stopped before the first test bar,
+            # so this poll processes the entry, the trail and the stop.
+            trader.state["last_ts"] = "2023-12-31T00:00:00+00:00"
+            trader.poll(now=datetime(2024, 1, 5, tzinfo=timezone.utc))
+            self.assertEqual(client.closed, ["BTC/USDT"])
+            self.assertNotIn("BTC/USDT", trader.state["stops"])
+            self.assertNotIn("BTC/USDT", trader.state["trails"])
+            log = trader.stream.getvalue()
+            self.assertIn("TRAIL stop=116.0000", log)
+            self.assertIn("STOP hit", log)
+
+    def test_stop_gap_fills_at_the_open(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            rows = self._rows()
+            client = _TrackingClient(rows)
+            client.qty = 1.0
+            trader = self._trader(tmp, client)
+            trader.state["stops"]["BTC/USDT"] = 100.0
+            gap = Bar(
+                ts=datetime(2024, 1, 3, tzinfo=timezone.utc),
+                open=90.0, high=95.0, low=85.0, close=92.0, volume=1.0,
+            )
+            with mock.patch.object(trader, "_exit") as exit_mock:
+                trader._check_exits_bar(gap)
+            exit_mock.assert_called_once()
+            self.assertEqual(exit_mock.call_args.args[1], 90.0)
 
 
 class LiveAlertTests(unittest.TestCase):
