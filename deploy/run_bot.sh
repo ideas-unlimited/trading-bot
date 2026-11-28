@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# systemd entry point for one bot: deploy/run_bot.sh <name>
+# systemd entry point for one bot: deploy/run_bot.sh <strategy>-<env>
 # Reads /etc/tradingbot/<name>.env and execs the live loop in the foreground.
+# Naming convention: <strategy>-<env>, e.g. capitulation_dip_uni-paper.
 set -euo pipefail
 
-name=${1:?usage: run_bot.sh <btc|eth|sol>}
+name=${1:?usage: run_bot.sh <strategy>-<env>  (e.g. capitulation_dip_uni-paper)}
 conf="/etc/tradingbot/${name}.env"
 [[ -r "$conf" ]] || { echo "missing $conf" >&2; exit 1; }
 
