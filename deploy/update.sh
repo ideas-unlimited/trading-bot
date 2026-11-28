@@ -41,6 +41,8 @@ if [[ -f /etc/systemd/system/tradingbot-forward.service ]]; then
   systemctl enable tradingbot-forward.service
   systemctl is-active --quiet tradingbot-forward || systemctl start tradingbot-forward
 fi
+# Git on Windows stores every file 0644; units exec these scripts directly.
+chmod +x "$APP_DIR"/deploy/*.sh
 
 if [[ "$BEFORE" == "$AFTER" ]]; then
   echo "already at $AFTER"
