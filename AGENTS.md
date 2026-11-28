@@ -62,6 +62,13 @@ when you hit a new environment quirk and solve it, add it here and commit.
 - **Prefer the Postgres bars cache over new CSV pipelines.** If a research
   fetcher must read elsewhere (e.g. Binance), upsert into `bars` so the data
   lands in one place.
+- **Every NUMERIC column comes back as a `Decimal`, and `json.dumps` refuses
+  it.** Never hand a database row straight to `json.dumps`: the web layer
+  ran one through and `/api/bots` died with `TypeError: Object of type
+  Decimal is not JSON serializable` - the connection closed with no body, so
+  the Bots page showed nothing while all five bots were healthy (fixed
+  2026-11-28). Pass payloads through `bot.web._jsonify`, which also turns
+  NaN into null; `_send_json` keeps `_json_default` as the backstop.
 
 ## Live paper books (`bot auto`)
 

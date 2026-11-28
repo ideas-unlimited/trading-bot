@@ -62,6 +62,14 @@ deploy mark is pinned on the first cycle and re-pinned (old date kept as
 systemd unit runs it: `tradingbot-forward.service`, state under
 `/var/lib/tradingbot/paper/<strategy>/forward/`.
 
+**Changing the runner's `--risk-*` flags rescales the whole curve and does not
+move the window, so the deploy mark is not re-taken** and every sleeve shows a
+phantom move "since deploy". After such a change, delete the affected
+`.../forward/status.json` files: the next cycle re-pins at the current equity.
+Done for `capitulation_dip_uni` and `jup_liquidity_15m` on 2026-11-28, where
+moving the unit from 5%/50%/10% to the sleeves' 3%/95%/no-brake turned UNI from
+a correct +38.5% history into a fake -17.5% "live since deploy" in two minutes.
+
 ### Release steps on the box (the step that was missed for UNI)
 
 A promotion only **authorizes** a strategy. Nothing runs until two different
@@ -112,13 +120,24 @@ Full release, in order, after commit -> push -> `sudo bash
    --max-drawdown-stop` on its ExecStart; one runner serves every sleeve, so
    a sleeve measured at a different profile is only mirrored exactly by its
    own `bot live` process.
-3. **Verify the bot is really alive**, all three:
+3. **Verify the bot is really alive**, all four:
    - `journalctl -u tradingbot@<name>` shows "paper trading <SYMBOL> @ <tf>
      on Binance DEMO account" and the first poll line (anchored to now,
-     skipping historical bars);
-   - `curl -s http://127.0.0.1:9000/api/bots` lists the bot with a fresh
-     `last_heartbeat_at`;
-   - the Bots page shows it running.
+     skipping historical bars). **A fresh bot is flat until the next bar
+     close** - "position=flat" on a 4h bot at 08:30 is correct, not a fault.
+   - the monitor really answers:
+     `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:9000/api/bots`
+     must print `200`, and the body must list the bot. A 500 or an empty
+     body is a broken monitor, not a quiet book: on 2026-11-28 that endpoint
+     raised `TypeError: Object of type Decimal is not JSON serializable`
+     (NUMERIC columns) and the Bots page showed no bots at all while every
+     unit and heartbeat was healthy.
+   - `/var/lib/tradingbot/paper/<name>.json` holds `last_ts`, and once the
+     bot is in a trade it holds **both** `stops` and `tps` for the symbol.
+     A stop without a target means the bot will hold past its fixed-R exit:
+     `bot live` checked only the stop until 2026-11-28, so a sleeve measured
+     with a target ran a different rule live than in its backtest.
+   - the Bots page shows it running with the position, stop and target.
 4. **Trade alerts are shared, not per-bot.** Every live
    `tradingbot@<name>` reads `/etc/tradingbot/alerts.env`; there is no
    per-bot alert setting. Configure it once (README, "Trade alerts"), then
@@ -130,7 +149,12 @@ Full release, in order, after commit -> push -> `sudo bash
 5. **Box checks:** `/etc/tradingbot/` must be `root:trader 750` - the
    `trader` user has to traverse it to read its own env file (this silently
    broke every bot on 2026-11-28). One bot per symbol (they share one demo
-   account). `STATE` lives under `/var/lib/tradingbot/`. A sub-4h strategy
+   account, so two bots read the same balance and close each other's
+   position). **If the symbol already has a bot, the new sleeve stays
+   forward-only - do not start a second unit.** `capitulation_dip_jup` is in
+   exactly that state while `jup_liquidity_15m` trades JUP: the 4h sleeve
+   accrues its record in the forward replay and the live slot stays with the
+   bot that already owns the symbol. `STATE` lives under `/var/lib/tradingbot/`. A sub-4h strategy
    keeps the 1-year evidence cap everywhere, including here.
 6. **Reconcile after every release.** Re-walk this checklist against what
    is actually running: units active, env risk knobs equal the measured
