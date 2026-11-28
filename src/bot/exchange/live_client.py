@@ -25,7 +25,7 @@ from typing import Any
 
 from ..data.binance import INTERVALS, fetch_binance_bars, fetch_price
 from ..data.feed import Bar
-from ..envdot import load_env
+from ..envdot import load_env, load_env_for
 from .binance import DEMO_BASE, BinanceSpotBroker, BrokerError
 
 #: Quote assets we can split off a symbol without a separator.
@@ -94,19 +94,38 @@ class BinanceLiveClient:
         api_key: str | None = None,
         api_secret: str | None = None,
         *,
-        env_file: str = ".env",
+        env_file: str | None = None,
+        env: str | None = None,
         broker: BinanceSpotBroker | None = None,
         base_url: str = DEMO_BASE,
         timeout: float = 20.0,
     ) -> None:
-        load_env(env_file)
+        from ..envcfg import env_name as configured_env
+        from ..envdot import load_env_for
+
+        self.env = (env or configured_env()).strip().lower()
+        if env_file is not None:
+            load_env(env_file)
+        else:
+            load_env_for(self.env)
+
+        # Rail 1: prod may never hold or display a demo wallet.  Demo keys are
+        # virtual money; seeing them under a PRODUCTION banner is the exact
+        # mistake that teaches people to trust the wrong number.
+        if self.env == "prod":
+            raise BrokerError(
+                "PROD refused: this build has no live venue. Demo credentials are "
+                "never accepted in prod, and real-money routing must be built and "
+                "reviewed deliberately. No balances can be read and no order can "
+                "be placed here yet."
+            )
         self.api_key = api_key or os.environ.get("BINANCE_DEMO_KEY") or ""
         self.api_secret = api_secret or os.environ.get("BINANCE_DEMO_SECRET") or ""
         if broker is None:
             if not self.api_key or not self.api_secret:
                 raise BrokerError(
                     "Missing Binance demo credentials. Set BINANCE_DEMO_KEY and "
-                    "BINANCE_DEMO_SECRET in .env (or /opt/trading-bot/.env); "
+                    "BINANCE_DEMO_SECRET in .env.paper (server) or .env (laptop); "
                     "create them under Binance -> API Management -> demo trading."
                 )
             broker = BinanceSpotBroker(

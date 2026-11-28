@@ -4,71 +4,86 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>trading-bot · {{ENV_NAME}}</title>
-<style>
   :root {
-    --bg: #0a0d13; --panel: #111623; --panel2: #161d2c; --border: #222b3f;
-    --text: #e7ecf5; --muted: #8a94a9; --accent: #4f9cf9; --accent2: #f5a623;
-    --good: #3fb970; --bad: #e5534b; --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+    --bg: #0b0e11; --panel: #12161d; --panel2: #171d26; --border: #232b37;
+    --text: #eaecef; --muted: #848e9c; --accent: #4f8cff; --accent2: #f0b90b;
+    --good: #0ecb81; --bad: #f6465d; --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
-         font: 13.5px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; min-height: 100vh; }
+         font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; min-height: 100vh; }
 
   /* ---- sidebar ---- */
-  nav { width: 190px; background: var(--panel); border-right: 1px solid var(--border);
-        padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; }
-  .logo { font-weight: 700; font-size: 15px; letter-spacing: .5px; padding: 4px 10px 14px; }
+  nav { width: 196px; background: #0e1116; border-right: 1px solid var(--border);
+        padding: 14px 10px; display: flex; flex-direction: column; gap: 1px; }
+  .logo { font-weight: 700; font-size: 14.5px; letter-spacing: .4px; padding: 4px 10px 16px; }
   .logo span { color: var(--accent); }
-  nav a { display: block; padding: 9px 12px; border-radius: 8px; color: var(--muted);
-          text-decoration: none; font-size: 13.5px; cursor: pointer; }
-  nav a:hover { background: var(--panel2); color: var(--text); }
-  nav a.on { background: var(--accent); color: #fff; }
+  nav a { display: block; padding: 8px 10px; border-radius: 6px; color: #b7c0cd;
+          text-decoration: none; font-size: 13px; cursor: pointer;
+          box-shadow: inset 2px 0 0 transparent; }
+  nav a:hover { background: #151b24; color: var(--text); }
+  nav a.on { background: #18202b; color: #fff; box-shadow: inset 2px 0 0 var(--accent); }
   nav .foot { margin-top: auto; font-size: 10.5px; color: var(--muted); padding: 10px; }
 
   /* ---- main ---- */
   main { flex: 1; min-width: 0; }
-  .topbar { display: flex; align-items: center; gap: 14px; padding: 10px 20px;
-            border-bottom: 1px solid var(--border); background: var(--panel); }
-  .topbar .title { font-weight: 600; font-size: 14px; }
-  #accountChip { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--muted); }
-  #accountChip b { color: var(--text); }
-  .view { display: none; padding: 18px 20px 60px; max-width: 1280px; }
+  .topbar { display: flex; align-items: center; gap: 12px; padding: 10px 22px;
+            border-bottom: 1px solid var(--border); background: #0e1116; }
+  .topbar .title { font-weight: 600; font-size: 14px; letter-spacing: .2px; }
+  #accountChip { margin-left: auto; font: 12px var(--mono); color: var(--muted); }
+  #accountChip b { color: var(--text); font-weight: 600; }
+  .view { display: none; padding: 20px 22px 60px; max-width: 1240px; }
   .view.on { display: block; }
-  .grid { display: grid; gap: 14px; }
-  .cols-2 { grid-template-columns: 340px 1fr; align-items: start; }
+  .grid { display: grid; gap: 12px; }
+  .cols-2 { grid-template-columns: 360px 1fr; align-items: start; }
   @media (max-width: 980px) { .cols-2 { grid-template-columns: 1fr; } }
-  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
-  .card h2 { font-size: 11.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 0 0 10px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .card h2 { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+             font-size: 11px; text-transform: uppercase; letter-spacing: .9px;
+             color: #9aa4b2; margin: 0 0 12px; font-weight: 600; }
   label { display: block; font-size: 11.5px; color: var(--muted); margin: 9px 0 3px; }
-  input, select { width: 100%; padding: 7px 9px; background: var(--bg); color: var(--text);
-                  border: 1px solid var(--border); border-radius: 7px; font: inherit; }
+  input, select { width: 100%; padding: 7px 9px; background: #0b0e11; color: var(--text);
+                  border: 1px solid var(--border); border-radius: 6px; font: inherit; }
   .chips { display: flex; flex-wrap: wrap; gap: 5px; }
-  .chip { padding: 4px 11px; border: 1px solid var(--border); border-radius: 999px;
-          cursor: pointer; font-size: 12.5px; color: var(--muted); user-select: none; }
-  .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip { padding: 4px 11px; border: 1px solid var(--border); border-radius: 6px;
+          cursor: pointer; font-size: 12px; color: var(--muted); user-select: none; }
+  .chip.on { background: #1b2533; border-color: #35507a; color: #fff; }
   .row { display: flex; gap: 7px; } .row > * { flex: 1; }
-  button.primary { width: 100%; margin-top: 12px; padding: 9px; border: 0; border-radius: 8px;
-                   background: var(--accent); color: #fff; font: 600 13.5px inherit; cursor: pointer; }
+  button.primary { width: 100%; margin-top: 12px; padding: 9px; border: 0; border-radius: 6px;
+                   background: var(--accent); color: #fff; font: 600 13px inherit; cursor: pointer; }
   button.primary:disabled { opacity: .55; cursor: wait; }
   button.ghost, button.small { background: transparent; border: 1px solid var(--border); color: var(--text);
-                 border-radius: 7px; cursor: pointer; font: inherit; }
+                 border-radius: 6px; cursor: pointer; font: inherit; }
   button.ghost { width: 100%; margin-top: 7px; padding: 8px; }
   button.small { padding: 3px 9px; font-size: 12px; }
-  button.danger { color: var(--bad); border-color: #3a2023; }
-  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
-  th { text-align: right; color: var(--muted); font-weight: 500; padding: 5px 7px;
-       border-bottom: 1px solid var(--border); white-space: nowrap; }
+  button.danger { color: var(--bad); border-color: #42222a; }
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px;
+          font-variant-numeric: tabular-nums; }
+  th { text-align: right; color: var(--muted); font-weight: 500; padding: 6px 8px;
+       border-bottom: 1px solid var(--border); white-space: nowrap;
+       font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; }
   th:first-child, td:first-child { text-align: left; }
-  td { text-align: right; padding: 5px 7px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-  tr:hover td { background: var(--panel2); }
+  td { text-align: right; padding: 7px 8px; border-bottom: 1px solid #1b222c; white-space: nowrap; }
+  tbody tr:hover td, tr:hover td { background: #151b24; }
+  tbody tr:last-child td { border-bottom: 0; }
   .pos { color: var(--good); } .neg { color: var(--bad); } .dim { color: var(--muted); }
-  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 9px; }
-  .metric { background: var(--panel2); border: 1px solid var(--border); border-radius: 9px; padding: 9px 11px; }
-  .metric .k { font-size: 10.5px; color: var(--muted); }
-  .metric .v { font-family: var(--mono); font-size: 15px; margin-top: 1px; }
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+  .metric { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+  .metric .k { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .7px; }
+  .metric .v { font-family: var(--mono); font-size: 19px; margin-top: 3px; line-height: 1.25; }
+  .metric .d { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .badge { font: 600 10px/1 var(--mono); letter-spacing: .8px; padding: 4px 7px;
+           border-radius: 4px; border: 1px solid var(--border); color: var(--muted);
+           text-transform: uppercase; }
+  .badge.demo { color: #f0b90b; border-color: #4a3a12; background: #221c0b; }
+  .badge.live { color: var(--good); border-color: #17402c; background: #0c1f16; }
+  .badge.muted { color: var(--muted); }
+  .alloc { height: 4px; background: #1d2530; border-radius: 2px; overflow: hidden; min-width: 60px; }
+  .alloc i { display: block; height: 100%; background: var(--accent); }
+  .empty { text-align: center; color: var(--muted); padding: 22px 10px; font-size: 12px; }
   svg#chart, svg#eqChart { width: 100%; height: 250px; display: block; }
-  .error { background: #2a1416; border: 1px solid var(--bad); color: #f3b0ab;
-           border-radius: 9px; padding: 9px 13px; margin: 10px 0; }
+  .error { background: #241316; border: 1px solid #5c2731; color: #f3b0ab;
+           border-radius: 8px; padding: 9px 13px; margin: 10px 0; }
   .scroll { max-height: 320px; overflow: auto; }
   .hidden { display: none !important; }
   /* ---- environment identity: never ambiguous, never cached wrong ---- */
@@ -85,19 +100,18 @@
           border-top-color: #fff; border-radius: 50%; animation: r .9s linear infinite; vertical-align: -2px; }
   @keyframes r { to { transform: rotate(360deg); } }
   .hint { font-size: 11.5px; color: var(--muted); margin-top: 7px; }
-</style>
 </head>
 <body class="{{ENV}}">
 <div class="envbar">{{ENV_LABEL}}<span>·</span>{{ENV_NOTE}}</div>
 <nav>
   <div class="logo">trading<span>bot</span></div>
-  <a data-view="dashboard" class="on">◆ Dashboard</a>
-  <a data-view="bots">⚙ Bots</a>
-  <a data-view="strategies">◈ Strategies</a>
-  <a data-view="backtest">↯ Backtest</a>
-  <a data-view="scan">≡ Scan</a>
-  <a data-view="trades">$ Trades &amp; P&L</a>
-  <a data-view="data">⛃ Data</a>
+  <a data-view="dashboard" class="on">Dashboard</a>
+  <a data-view="bots">Bots</a>
+  <a data-view="strategies">Strategies</a>
+  <a data-view="backtest">Backtest</a>
+  <a data-view="scan">Scan</a>
+  <a data-view="trades">Trades &amp; P&L</a>
+  <a data-view="data">Data</a>
   <div class="foot">{{ENV_FOOT}}</div>
 </nav>
 <main>
@@ -110,16 +124,21 @@
 
   <!-- ================= DASHBOARD ================= -->
   <div class="view on" id="view-dashboard">
-    <div class="metrics" id="dashMetrics" style="margin-bottom:14px"></div>
+    <div class="metrics" id="dashMetrics" style="margin-bottom:12px"></div>
     <div class="grid cols-2">
+      <div class="card">
+        <h2>Assets <span id="venueBadge" class="badge muted">…</span></h2>
+        <table id="dashAssets"></table>
+        <div class="hint" id="assetsHint"></div>
+      </div>
       <div class="card">
         <h2>Open positions</h2>
         <table id="dashPositions"></table>
       </div>
-      <div class="card">
-        <h2>Recent runs</h2>
-        <table id="dashRuns"></table>
-      </div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <h2>Recent runs</h2>
+      <table id="dashRuns"></table>
     </div>
   </div>
 
@@ -504,27 +523,74 @@ function costPayload(prefix){
 }
 
 /* ================= dashboard ================= */
+const money = (x, dp=2) => "$" + Number(x||0).toLocaleString(undefined,{minimumFractionDigits:dp,maximumFractionDigits:dp});
+const qtyFmt = (x) => Number(x||0).toLocaleString(undefined,{maximumFractionDigits:8});
 async function loadAccount(){
   try {
     const a = await api("/api/account");
-    if (a.error) throw new Error(a.error);
-    $("accountChip").innerHTML = `account <b>${a.account_number}</b> · equity <b>$${Number(a.equity).toLocaleString()}</b> · cash $${Number(a.cash).toLocaleString()} · positions ${a.positions.length}`;
+    const venue = (a.venue || "demo").toUpperCase();
+    if (a.error) {
+      $("accountChip").innerHTML = venue === "LIVE"
+        ? `<b>${venue}</b> · venue not configured`
+        : `account: ${esc(a.error)}`;
+      return a;
+    }
+    $("accountChip").innerHTML = `<b>${venue}</b> · equity <b>${money(a.equity)}</b> · cash ${money(a.cash)} · ${a.positions.length} position${a.positions.length===1?"":"s"}`;
     return a;
   } catch(e){ $("accountChip").textContent = "account: " + e.message; return null; }
 }
 async function loadDashboard(){
   const a = await loadAccount();
-  const cards = a ? [
-    ["Equity", "$"+Number(a.equity).toLocaleString()], ["Cash", "$"+Number(a.cash).toLocaleString()],
-    ["Buying power", "$"+Number(a.buying_power).toLocaleString()], ["Positions", a.positions.length],
-  ] : [["Account","offline (check .env keys)"]];
-  $("dashMetrics").innerHTML = cards.map(([k,v]) =>
-    `<div class="metric"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
-  $("dashPositions").innerHTML = (a && a.positions.length)
+  const stats = $("dashMetrics"), assets = $("dashAssets"), hint = $("assetsHint");
+  const badge = $("venueBadge");
+  if (!a) {
+    stats.innerHTML = `<div class="metric"><div class="k">account</div><div class="v">unavailable</div></div>`;
+    return;
+  }
+  if (a.error) {
+    const live = a.venue === "live";
+    badge.className = "badge " + (live ? "live" : "muted");
+    badge.textContent = live ? "live · not configured" : "error";
+    stats.innerHTML = [
+      ["venue", live ? "LIVE" : "DEMO", live ? "real-money world" : "virtual funds"],
+      ["equity", "—", "no live venue wired"],
+      ["cash", "—", ""],
+      ["positions", "—", ""],
+    ].map(([k,v,d]) => `<div class="metric"><div class="k">${k}</div><div class="v">${v}</div>${d?`<div class="d">${esc(d)}</div>`:""}</div>`).join("");
+    assets.innerHTML = `<tr><td class="empty" colspan="5">${esc(a.error)}</td></tr>`;
+    hint.textContent = live
+      ? "Demo credentials are refused in prod by design. This world cannot read balances or place orders until a live venue is deliberately added and reviewed."
+      : "";
+    $("dashPositions").innerHTML = `<tr><td class="empty" colspan="4">no venue</td></tr>`;
+    $("dashRuns").innerHTML = `<tr><td class="empty" colspan="6">—</td></tr>`;
+    return;
+  }
+  const upnl = Number(a.unrealized_pl||0);
+  const pnlTxt = (upnl >= 0 ? "+" : "−") + money(Math.abs(upnl));
+  badge.className = "badge " + (a.venue === "live" ? "live" : "demo");
+  badge.textContent = a.venue === "live" ? "live" : "demo · virtual";
+  stats.innerHTML = [
+    ["equity", money(a.equity), a.venue === "live" ? "live account" : "virtual demo account", ""],
+    ["cash", money(a.cash), "available", ""],
+    ["positions value", money(a.equity - a.cash), `${a.positions.length} open`, ""],
+    ["unrealized p&l", pnlTxt, "marked to market", cls(upnl)],
+  ].map(([k,v,d,c]) => `<div class="metric"><div class="k">${k}</div><div class="v ${c}">${v}</div><div class="d">${esc(d)}</div></div>`).join("");
+
+  assets.innerHTML = `<tr><th>asset</th><th>qty</th><th>price</th><th>value</th><th>allocation</th></tr>` +
+    a.assets.map(x => {
+      const share = Math.min(100, Math.max(0, Number(x.share||0)*100));
+      return `<tr><td><b>${esc(x.asset)}</b></td><td>${qtyFmt(x.total)}</td>
+        <td>${x.price == null ? "—" : money(x.price, x.price >= 100 ? 2 : 4)}</td>
+        <td>${x.value == null ? "—" : money(x.value)}</td>
+        <td><div class="alloc"><i style="width:${share.toFixed(1)}%"></i></div></td></tr>`;
+    }).join("");
+  hint.textContent = `priced in USDT · ${a.assets.length} asset${a.assets.length===1?"":"s"}` + (a.as_of ? ` · ${dt(a.as_of)}` : "");
+
+  $("dashPositions").innerHTML = a.positions.length
     ? `<tr><th>symbol</th><th>qty</th><th>entry</th><th>p&l</th></tr>` + a.positions.map(p =>
-      `<tr><td>${esc(p.symbol)}</td><td>${p.qty}</td><td>${p.avg_entry_price}</td>
+      `<tr><td>${esc(p.symbol)}</td><td>${qtyFmt(p.qty)}</td><td>${money(p.avg_entry_price, 4)}</td>
        <td class="${cls(p.unrealized_pl)}">${fmt(p.unrealized_pl)}</td></tr>`).join("")
-    : `<tr><td colspan="4" class="dim">no open positions</td></tr>`;
+    : `<tr><td class="empty" colspan="4">no open positions</td></tr>`;
   try {
     const { runs } = await api("/api/runs");
     $("dashRuns").innerHTML = runs.length
@@ -533,9 +599,9 @@ async function loadDashboard(){
           `<tr><td>${dt(r.started_at)}</td><td>${esc(r.symbol)}</td><td>${esc(r.timeframe)}</td><td>${esc(r.strategy)}</td>
            <td class="${cls(r.metrics?.total_return)}">${fmt((r.metrics?.total_return||0)*100,1,"%")}</td>
            <td>${fmt(r.metrics?.sharpe)}</td></tr>`).join("")
-      : `<tr><td colspan="6" class="dim">no runs yet — create a bot or run a backtest</td></tr>`;
+      : `<tr><td class="empty" colspan="6">no runs yet — create a bot or run a backtest</td></tr>`;
   } catch(e){
-    $("dashRuns").innerHTML = `<tr><td colspan="6" class="dim">${esc(e.message)}</td></tr>`;
+    $("dashRuns").innerHTML = `<tr><td class="empty" colspan="6">${esc(e.message)}</td></tr>`;
   }
 }
 

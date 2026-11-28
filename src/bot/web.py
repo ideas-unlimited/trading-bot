@@ -360,19 +360,58 @@ def run_scan_rows(
 
 
 def api_account() -> dict[str, Any]:
+    """Wallet value per asset, priced in USDT, plus open positions.
+
+    The payload says which venue produced it. Prod never shows demo
+    balances: the client refuses before this point, and the error carries
+    ``venue: live`` so the UI can say *not configured* instead of *offline*.
+    """
+    env = env_name()
+    venue = "live" if env == "prod" else "demo"
     try:
         client = BinanceLiveClient()
         acct = client.get_account()
         positions = client.get_positions()
+        balances = client.broker.balances()
     except BrokerError as exc:
-        return {"error": f"Binance error: {exc}"}
+        return {
+            "error": str(exc),
+            "env": env,
+            "venue": venue,
+            "status": "NOT_CONFIGURED" if venue == "live" else "ERROR",
+            "assets": [],
+            "positions": [],
+        }
+    equity = float(acct.get("equity") or 0)
+    assets: list[dict[str, Any]] = []
+    for asset, bal in balances.items():
+        try:
+            price: float | None = float(client._price(asset))
+        except Exception:  # noqa: BLE001 - unpriced dust is still shown, just without a value
+            price = None
+        value = bal.total * price if price is not None else None
+        assets.append({
+            "asset": asset,
+            "free": bal.free,
+            "locked": bal.locked,
+            "total": bal.total,
+            "price": price,
+            "value": value,
+            "share": (value / equity) if (value is not None and equity > 0) else None,
+        })
+    assets.sort(key=lambda a: a["value"] or 0.0, reverse=True)
     return _jsonify(
         {
             "account_number": acct.get("account_number"),
             "status": acct.get("status"),
-            "equity": float(acct.get("equity") or 0),
+            "env": env,
+            "venue": venue,
+            "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "equity": equity,
             "cash": float(acct.get("cash") or 0),
             "buying_power": float(acct.get("buying_power") or 0),
+            "unrealized_pl": sum(float(p.get("unrealized_pl") or 0) for p in positions),
+            "assets": assets,
             "positions": [
                 {
                     "symbol": p.get("symbol"),

@@ -24,8 +24,10 @@ WEB_PORTS = {"paper": 9000, "prod": 9001}
 
 def env_name() -> str:
     """BOT_ENV, validated; defaults to paper."""
-    load_env()
-    raw = (os.environ.get("BOT_ENV") or DEFAULT_ENV).strip().lower()
+    raw = (os.environ.get("BOT_ENV") or "").strip().lower()
+    if not raw:
+        load_env()
+        raw = (os.environ.get("BOT_ENV") or DEFAULT_ENV).strip().lower()
     if raw not in ENVS:
         raise ValueError(f"BOT_ENV must be one of {ENVS}, got {raw!r}")
     return raw

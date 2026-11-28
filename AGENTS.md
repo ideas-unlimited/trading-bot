@@ -20,10 +20,17 @@ when you hit a new environment quirk and solve it, add it here and commit.
 
 ## Secrets
 
-- `.env` (git-ignored) is what the app reads: `BINANCE_DEMO_KEY`,
-  `BINANCE_DEMO_SECRET`, `DATABASE_URL`, `HEARTBEAT_URL`. The Binance pair is
-  a *demo trading* key: it authenticates against `demo-api.binance.com` only
-  and holds virtual balances.
+- Credentials are **per world**: `.env.<env>` is loaded before `.env`, and
+  the process environment beats both. On the server the demo pair lives in
+  `/opt/trading-bot/.env.paper`; `.env` holds only shared settings
+  (`DATABASE_URL`, heartbeat). The Binance pair is a *demo trading* key: it
+  authenticates against `demo-api.binance.com` only and holds virtual
+  balances.
+- **Prod refuses demo credentials outright** (`BinanceLiveClient` raises
+  before reading a key). There is no live venue wired, so prod cannot show a
+  balance or place an order; the dashboard says *live venue not configured*.
+  Adding real-money routing is a deliberate code change plus review, never a
+  config flip.
 - **The master record is `C:\Git\tradingbot-secrets-2026-11-28.txt`** —
   outside the repo, never committed. Every new credential, hostname, token or
   password goes there in the same edit that adds it anywhere else; that file
@@ -222,6 +229,10 @@ when you hit a new environment quirk and solve it, add it here and commit.
   `trading_prod`. The paper role must not be able to write prod rows.
 - A strategy runs only if an active manifest names it; the loader must fail
   loud, never trade flat and silent.
+- **The venue is part of the world.** Paper is demonstrably virtual; prod
+  refuses demo credentials before reading a key. Each `/api/account` payload
+  carries `venue` and every asset with its USDT value, so no screen can show
+  an unlabelled balance.
 - **The dashboards list only promoted strategies.** `/api/strategies`
   returns the active manifests for that env; code that merely exists is
   invisible in paper/prod. `BOT_LAB=1` (set by `start_trader.cmd`) restores

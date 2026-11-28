@@ -141,3 +141,30 @@ trust.
 
 What it commits us to: a strategy visible on the paper dashboard has a
 manifest behind it, and prod shows nothing until paper promotes a package.
+
+## D15 - One credential file per world; prod refuses demo balances (2026-11-28)
+
+Both web units shared `/opt/trading-bot/.env`, and the venue client only
+ever read `BINANCE_DEMO_KEY`. So the prod dashboard displayed the demo
+wallet as if it were prod's account. No code path could reach real money
+yet (the order path is demo-only), which made the display harmless today
+and dangerous as a habit: a production banner on virtual numbers teaches
+the operator to trust the wrong screen.
+
+Rails, in order of severity:
+
+1. `BinanceLiveClient` loads `.env.<env>` (per-world) before `.env`, and a
+   process environment variable always wins over both. Demo keys now live
+   in `/opt/trading-bot/.env.paper`; `.env` holds only shared settings.
+2. `BOT_ENV=prod` makes the client raise before it reads any key or
+   returns any balance. Prod cannot show a demo wallet, cannot place a
+   demo order, and cannot be given one by configuration. The dashboard
+   says *live venue not configured* and explains why.
+3. `/api/account` labels every payload with `venue` (`demo` or `live`) and
+   returns per-asset quantities, USDT price and value, so the screen can
+   never show an unlabelled balance.
+4. A real-money venue is a deliberate build (keys, endpoint, review), not
+   a flag flip. Until it exists, prod trading is impossible by design.
+
+What it commits us to: adding live trading means new code and a new
+review, and the demo rail stays in place regardless.
