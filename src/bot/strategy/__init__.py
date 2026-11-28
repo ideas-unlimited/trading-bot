@@ -13,6 +13,7 @@ from .momentum_swing import MomentumSwing
 from .rsi_meanrev import RsiMeanReversion
 from .sma_cross import SmaCross
 from .swing_breakout_arb import SwingBreakoutArb
+from .swing_breakout_ena import SwingBreakoutEna
 from .swing_breakout_render import SwingBreakoutRender
 from .swing_pullback_near import SwingPullbackNear
 from .volume_climax import VolumeClimax
@@ -30,6 +31,7 @@ REGISTRY: dict[str, Type[Strategy]] = {
     SwingPullbackNear.name: SwingPullbackNear,
     SwingBreakoutRender.name: SwingBreakoutRender,
     SwingBreakoutArb.name: SwingBreakoutArb,
+    SwingBreakoutEna.name: SwingBreakoutEna,
     CapitulationDipJup.name: CapitulationDipJup,
 }
 
@@ -41,4 +43,4 @@ def build(name: str, **params: object) -> Strategy:
     return REGISTRY[name](**params)  # type: ignore[arg-type]
 
 
-__all__ = ["Action", "CapitulationDipJup", "CapitulationDipUni", "DonchianBreakout", "JupLiquidity15m", "MomentumSwing", "REGISTRY", "RsiMeanReversion", "Signal", "SmaCross", "Strategy", "SwingBreakoutArb", "SwingBreakoutRender", "SwingPullbackNear", "VolumeClimax", "WilliamVixFixStoch", "build"]
+__all__ = ["Action", "CapitulationDipJup", "CapitulationDipUni", "DonchianBreakout", "JupLiquidity15m", "MomentumSwing", "REGISTRY", "RsiMeanReversion", "Signal", "SmaCross", "Strategy", "SwingBreakoutArb", "SwingBreakoutEna", "SwingBreakoutRender", "SwingPullbackNear", "VolumeClimax", "WilliamVixFixStoch", "build"]

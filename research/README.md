@@ -89,6 +89,16 @@ Artifacts: `wvfx_stage1..4.csv`, `wvfx_pooled_4h.csv`, `wvfx_xcheck.csv`,
 | `allcoins_report.py` | builds `allcoins_report.html` from the CSVs |
 | `ALLCOINS.md` | verdict: top cells are coin-specific; only the 1d breakout family is broad (69-83% of coins positive) |
 
+### Broad universe ($1B coins, one year)
+
+| file | question it answers |
+| --- | --- |
+| `broad_sweep.py` | every $1B coin with a Binance spot pair, 26 configs at 4h and 1d -> `broad_universe.csv`, `broad_stage1.csv` (1,820 cells) |
+| `broad_deep.py` | finalists on all five charts + parameter-neighbour check -> `broad_stage2*.csv` |
+| `broad_evidence.py` | the shipped-sleeve evidence pack (Sharpe/Sortino/PF/Wilson/bootstrap/2y) -> `broad_evidence*.csv` |
+| `broad_validate.py` | all 26 cells on the earlier year, then the year-A best on the reported year -> `broad_validate.csv` |
+| `BROAD_UNIVERSE.md` | verdict: the 1d breakout family is positive on 65-69% of the liquid universe (not the 83% a hand-picked 29 suggested); ZEC/JST/QNT winners are coin luck; **ENA 4h breakout** is the only cell that was year-A-best and repeated out of sample |
+
 ### Five tuned sleeves (one per coin)
 
 | file | question it answers |
