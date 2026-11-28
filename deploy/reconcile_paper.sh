@@ -27,7 +27,8 @@ for conf in /etc/tradingbot/*.env; do
   [[ $name == forward || $name == alerts ]] && continue
   get() { grep -E "^$1=" "$conf" | head -1 | cut -d= -f2-; }
   strategy=$(get STRATEGY)
-  [[ -n $strategy ]] || { printf '%s\n' "$name"; check 0 "no STRATEGY in env file"; continue; }
+  # Utility env files (no STRATEGY=) share this directory but are not bots.
+  [[ -n $strategy ]] || { printf 'skip  %s: no STRATEGY, not a bot env file\n' "$name"; continue; }
   echo "$name ($strategy)"
 
   manifest=$repo/promotions/paper/${strategy}.json
