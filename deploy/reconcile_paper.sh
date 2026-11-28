@@ -88,7 +88,10 @@ PY
   [[ $state == /var/lib/tradingbot/* ]] && check 1 "state under /var/lib/tradingbot" || check 0 "state outside /var/lib/tradingbot: $state"
   [[ -f /var/lib/tradingbot/paper/${strategy}/forward/status.json ]] && check 1 "forward sleeve replaying" || check 0 "forward sleeve missing"
 
-  api=$(curl -fsS --max-time 5 http://127.0.0.1:9000/api/running 2>/dev/null | python3 -c "
+  # The web unit restarts on every deploy; retry so reconcile never reports
+  # a false heartbeat outage just because it ran right after update.sh.
+  for _try in 1 2 3; do
+    api=$(curl -fsS --max-time 5 http://127.0.0.1:9000/api/running 2>/dev/null | python3 -c "
 import json, sys
 try:
     bots = json.load(sys.stdin)['bots']
@@ -100,7 +103,10 @@ if not b:
 print('API_ALIVE=' + ('1' if b.get('alive') else '0'))
 print('API_HALT=' + ('1' if b.get('halted') else '0'))
 " 2>/dev/null || true)
-  eval "$api"
+    eval "$api"
+    [[ $API_ALIVE == 1 ]] && break
+    sleep 2
+  done
   [[ $API_ALIVE == 1 ]] && check 1 "heartbeat fresh (alive)" || check 0 "no fresh heartbeat on the paper API"
   if [[ $API_HALT == 1 ]]; then check 0 "halted - operator killed this bot"
   elif [[ $API_HALT == 0 ]]; then check 1 "not halted"
