@@ -174,6 +174,25 @@ split_demo_keys() {
 }
 split_demo_keys
 shopt -s nullglob
+
+# The per-bot state JSONs carried the old world in their filename too.  The
+# path is named by STATE in the env file, so rename both together.  A
+# pre-existing target means two states disagree; stop rather than overwrite.
+rename_state_suffix() {
+  local dir=$1 suffix=$2 target=$3 f new
+  for f in "$dir"/*"$suffix".json; do
+    [[ -e "$f" ]] || continue
+    new=${f%"$suffix".json}"$target".json
+    if [[ -e "$new" ]]; then
+      die "both $f and $new exist; resolve by hand"
+    fi
+    log "state file $f -> $new"
+    mv "$f" "$new"
+  done
+}
+rename_state_suffix "$STATE_DIR/demo" -paper -demo
+rename_state_suffix "$STATE_DIR/live" -prod -live
+
 for f in "$CONF_DIR"/*-paper.env; do
   rename_file "$f" "${f%-paper.env}-demo.env"
 done
@@ -185,6 +204,8 @@ for f in "$CONF_DIR"/*.env "$APP_DIR"/.env "$APP_DIR"/.env.demo "$APP_DIR"/.env.
   sed -i \
     -e 's|/var/lib/tradingbot/paper|/var/lib/tradingbot/demo|g' \
     -e 's|/var/lib/tradingbot/prod|/var/lib/tradingbot/live|g' \
+    -e 's|-paper\.json$|-demo.json|' \
+    -e 's|-prod\.json$|-live.json|' \
     -e 's|^BOT_ENV=paper$|BOT_ENV=demo|' \
     -e 's|^BOT_ENV=prod$|BOT_ENV=live|' \
     -e 's|^MODE=paper$|MODE=demo|' \
