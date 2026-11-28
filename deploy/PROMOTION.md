@@ -92,11 +92,26 @@ Full release, in order, after commit -> push -> `sudo bash
    STATE=/var/lib/tradingbot/paper/uni.json
    POLL=60
    BOT_ENV=paper
+   RISK_PER_TRADE=0.05
+   MAX_POSITION_PCT=0.50
+   MAX_DRAWDOWN_STOP=0.10
    ```
 
    plus `HEARTBEAT_URL=` copied from `/etc/tradingbot/forward.env` (copy it
    on the box; never paste it into chat). `chmod 640 root:trader` the file.
    Then `sudo systemctl enable --now tradingbot@<name>`.
+
+   **The three risk knobs are not optional.** `run_bot.sh` defaults them to
+   1% / 95% / a 10% brake, which is nobody's measured profile. They must
+   match exactly what the sleeve was backtested at (read the research note
+   or the evidence `command`). On 2026-11-28 all five live bots were caught
+   running at those defaults hours after release - same signals, wrong
+   sizing, and the swing sleeves would have halted on their own historical
+   drawdown because their evidence says run the brake off (0.99). The
+   forward unit has its own `--risk-per-trade/--max-position-pct/
+   --max-drawdown-stop` on its ExecStart; one runner serves every sleeve, so
+   a sleeve measured at a different profile is only mirrored exactly by its
+   own `bot live` process.
 3. **Verify the bot is really alive**, all three:
    - `journalctl -u tradingbot@<name>` shows "paper trading <SYMBOL> @ <tf>
      on Binance DEMO account" and the first poll line (anchored to now,
@@ -117,7 +132,12 @@ Full release, in order, after commit -> push -> `sudo bash
    broke every bot on 2026-11-28). One bot per symbol (they share one demo
    account). `STATE` lives under `/var/lib/tradingbot/`. A sub-4h strategy
    keeps the 1-year evidence cap everywhere, including here.
-6. **Secrets:** any credential touched during release goes into
+6. **Reconcile after every release.** Re-walk this checklist against what
+   is actually running: units active, env risk knobs equal the measured
+   profile, heartbeat fresh, forward sleeve present, no errors in
+   `journalctl`, no unexpected rows in `events`. Every incident so far was
+   a release step done halfway, not a code bug.
+7. **Secrets:** any credential touched during release goes into
    `C:\Git\tradingbot-secrets-2026-11-28.txt` (the master record) in the same
    edit that puts it anywhere else.
 
