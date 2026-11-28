@@ -45,7 +45,7 @@ audit. They are not targets and must not be tuned or traded.
 | 9 | SUI/USDT | Binance spot | untuned |
 | 10 | TAO/USDT | Binance spot | untuned |
 | 11 | ONDO/USDT | Binance spot | untuned |
-| 12 | JUP/USDT | Binance spot | untuned |
+| 12 | JUP/USDT | Binance spot | sleeve: `capitulation_dip_jup`, paper |
 | 13 | RENDER/USDT | Binance spot | untuned |
 | 14 | INJ/USDT | Binance spot | untuned |
 | 15 | CAKE/USDT | Binance spot | untuned |
@@ -59,6 +59,18 @@ the broad $1B-coin sweep (`research/BROAD_UNIVERSE.md`) and the sleeve passed
 its own evidence pack: year 1 (tuning window) +45.4%, year 2 untouched
 +43.0% / -16.6% / 24 trades, 5/5 timeframes and 12/12 neighbouring parameter
 cells positive.
+
+JUP had two active sleeves on 2026-11-28 - `capitulation_dip_jup` (4h,
++58.8% / -7.9% / 32 trades, 3% risk) and the 15m `jup_liquidity_15m`
+(+5.7% / -6.7% / 57 trades, 5% risk, 5% cap) - measured over the same twelve
+months. Two sleeves on one symbol means two books on one balance: every
+trading bot shares the demo account, so they would close each other's JUP
+position. The 4h dip sleeve is the keeper (7.4x the return at a similar
+drawdown) and the only one whose stance a fresh start can reconstruct, since
+it enters at the close of a bar; the 15m sleeve rests a three-tranche limit
+ladder at demand bands and its live loop never places resting limit orders.
+`jup_liquidity_15m` is demoted and its trading bot is stopped: JUP now has
+one dry-run sleeve and one trading bot, both `capitulation_dip_jup`.
 
 ## Per-symbol strategy rule
 

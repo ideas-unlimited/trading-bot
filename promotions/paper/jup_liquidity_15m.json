@@ -59,7 +59,7 @@
     "max_position_pct": 0.5,
     "max_drawdown_stop": 0.1
   },
-  "active": true,
-  "demoted_at": "",
-  "demote_reason": ""
+  "active": false,
+  "demoted_at": "2026-11-28T12:49:19+00:00",
+  "demote_reason": "one sleeve per symbol: capitulation_dip_jup measured +58.8%/-7.9% on the same 12 months against +5.7%/-6.7% here, and its limit-ladder entries cannot be reconstructed at startup, so the trading bot runs the 4h dip sleeve instead"
 }
