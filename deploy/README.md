@@ -17,13 +17,15 @@ No live broker path exists: orders only ever go to the Binance demo account.
 
 Target hosts:
 
-- **Trading (Binance):** OVH VPS, **Sydney** — 4 vCPU, 8 GB RAM, 75 GB local
-  disk, automated backup with 1 rotation. Binance returns HTTP 451 to US IPs,
-  so the exchange-connected bots can only run here.
-- **Paper/UI:** CometVPS "Standard 8GB", Seattle — 4 vCPU, 8 GB, 100 GB NVMe.
+- **Trading (Binance), paper and prod:** OVH VPS, **Sydney** — 4 vCPU, 8 GB
+  RAM, 75 GB local disk, automated backup with 1 rotation. Binance returns
+  HTTP 451 to US IPs, so the exchange-connected bots can only run here. Both
+  dashboards and the forward runner live on this one box (an earlier plan
+  split paper onto a separate "CometVPS Seattle" host; that was dropped
+  2026-11-28).
 
-Either box needs ~1 GB of RAM and ~3 GB of disk for the whole book (measured
-~90 MB per process, 28 MB database), so both are >10x oversized on purpose.
+The box needs ~1 GB of RAM and ~3 GB of disk for the whole book (measured
+~90 MB per process, 28 MB database), so it is >10x oversized on purpose.
 This installer is venue-agnostic: it runs the same on Debian 12 or 13.
 
 ## 1. Get the code on the box

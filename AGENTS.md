@@ -334,13 +334,15 @@ when you hit a new environment quirk and solve it, add it here and commit.
   75 GB local disk, 6 months prepaid, automated backup (1 rotation), Linux.
   This is the only box that can reach Binance: `api.binance.com` answers US
   IPs with HTTP 451, so exchange calls must originate outside the US.
-- **Paper/UI host: CometVPS "Standard 8GB", Seattle** — 4 vCPU, 8 GB,
-  100 GB NVMe, ~$70/yr. Binance is unreachable from it, so never run the
-  venue-matching bot or its data sync there; a paper book fed elsewhere does
-  not validate a Binance execution venue.
+- **Paper/prod host = the OVH Sydney box, one for both worlds** (cleaned up
+  2026-11-28). An earlier plan split paper/UI onto a separate "CometVPS,
+  Seattle" box; that was dropped — both dashboards and the forward runner run
+  on the OVH box, which is also the only one that reaches Binance. Never run
+  the venue-matching bot or its data sync from a US-located box; a paper book
+  fed elsewhere does not validate a Binance execution venue.
 - Measured requirement is ~90 MB per bot/web process and a 28 MB database, so
-  either box runs the whole book with >10x headroom and stays under ~3 GB of
-  disk. Do not add a database server, cache or queue to either.
+  the OVH box runs the whole book with >10x headroom and stays under ~3 GB of
+  disk. Do not add a database server, cache or queue to it.
 - **Provisioned 2026-11-27 (OVH Sydney, 139.99.236.166):** Debian 13, Python
   3.13, PostgreSQL 17. Log in as `debian` with the key
   `sahilnow@gmail.com`; **root login is disabled**, the account has
