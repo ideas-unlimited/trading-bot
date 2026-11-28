@@ -39,6 +39,23 @@ class TestCli(unittest.TestCase):
             self.assertIn("Total return", out)
             self.assertTrue((runs / "trades.csv").exists())
 
+    def test_live_refused_without_promotion(self):
+        import os
+        from unittest import mock
+
+        from bot import promotions as promo
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(promo, "PROMOTIONS", Path(tmp)), \
+             mock.patch.dict(os.environ, {"BOT_ENV": "paper", "BOT_LAB": ""}):
+            err = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()), \
+                 contextlib.redirect_stderr(err):
+                code = main(["live", "--symbol", "BTC/USDT", "--interval", "4h",
+                             "--strategy", "sma_cross", "--once"])
+        self.assertEqual(code, 2)
+        self.assertIn("not activated for paper", err.getvalue())
+
     def test_backtest_synthetic_with_params_and_json(self):
         with tempfile.TemporaryDirectory() as tmp:
             code, out = run_cli(

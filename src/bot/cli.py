@@ -326,8 +326,27 @@ def cmd_account(_: argparse.Namespace) -> int:
 
 
 def cmd_live(args: argparse.Namespace) -> int:
-    """Trade a strategy on live Binance bars; orders go to the demo account."""
+    """Trade a strategy on live Binance bars; orders go to the demo account.
+
+    Outside lab, only an active promotion manifest may run - the same rule
+    the dashboard follows, enforced where the orders actually happen.
+    """
+    from . import envcfg, promotions as promo
     from .live import LiveTrader
+
+    if not envcfg.lab_mode():
+        try:
+            manifest = promo.require(args.strategy, envcfg.env_name())
+        except promo.PromotionError as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            return 2
+        if args.symbol not in manifest.symbols:
+            covered = ", ".join(manifest.symbols)
+            print(f"refused: {args.strategy} is promoted on {covered}; {args.symbol} is not covered", file=sys.stderr)
+            return 2
+        if args.interval != manifest.timeframe:
+            print(f"refused: {args.strategy} is promoted on {manifest.timeframe}; this run asks for {args.interval}", file=sys.stderr)
+            return 2
 
     strategy = build(args.strategy, **_parse_params(args.param))
     client = BinanceLiveClient()
@@ -536,6 +555,16 @@ def cmd_book(args: argparse.Namespace) -> int:
         slippage_bps=args.slippage_bps,
         damiani_filter=args.damiani_filter,
         stc_min=args.stc_min,
+        structure_gate=None if args.structure_gate in (None, "none") else args.structure_gate,
+        channel_left=args.channel_span,
+        channel_right=args.channel_span,
+        breakout_atr=args.breakout_atr,
+        breakout_within=args.breakout_within,
+        squeeze_quantile=args.squeeze_quantile,
+        min_rr=args.min_rr,
+        channel_spans=tuple(
+            int(x) for x in str(getattr(args, "channel_spans", "") or "").split(",") if x.strip()
+        ),
     )
     result = simulate_book(bars, config)
     print(f"rule       SMA {config.fast}/{config.slow} cross, {config.atr_mult:g} ATR stop")
@@ -544,6 +573,12 @@ def cmd_book(args: argparse.Namespace) -> int:
         gate.append("Damiani volatility awake")
     if config.stc_min is not None:
         gate.append(f"STC >= {config.stc_min:g}")
+    if config.structure_gate == "breakout":
+        gate.append(f"channel breakout > {config.breakout_atr:g} ATR, {config.breakout_within} bars")
+    elif config.structure_gate == "squeeze":
+        gate.append(f"channel squeeze (bottom {config.squeeze_quantile:.0%})")
+    elif config.structure_gate == "room":
+        gate.append(f"measured-move room >= {config.min_rr:g}R")
     if gate:
         print("filter     " + " + ".join(gate))
     print(f"coins      {', '.join(symbols)}  ({args.source}, {args.timeframe})")
@@ -853,6 +888,22 @@ def build_parser() -> argparse.ArgumentParser:
                         help="only enter while volatility is awake (Damiani Volatmeter)")
     p_book.add_argument("--stc-min", type=float, default=None,
                         help="only enter when the Schaff Trend Cycle is at least this (0-100)")
+    p_book.add_argument("--structure-gate", choices=["none", "breakout", "squeeze", "room"],
+                        default="none",
+                        help="chart-structure entry gate ported from the pasted pattern indicator")
+    p_book.add_argument("--channel-span", type=int, default=10,
+                        help="pivot bars on each side of a trendline channel")
+    p_book.add_argument("--breakout-atr", type=float, default=0.5,
+                        help="breakout margin above the rail, in ATR")
+    p_book.add_argument("--breakout-within", type=int, default=5,
+                        help="a rail breakout stays usable for this many bars")
+    p_book.add_argument("--squeeze-quantile", type=float, default=0.4,
+                        help="channel height/ATR below this rolling quantile counts as a squeeze")
+    p_book.add_argument("--min-rr", type=float, default=2.0,
+                        help="measured-move room required, in multiples of the ATR stop")
+    p_book.add_argument("--channel-spans", default="",
+                        help="comma separated pivot spans; two or more make the channel "
+                             "their median, which removes the span as a tuned parameter")
     p_book.add_argument("--outdir", default="runs/book")
     p_book.set_defaults(func=cmd_book)
 
@@ -861,7 +912,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_auto.add_argument("--source", choices=["binance", "tv"], default="binance")
     p_auto.add_argument("--timeframe", default="4h")
     p_auto.add_argument("--days", type=int, default=730, help="history window (2-year cap)")
-    p_auto.add_argument("--books", default="A,B,C", help="A,B,C or all")
+    p_auto.add_argument("--books", default="all", help="A,B,C,D or all (default)")
     p_auto.add_argument("--cash", type=float, default=1000.0, help="starting wallet per book")
     p_auto.add_argument("--interval", type=int, default=900, help="seconds between cycles")
     p_auto.add_argument("--once", action="store_true", help="one cycle then exit (Task Scheduler)")
