@@ -20,12 +20,18 @@ when you hit a new environment quirk and solve it, add it here and commit.
 
 ## Secrets
 
-- Secrets live in `.env` (git-ignored). Current keys: `BINANCE_DEMO_KEY`,
+- `.env` (git-ignored) is what the app reads: `BINANCE_DEMO_KEY`,
   `BINANCE_DEMO_SECRET`, `DATABASE_URL`, `HEARTBEAT_URL`. The Binance pair is
   a *demo trading* key: it authenticates against `demo-api.binance.com` only
   and holds virtual balances.
-- **Never** paste secrets in chat, never write them into files via tools
-  (the sandbox refuses, rightly). Ask the user to edit `.env` themselves.
+- **The master record is `C:\Git\tradingbot-secrets-2026-11-28.txt`** —
+  outside the repo, never committed. Every new credential, hostname, token or
+  password goes there in the same edit that adds it anywhere else; that file
+  is the thing to read when a value is lost, not the chat log.
+- A Binance demo secret is shown **once** at creation. If it is lost, delete
+  that demo key and create a new pair — never guess or reuse.
+- **Never** paste secrets in chat, and never commit them. If a secret does
+  land in a transcript, treat it as exposed and rotate it.
 
 ## Postgres
 
@@ -52,17 +58,38 @@ when you hit a new environment quirk and solve it, add it here and commit.
 
 ## Live paper books (`bot auto`)
 
-- `start_bots.cmd [seconds]` runs the three research books as $1,000 paper
-  wallets (A gated 3%, B gated 5%, C plain 3%) every 15 minutes, detached,
+- `start_bots.cmd [seconds]` runs the four research books as $1,000 paper
+  wallets (A gated 3%, B gated 5%, C plain 3%, D room-gated 3%) every 15
+  minutes, detached,
   logging to `logs\bots_<ts>.log`. `python -m bot auto --once` is the same
   cycle for Task Scheduler. **Nothing is ordered** - the wallets are simulated
-  so three books can hold the same coin at different sizes.
+  so the books can hold the same coin at different sizes.
 - Each cycle: `scanlib.load_scan_bars` delta-syncs the cache, the still-forming
   bar is dropped, then `simulate_book(..., close_at_end=False)` replays each
   book. Because the replay is deterministic, a restart cannot corrupt state;
   `runs/<env>/autobooks/status.json` holds every wallet, position and signal, and
   `history` vs `live since deploy` are reported separately (deploy equity is
   pinned on the first cycle - that line is the honest forward number).
+- **Trailing stop (added 2026-11-28).** `BookConfig.trail_atr` is a Chandelier
+  trail that many ATRs under the highest high since entry, ratcheted up only,
+  applied after the intrabar stop check so no bar can both raise the trail and
+  fill against it. On the gated 4h book it is the best single change found:
+  +65.3% and -13.8% drawdown against +50.0%/-23.4% for the fixed stop (two
+  years, five coins, 3% risk), a plateau over 1.25-2.0 ATR, identical at 2-5
+  slots, and strictly worse when `trail_after_r` delays arming. It only works
+  behind the filter - trailing the raw cross loses money.
+- **Timeframe and universe beat each other up.** 6h and 1d were both
+  measured: neither beats 4h for this system (1d gives 8 trades in two years;
+  6h is worse on returns and drawdown). Widening the coin pool from 5 majors
+  to 20 collapses the trail book to +8% with a -49% drawdown because the
+  score ranking buys the strongest recent mover. Do not widen the universe
+  without re-measuring that ranking.
+- **The pin is per window.** If the replay window's start moves by more than
+  two days (history cap changed, a coin delisted, backfill), the pin is
+  re-taken at the current equity and `repinned_at` records the old deploy
+  date. Without that, a 3y-to-2y cap change showed every wallet at -78%
+  "since deploy" while its history was +50% - a phantom loss from comparing
+  two different books.
 - `simulate_book` force-closes open positions at the last bar by default (the
   backtest convention); live books pass `close_at_end=False`. Keep that flag
   when touching the engine or the live books will look permanently flat.
@@ -125,8 +152,12 @@ when you hit a new environment quirk and solve it, add it here and commit.
   the primitives were ported. `BookConfig.structure_gate` exposes them as
   entry gates: `breakout`, `squeeze` (height/ATR in its own low tail) and
   `room` (measured move must pay `min_rr` x the ATR stop). All three only
-  block entries, and none improved the live book enough to deploy - measured
-  on the two-year window, see `research/structure_gates.py`.
+  block entries. Breakout and squeeze lost money. `room` is deployed only as
+  book D, and only through `trendline_channel_ensemble` (median of spans
+  10/15/20, `channel_spans`): the single-span version was a knife edge that
+  scored +88% at span 15 between +30% (12) and +15% (18) - tuning that, not
+  the strategy. Medianning the spans removed the parameter and the phantom
+  edge both; see `research/structure_gates.py` and `structure_tune.py`.
 - Strategies should import from `bot.analysis` rather than re-implementing
   math inline; simple MAs stay in `bot.indicators`.
 
