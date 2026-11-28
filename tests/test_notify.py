@@ -268,6 +268,15 @@ class TestNotifier(unittest.TestCase):
         }, log=lambda _m: None)
         self.assertEqual(notifier.describe(), "telegram, ntfy, email")
 
+    def test_email_is_not_enabled_without_a_password_for_its_user(self):
+        logs = []
+        notifier = Notifier.from_env({
+            "SMTP_HOST": "smtp.gmail.com", "ALERT_EMAIL_TO": "a@b",
+            "SMTP_FROM": "a@b", "SMTP_USER": "a@b",
+        }, log=logs.append)
+        self.assertFalse(notifier.enabled)
+        self.assertTrue(any("email ignored" in line for line in logs))
+
     def test_from_env_warns_about_an_incomplete_group_without_leaking_secrets(self):
         logs = []
         notifier = Notifier.from_env(

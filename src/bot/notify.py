@@ -170,6 +170,8 @@ class EmailChannel:
             raise ValueError("SMTP_HOST, ALERT_EMAIL_TO and SMTP_FROM are required")
         if self.security not in ("starttls", "ssl", "none"):
             raise ValueError("SMTP_SECURITY must be starttls, ssl or none")
+        if self.user and not self.password:
+            raise ValueError("SMTP_PASSWORD is required when SMTP_USER is set")
 
     def send(self, subject: str, body: str) -> None:
         message = EmailMessage()
