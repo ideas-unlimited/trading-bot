@@ -1,5 +1,8 @@
 # William_Vix_Fix_Stoch - re-analysis (2026-11-27)
 
+> Historical study: measured on the old three-year cap. The current cap is two
+> years; re-run before comparing it with a live result.
+
 Implementation: `src/bot/strategy/wvfx_stoch.py` (registry name `wvfx_stoch`).
 Tests: `tests/test_wvfx_stoch.py` (19 cases). Research simulator:
 `research/wvfx_portfolio.py`, runnable headline: `research/wvfx_report.py`.
@@ -20,7 +23,7 @@ bars; entering every one of them loses badly.
 
 - Binance 4h and 1d klines for BTC, ETH, BNB, SOL, XRP.
 - Window: **2023-11-26 -> 2026-11-26** (6,577 4h bars; 1,097 1d bars).
-  The raw CSV has older 2018+ data; only the last three years are used.
+  The raw CSV had older 2018+ data; the store now retains the last two years.
 - Signal at bar close, fill next bar open. Stops/targets are anchored to the
   **signal close** (matching `Engine`), stop checked before target intrabar.
 - Shared $1,000 book: 1.5% equity risk/trade (headline), max 3 positions,
@@ -96,8 +99,8 @@ $env:PYTHONPATH='src'
   --initial-cash 1000 --risk-per-trade 0.01 --max-position-pct 0.34
 ```
 
-The CLI now caps every backtest/paper run to the last 3 years (`--max-years`
-defaults to 3; `0` disables it for explicit research).
+The CLI now caps every backtest/paper run to the last 2 years (`--max-years`
+defaults to 2; `0` disables it for explicit research).
 
 ## Honest caveats
 

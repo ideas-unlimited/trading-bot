@@ -6,8 +6,8 @@ Three independent $1,000 paper wallets, one per book from the research:
 * **B** trend max   - the same signals at 5% risk (the most dollars)
 * **C** plain cross - the same cross with no filters, 3% risk
 
-Each cycle loads the newest bars from the Postgres cache (Alpaca delta-sync,
-3-year cap), drops the still-forming bar, replays the book over the whole
+Each cycle loads the newest bars from the Postgres cache (delta-sync,
+2-year cap), drops the still-forming bar, replays the book over the whole
 window and reports the wallet, the open position and what the next open will
 do.  Nothing is ordered: the wallets are simulated, so the three books can
 hold the same coin with different sizes without fighting over a broker
@@ -33,7 +33,7 @@ from .book import BookConfig, BookResult, last_signal, save_book, simulate_book,
 from .data.feed import Bar
 
 TIMEFRAME_SPAN = {"1h": timedelta(hours=1), "4h": timedelta(hours=4), "1d": timedelta(days=1)}
-MAX_HISTORY_DAYS = 1095
+MAX_HISTORY_DAYS = scanlib.MAX_HISTORY_DAYS
 
 
 @dataclass(frozen=True)

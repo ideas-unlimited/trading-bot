@@ -9,7 +9,6 @@ import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .alpaca_client import AlpacaClient
 from .backtest import run_backtest
 from .config import BotConfig, CostConfig, RiskConfig
 from .data.feed import Bar, generate_synthetic
@@ -64,9 +63,9 @@ def merge_bars(cached: list[Any], fresh: list[Any]) -> list[Any]:
     return [seen[k] for k in sorted(seen)]
 
 
-#: how much history we keep, per user decision: 3 years is plenty for
+#: how much history we keep, per user decision: 2 years is plenty for
 #: regime coverage, and every backfill/prune clamps to it.
-MAX_HISTORY_DAYS = 1095
+MAX_HISTORY_DAYS = 730
 
 
 def _backfill_start(now: datetime) -> datetime:
@@ -82,7 +81,7 @@ def _fetch_source(
     end: datetime | None = None,
     n_bars: int = 10_000,
 ) -> list[Any]:
-    """Raw fetch from Alpaca or TradingView (6h aggregated from 1h on TV)."""
+    """Raw fetch from Binance or TradingView (6h aggregated from 1h on TV)."""
     if source == "binance":
         from .data.binance import fetch_binance_bars
 
@@ -102,15 +101,14 @@ def _fetch_source(
         if start is not None:
             bars = [b for b in bars if b.ts >= start]
         return bars
-    client = AlpacaClient()
-    return client.fetch_bars(symbol, timeframe, start=start, end=end, limit=n_bars)
+    raise ValueError(f"unknown market-data source {source!r}")
 
 
 def load_scan_bars(
     symbol: str,
     timeframe: str,
     *,
-    source: str = "alpaca",
+    source: str = "binance",
     days: int = 365,
     start: datetime | None = None,
     n_bars: int = 10_000,
@@ -122,11 +120,11 @@ def load_scan_bars(
     Incremental sync (delta fetching):
     - empty cache  -> one deep backfill (all history the feed allows)
     - cached bars  -> only the missing tail is fetched (last cached bar -> now)
-    - deep gap     -> an extra fetch covers the older gap (Alpaca only;
+    - deep gap     -> an extra fetch covers the older gap (Binance only;
                       TradingView cannot fetch by end-date)
     Fresh caches skip the API entirely.  Everything fetched is upserted
     (idempotent ON CONFLICT), so repeated research runs never re-pay the API
-    cost and respect Alpaca rate limits.
+    cost and respect venue rate limits.
 
     ``cache_key`` is the canonical display symbol used in the cache (e.g.
     "BNB/USDT" even when fetched as "BINANCE:BNBUSDT").  The returned bars
@@ -169,7 +167,7 @@ def load_scan_bars(
             if is_fresh and not gap_behind:
                 fresh = []                      # fully served from our own DB
             else:
-                if gap_behind and source == "alpaca":
+                if gap_behind and source == "binance":
                     fresh = _fetch_source(
                         source, symbol, timeframe,
                         start=start_eff, end=cached[0].ts - spacing, n_bars=n_bars,
@@ -181,11 +179,11 @@ def load_scan_bars(
                     )
         else:
             # first run for this symbol/timeframe: pull all history up to
-            # the 3-year window, then it's deltas from there
-            deep_start = _backfill_start(now) if (backfill and source == "alpaca") else start_eff
+            # the 2-year window, then it's deltas from there
+            deep_start = _backfill_start(now) if (backfill and source == "binance") else start_eff
             fresh = _fetch_source(
                 source, symbol, timeframe,
-                start=deep_start, n_bars=n_bars if source == "alpaca" else min(n_bars, 5_000),
+                start=deep_start, n_bars=min(n_bars, 5_000),
             )
 
         if fresh:
@@ -230,7 +228,7 @@ def run_scan(
     timeframes: list[str],
     strategy_names: list[str],
     *,
-    source: str = "alpaca",
+    source: str = "binance",
     days: int = 365,
     start: datetime | None = None,
     n_bars: int = 10_000,

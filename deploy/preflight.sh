@@ -43,10 +43,10 @@ case "$b" in
   451) fail "binance answers 451: restricted location — this box cannot trade" ;;
   *)   fail "binance ping returned HTTP $b" ;;
 esac
-a=$(code "https://data.alpaca.markets/v2/stocks/bars?symbols=SPY&limit=1")
-case "$a" in
-  200|401|403) pass "alpaca market data reachable (HTTP $a)" ;;
-  *)           fail "alpaca data returned HTTP $a" ;;
+d=$(code https://demo-api.binance.com/api/v3/time)
+case "$d" in
+  200) pass "binance demo api reachable" ;;
+  *)   fail "binance demo api returned HTTP $d" ;;
 esac
 g=$(code https://github.com)
 [ "$g" != "000" ] && pass "github reachable (HTTP $g)" || fail "github unreachable"

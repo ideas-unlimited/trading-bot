@@ -1,16 +1,15 @@
-"""Live paper trading against Alpaca's paper account.
+"""Live paper trading on Binance spot: production signals, demo orders.
 
-The loop polls Alpaca for freshly *closed* bars, runs the chosen strategy on
-them with the same no-lookahead semantics as the backtester (a signal on bar
-*i* is acted on as bar *i+1* begins — here approximated by a market order),
-and routes orders to ``paper-api.alpaca.markets``:
+The loop polls production Binance klines for freshly *closed* bars, runs the
+chosen strategy on them with the same no-lookahead semantics as the
+backtester (a signal on bar *i* is acted on as bar *i+1* begins — here
+approximated by a market order), and routes orders to
+``demo-api.binance.com`` with demo keys.  There is no production order path.
 
-* stock entries go out as **bracket orders** with the strategy's ATR stop;
-* crypto entries are simple market orders (Alpaca crypto has no brackets) and
-  the stop is managed locally in a small state file.
-
-Alpaca is the source of truth for positions and equity; the state file only
-remembers the last processed bar and any locally-managed crypto stop.
+Spot has no bracket orders, so every entry's stop lives in a small state file
+and is checked on each closed bar.  The venue is the source of truth for
+balances and equity; the state file only remembers the last processed bar
+and any locally-managed stop.
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TextIO
 
-from .alpaca_client import TIMEFRAME_DURATION, AlpacaClient, resolve_timeframe, symbol_is_crypto
+from .exchange.live_client import BinanceLiveClient, duration_for
 from .config import BotConfig
 from .data.feed import Bar
 from .heartbeat import Heartbeat
@@ -48,7 +47,7 @@ def compute_entry_qty(
 class LiveTrader:
     def __init__(
         self,
-        client: AlpacaClient,
+        client: BinanceLiveClient,
         strategy: Strategy,
         config: BotConfig,
         symbol: str,
@@ -68,17 +67,14 @@ class LiveTrader:
         self.strategy = strategy
         self.config = config
         self.symbol = symbol
-        # resolve_timeframe maps an alias ("4h") to Alpaca's name ("4Hour").
-        # fetch_bars wants the alias back, so keep both.
-        self.fetch_timeframe = timeframe.strip()
-        self.timeframe = resolve_timeframe(self.fetch_timeframe)
-        self.duration = TIMEFRAME_DURATION[self.timeframe]
+        self.timeframe = timeframe.strip()
+        self.duration = duration_for(self.timeframe)
         self.state_path = Path(state_path)
         self.poll_seconds = max(1.0, poll)
         self.lookback = max(strategy.warmup + 2, lookback)
         self.max_catchup = max(1, max_catchup)
         # Per-bot wallet: the loop may never size from more than this, even
-        # though several bots share one Alpaca paper account.  None = the
+        # though several bots share one demo account.  None = the
         # whole account equity (the old behaviour).
         if capital is not None and capital <= 0:
             raise ValueError("capital must be positive when given")
@@ -108,7 +104,7 @@ class LiveTrader:
     def poll(self, now: datetime | None = None) -> int:
         """Run one cycle; returns the number of bars processed."""
         now = now or datetime.now(timezone.utc)
-        bars = self.client.fetch_bars(self.symbol, self.fetch_timeframe, limit=self.lookback)
+        bars = self.client.fetch_bars(self.symbol, self.timeframe, limit=self.lookback)
         if len(bars) < self.strategy.warmup + 2:
             self._emit(f"[live] only {len(bars)} bars fetched; waiting for more")
             self.heartbeat.ping()
@@ -149,7 +145,7 @@ class LiveTrader:
         if closed:
             self._save_state()
 
-        self._check_crypto_stop(bars, now)
+        self._check_stop(bars, now)
         self._status(bars, equity, position)
         # Alive, even when there was nothing to trade: the ping is the proof.
         self.heartbeat.ping()
@@ -198,10 +194,11 @@ class LiveTrader:
             else:
                 self.client.submit_order(
                     self.symbol, "buy", qty,
+                    price=bar.close,
                     stop=signal.stop_loss,
                     take_profit=signal.take_profit,
                 )
-                if signal.stop_loss is not None and symbol_is_crypto(self.symbol):
+                if signal.stop_loss is not None:
                     self.state["stops"][self.symbol] = signal.stop_loss
                 self._emit(
                     f"[live] {bar.ts:%Y-%m-%d %H:%M} BUY {qty:.4f} {self.symbol} @ ~{bar.close:.2f}"
@@ -216,8 +213,8 @@ class LiveTrader:
             self._emit(f"[live] {bar.ts:%Y-%m-%d %H:%M} signal {signal.action.value} ignored (position {position})")
         self.state["last_ts"] = bar.ts.isoformat()
 
-    def _check_crypto_stop(self, bars: list[Bar], now: datetime) -> None:
-        """Crypto stops are managed locally (Alpaca crypto has no brackets)."""
+    def _check_stop(self, bars: list[Bar], now: datetime) -> None:
+        """Spot stops are managed locally: Binance spot has no brackets."""
         stop = self.state.get("stops", {}).get(self.symbol)
         if stop is None or not bars:
             return
@@ -240,7 +237,7 @@ class LiveTrader:
     # -- main loop ----------------------------------------------------------
     def run(self, *, once: bool = False) -> None:
         self._emit(
-            f"[live] paper trading {self.symbol} @ {self.timeframe} on Alpaca PAPER account "
+            f"[live] paper trading {self.symbol} @ {self.timeframe} on Binance DEMO account "
             f"(strategy {self.strategy.name}, poll {self.poll_seconds:.0f}s)"
         )
         try:

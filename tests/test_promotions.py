@@ -25,7 +25,7 @@ class FakeConn:
         return _Row()
 
 
-GOOD_PAPER = {"bars": 6000, "window_days": 1000, "trades": 12,
+GOOD_PAPER = {"bars": 6000, "window_days": 600, "trades": 12,
               "fee_bps": 10, "slippage_bps": 5}
 GOOD_PROD = {"weeks_live": 2, "fills": 3, "duplicate_orders": 0,
              "unexplained_rejects": 0, "max_fill_slippage_bps": 12,
@@ -55,7 +55,7 @@ class GateTests(unittest.TestCase):
         self.assertTrue(any(not c["ok"] for c in checks))
 
     def test_paper_gate_rejects_window_over_cap(self):
-        checks = promo.paper_entry_checks({**GOOD_PAPER, "window_days": 4000})
+        checks = promo.paper_entry_checks({**GOOD_PAPER, "window_days": 1000})
         self.assertFalse(next(c for c in checks if c["name"] == "backtest_window")["ok"])
 
     def test_params_hash_must_match(self):

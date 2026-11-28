@@ -1,10 +1,10 @@
 """Per-symbol walk-forward selection across the current strategy set.
 
-For every symbol, every candidate config is run once over the three-year 4h
-sample.  Configs are ranked on the *first two years* (expectancy per trade,
-minimum trade count, drawdown cap) and then scored on the untouched final
-year.  This is deliberately not an in-sample beauty contest: the selected
-config table is the honest out-of-sample result.
+For every symbol, every candidate config is run once over the two-year 4h
+sample.  Configs are ranked on the *first year* (expectancy per trade,
+minimum trade count, drawdown cap, both halves positive) and then scored on
+the untouched final year.  This is deliberately not an in-sample beauty
+contest: the selected config table is the honest out-of-sample result.
 
 Run:  .venv\\Scripts\\python.exe -u research/per_symbol.py
 """
@@ -27,7 +27,7 @@ from bot.metrics import compute_metrics  # noqa: E402
 from bot.strategy import build  # noqa: E402
 
 SYMS = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT"]
-MID = pd.Timestamp("2024-11-26")
+MID = pd.Timestamp("2025-05-26")
 TRAIN_END = pd.Timestamp("2025-11-26")
 CASH = 1000.0
 RISK = 0.02
@@ -53,7 +53,7 @@ def load(sym: str) -> pd.DataFrame:
     df = pd.read_csv(ROOT / "data" / "crypto" / f"{sym}_4h.csv")
     df["ts"] = pd.to_datetime(df["timestamp"], unit="s")
     df = df.drop(columns=["timestamp"]).sort_values("ts").reset_index(drop=True)
-    cutoff = df["ts"].max() - pd.DateOffset(years=3)
+    cutoff = df["ts"].max() - pd.DateOffset(years=2)
     return df[df["ts"] >= cutoff].reset_index(drop=True)
 
 
@@ -245,8 +245,8 @@ def main() -> None:
             ))
 
     print()
-    print("=== robust per-symbol selection: trained 2023-11-26..2025-11-26, tested 2025-11-26..2026-11-26 ===")
-    print("    (family chosen first; config must work in BOTH train years, win>=30%, PF>=1.2)")
+    print("=== robust per-symbol selection: trained 2024-11-26..2025-11-26, tested 2025-11-26..2026-11-26 ===")
+    print("    (family chosen first; config must work in BOTH train halves, win>=30%, PF>=1.2)")
     fams = [(f, s) for f, s in dict.fromkeys((r.family, r.short) for r in all_rows)]
     selected: dict[str, Row] = {}
     defaults: dict[str, Row] = {}

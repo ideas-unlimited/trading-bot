@@ -1,5 +1,8 @@
 # Per-symbol strategy tuning: what the data says
 
+> Historical study: measured on the old three-year cap. New backtests use the
+> two-year cap; the numbers below are retained for comparison.
+
 **Question:** should each symbol get its own tuned strategy instead of one
 group strategy?
 

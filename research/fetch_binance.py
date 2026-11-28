@@ -1,17 +1,18 @@
 
-"""Fetch Binance spot klines and store them in the repo's CSV format."""
+"""Fetch the last two years of Binance spot klines into the repo CSV format."""
 from __future__ import annotations
 
 import json
 import time
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 BASE = "https://api.binance.com/api/v3/klines"
 OUT = Path(__file__).resolve().parents[1] / "data" / "crypto"
 
 TF_MS = {"4h": 4 * 3600 * 1000, "1d": 24 * 3600 * 1000}
-START = {"4h": 1514764800000, "1d": 1502928000000}  # 2018-01-01 / 2017-08-17
+KEEP_DAYS = 730  # hard user cap: two years of history
 
 
 def get(symbol: str, interval: str, start_ms: int, limit: int = 1000) -> list[list]:
@@ -29,7 +30,7 @@ def get(symbol: str, interval: str, start_ms: int, limit: int = 1000) -> list[li
 
 def fetch(symbol: str, interval: str) -> int:
     rows: list[list] = []
-    start = START[interval]
+    start = int((datetime.now(timezone.utc) - timedelta(days=KEEP_DAYS)).timestamp() * 1000)
     while True:
         batch = get(symbol, interval, start)
         if not batch:

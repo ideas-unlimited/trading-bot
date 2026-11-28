@@ -90,3 +90,21 @@ debug a fill.
 Every prod deployment is tagged `prod-vN` and records the commit sha, so
 "what is trading money right now" is answerable from `git describe`. A daily
 drift check alerts when prod is behind master on live/risk/exchange paths.
+
+## D12 - One venue: Binance spot (2026-11-28)
+
+Alpaca is gone. Signals, backtests, scans, the live loop and the dashboard all
+read Binance spot klines from `api.binance.com` (public, no key, cached in
+`trading_common.bars`); orders exist only on `demo-api.binance.com` with demo
+keys. There is no stock, futures, margin or short path, and no second venue to
+reconcile.
+
+Why: two feeds for one market produced contradictory fills and confused the
+team. The decisive example is still in `AGENTS.md` - a 0.04% price difference
+moved the gated book from +581.6% to +184.5% because one cross landed a bar
+early.
+
+What it commits us to: any new instrument must be a Binance spot pair; a new
+venue is a new decision, not a config flag. `BinanceLiveClient` is the only
+adapter the loop, CLI and web may use, and every order carries a deterministic
+`clientOrderId`.

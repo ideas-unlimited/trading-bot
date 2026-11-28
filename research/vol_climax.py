@@ -1,6 +1,6 @@
 """Backtest the "volume climax = market bottom" setup from the shared video.
 
-Loads 3 years of bars per symbol/timeframe from the Postgres cache (delta
+Loads 2 years of bars per symbol/timeframe from the Postgres cache (delta
 sync, zero API calls once warm), runs the VolumeClimax strategy through the
 normal engine (next-bar fills, zero fees per the user standing assumption)
 and prints:
@@ -26,7 +26,7 @@ from bot.strategy import build
 
 SYMBOLS = ("BTC/USD", "ETH/USD", "SOL/USD")
 TIMEFRAMES = ("1d", "4h")
-DAYS = 1095
+DAYS = 730
 
 DEFAULTS = dict(vol_z=2.0, drop_pct=0.06, close_pos=0.5, rr=2.0, max_hold=20)
 
@@ -95,7 +95,7 @@ def fmt(r: Run) -> str:
 
 def main() -> None:
     data: dict[tuple[str, str], list] = {}
-    print("== data (3-year window, Postgres cache)")
+    print("== data (2-year window, Postgres cache)")
     for sym, tf in itertools.product(SYMBOLS, TIMEFRAMES):
         bars = load_scan_bars(sym, tf, days=DAYS)
         data[(sym, tf)] = bars

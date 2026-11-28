@@ -70,7 +70,7 @@ def portfolio(keys: list[str]) -> pd.Series:
 
 def main() -> None:
     print("$1,000 total, equal cash per symbol x sleeve, 2% risk per sleeve, zero fees")
-    print("full 2023-11-26..2026-11-26; OOS 2025-11-26..2026-11-26; 4h Binance")
+    print("full 2024-11-26..2026-11-26; OOS 2025-11-26..2026-11-26; 4h Binance")
     for label, keys in [
         ("wvf only", ["wvf"]),
         ("wvf+sma", ["wvf", "sma"]),

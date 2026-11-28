@@ -8,8 +8,10 @@ strategies (4h/1d), $1k, 0 fees" task. Read this + AGENTS.md first.
 - Swing trades, 4h and 1d bars only.
 - User wants "only take trades over 70% conviction/chance of success".
 - Capital $1,000, 0 fees/slippage assumption (user's simplification).
-- **HARD LIMIT: max 3 years of data** for backtesting/strategy generation
-  (~2023-11-26 .. 2026-11-26). All research must respect this.
+- **HARD LIMIT: max 2 years of data** for backtesting/strategy generation
+  (~2024-11-26 .. 2026-11-26). All research must respect this. Findings below
+  were measured on the old three-year window; they are historical, not a
+  current 2-year result.
 
 ## Data
 - `data/crypto/*_{4h,1d}.csv` refreshed via `research/fetch_binance.py`

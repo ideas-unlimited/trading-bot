@@ -204,7 +204,7 @@ def paper_entry_checks(evidence: dict[str, Any], *, params_hash_expected: str = 
     window = _num(evidence, "window_days")
     trades = _num(evidence, "trades")
     checks.append(_check("backtest_bars", bool(bars and bars > 0), f"bars={bars or 0:g}"))
-    checks.append(_check("backtest_window", bool(window and 0 < window <= 1095), f"window_days={window or 0:g}"))
+    checks.append(_check("backtest_window", bool(window and 0 < window <= 730), f"window_days={window or 0:g}"))
     checks.append(_check("backtest_trades", bool(trades and trades > 0), f"trades={trades or 0:g}"))
     fee = _num(evidence, "fee_bps")
     slip = _num(evidence, "slippage_bps")

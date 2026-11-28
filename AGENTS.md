@@ -20,10 +20,10 @@ when you hit a new environment quirk and solve it, add it here and commit.
 
 ## Secrets
 
-- Secrets live in `.env` (git-ignored). Current keys: `ALPACA_KEY_ID`,
-  `ALPACA_SECRET_KEY`, `BINANCE_DEMO_KEY`, `BINANCE_DEMO_SECRET`,
-  `DATABASE_URL`. The Binance pair is a *demo trading* key: it authenticates
-  against `demo-api.binance.com` only and holds virtual balances.
+- Secrets live in `.env` (git-ignored). Current keys: `BINANCE_DEMO_KEY`,
+  `BINANCE_DEMO_SECRET`, `DATABASE_URL`, `HEARTBEAT_URL`. The Binance pair is
+  a *demo trading* key: it authenticates against `demo-api.binance.com` only
+  and holds virtual balances.
 - **Never** paste secrets in chat, never write them into files via tools
   (the sandbox refuses, rightly). Ask the user to edit `.env` themselves.
 
@@ -44,20 +44,11 @@ when you hit a new environment quirk and solve it, add it here and commit.
 - Market-data policy: bars are **the** data store. Incremental sync lives in
   `src/bot/scanlib.load_scan_bars` — first run deep-backfills, later runs
   fetch only the delta since the last cached bar, fresh caches are served
-  with **zero API calls**. History is hard-capped at **3 years**
+  with **zero API calls**. History is hard-capped at **2 years**
   (`MAX_HISTORY_DAYS`), auto-pruned after every upsert.
 - **Prefer the Postgres bars cache over new CSV pipelines.** If a research
   fetcher must read elsewhere (e.g. Binance), upsert into `bars` so the data
   lands in one place.
-
-## Alpaca API
-
-- Trading (paper only): `https://paper-api.alpaca.markets` — **hard-coded**;
-  this project must never reach a live broker.
-- Market data: `https://data.alpaca.markets` (NOT `data-api.alpaca.markets`
-  — that host no longer resolves; it cost us a debugging session).
-- Free plan rate limit: 200 req/min — the delta-sync cache above is the
-  mechanism that respects it.
 
 ## Live paper books (`bot auto`)
 
@@ -81,13 +72,13 @@ when you hit a new environment quirk and solve it, add it here and commit.
 
 ## Market-data venues
 
-- The crypto books were researched on **Binance** klines, so live signals read
-  Binance too: `load_scan_bars(sym, tf, source="binance")` (public REST, no
-  key, cached in `bars` like everything else). Alpaca's crypto feed is the same
-  market from another venue; a 0.04% price difference moved the three-year
-  gated book from +581.6% to +184.5% because one cross landed a bar early.
-  Do not mix venues inside one book.
-- Alpaca stays the source for stocks and for the existing `bot live` loop.
+- **One venue.** Signals, backtests, scans, the live loop and the dashboard
+  all read Binance spot: `load_scan_bars(sym, tf, source="binance")` (public
+  REST, no key, cached in `bars` like everything else). There is no second
+  feed to reconcile — a 0.04% price difference from another venue once moved
+  the gated book from +581.6% to +184.5% because one cross landed a bar early.
+- Orders exist only on `demo-api.binance.com` via `BinanceLiveClient`; no
+  stock, futures, margin or short path exists, and none should be added.
 - **Spot only (rule restated 2026-11-27).** Cash spot balances: no futures
   (`/fapi`), no margin (`/sapi` margin endpoints), no leverage, no shorts.
   The Binance broker only ever touches `/api/v3/*`.
@@ -131,14 +122,15 @@ when you hit a new environment quirk and solve it, add it here and commit.
 
 ## Backtest windows (hard rules from the user)
 
-- **Three-year cap.** Nothing older than the last three years goes into a
+- **Two-year cap.** Nothing older than the last two years goes into a
   backtest or a strategy search (`MAX_HISTORY_DAYS`). The clock is the max
-  bar in the data, so the window always ends at the newest bar.
+  bar in the data, so the window always ends at the newest bar. A coin with
+  less history uses everything since its listing; do not fabricate the gap.
 - **Sub-4h means one year.** Any test, sweep or search on a timeframe faster
   than 4h (1h, 30m, 15m, 5m ...) may only use the **last 12 months**. A
   faster chart has more bars per unit of history, so a longer window there
   multiplies noise and multiple-testing, not evidence. Compare a 1h result
-  against a 4h result on the same 12 months, never against a 3-year 4h run.
+  against a 4h result on the same 12 months, never against a 2-year 4h run.
 - **Long only.** Spot book, no shorts, no margin - a "religion condition"
   the user restated on 2026-11-26. Bear years are survived by sitting in
   cash, not by selling short.
@@ -199,8 +191,8 @@ when you hit a new environment quirk and solve it, add it here and commit.
   `/etc/tradingbot/<name>.env`, state in `/var/lib/tradingbot/*.json`,
   dumps in `/var/backups/tradingbot`. Services run as the `trader` user,
   web binds 127.0.0.1:9000 only (reach it over SSH or Tailscale).
-- One bot per symbol: they share one Alpaca paper account, so two bots on
-  the same symbol would close each other's position.
+- One bot per symbol: every bot shares one demo account, so two bots on the
+  same symbol would close each other's position.
 - Heartbeat: every poll pings `HEARTBEAT_URL` (bot env file /
   `--heartbeat-url`, throttled to 30 min) so an outside service alerts when
   the loop stops. It fires on flat cycles too — the point is proving the
@@ -211,7 +203,7 @@ when you hit a new environment quirk and solve it, add it here and commit.
   IPs with HTTP 451, so exchange calls must originate outside the US.
 - **Paper/UI host: CometVPS "Standard 8GB", Seattle** — 4 vCPU, 8 GB,
   100 GB NVMe, ~$70/yr. Binance is unreachable from it, so never run the
-  venue-matching bot or its data sync there; a paper book fed by Alpaca does
+  venue-matching bot or its data sync there; a paper book fed elsewhere does
   not validate a Binance execution venue.
 - Measured requirement is ~90 MB per bot/web process and a 28 MB database, so
   either box runs the whole book with >10x headroom and stays under ~3 GB of

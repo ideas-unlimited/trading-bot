@@ -1,8 +1,8 @@
 '''Binance spot klines: the venue the crypto books were researched on.
 
-Public REST endpoint, no key, no account - read-only market data.  Alpaca's
-crypto feed tracks the same market but from a different venue, and the 4h
-prices differ by a fraction of a percent.  That fraction is enough to move a
+Public REST endpoint, no key, no account - read-only market data.  Any
+other venue's feed tracks the same market but from a different book, and the
+4h prices differ by a fraction of a percent.  That fraction is enough to move a
 SMA-cross fill by one bar, and one bar is the difference between +372% and
 +184% over three years, so the live books must read the same venue the
 research read.
@@ -22,14 +22,21 @@ MAX_LIMIT = 1000
 
 #: Binance interval strings we accept, with the bar span each one means.
 INTERVALS: dict[str, timedelta] = {
+    "1m": timedelta(minutes=1),
+    "3m": timedelta(minutes=3),
+    "5m": timedelta(minutes=5),
     "15m": timedelta(minutes=15),
     "30m": timedelta(minutes=30),
     "1h": timedelta(hours=1),
     "2h": timedelta(hours=2),
     "4h": timedelta(hours=4),
     "6h": timedelta(hours=6),
+    "8h": timedelta(hours=8),
     "12h": timedelta(hours=12),
     "1d": timedelta(days=1),
+    "3d": timedelta(days=3),
+    "1w": timedelta(days=7),
+    "1M": timedelta(days=30),
 }
 
 
@@ -113,3 +120,9 @@ def fetch_binance_bars(
     if end is not None:
         bars = [b for b in bars if b.ts <= end]
     return bars
+
+def fetch_price(symbol: str, *, timeout: float = 20.0) -> float:
+    """Last traded price of one pair (public ticker, no key)."""
+    sym = symbol.replace("/", "").replace("-", "").upper()
+    payload = _get(f"https://api.binance.com/api/v3/ticker/price?symbol={sym}", timeout=timeout)
+    return float(payload["price"])

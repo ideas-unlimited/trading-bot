@@ -20,10 +20,10 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .alpaca_client import AlpacaClient, resolve_timeframe
+from .exchange.live_client import BinanceLiveClient, interval_for, split_symbol
 from .alerts import AlertServer, MirrorAccount, random_token
 from .backtest import run_backtest
 from .book import (
@@ -35,6 +35,7 @@ from .book import (
     simulate_book,
 )
 from .config import BotConfig, CostConfig, RiskConfig
+from .data.binance import INTERVALS, fetch_binance_bars
 from .data.feed import generate_synthetic, load_csv, write_bars
 from .data.tvfeed import fetch_latest_tv_bars, fetch_tv_bars
 from .metrics import format_metrics
@@ -48,25 +49,26 @@ from .portfolio import (
     simulate_rotation,
 )
 from .report import save_equity_chart, save_trades_csv, summary_text
+from .scanlib import load_scan_bars
 from .strategy import REGISTRY, build
 
 
 def _add_source_args(p: argparse.ArgumentParser, *, live: bool = False) -> None:
-    p.add_argument("--source", choices=["synthetic", "csv", "tv"], default="synthetic",
-                   help="data source: synthetic bars, OHLCV csv, or real TradingView bars")
+    p.add_argument("--source", choices=["synthetic", "csv", "binance", "tv"], default="synthetic",
+                   help="data source: synthetic, OHLCV csv, Binance klines, or TradingView bars")
     p.add_argument("--csv", type=Path, help="OHLCV csv (required for --source csv)")
     p.add_argument("--symbol", default="BTCUSDT", help="TradingView symbol (for --source tv)")
     p.add_argument("--exchange", default="BINANCE", help="TradingView exchange (for --source tv)")
     p.add_argument("--interval", default="1h", help="bar interval, e.g. 1h, 4h, 1d (for --source tv)")
-    p.add_argument("--n-bars", type=int, default=5000, help="bars to fetch from TradingView/Alpaca")
-    p.add_argument("--start", default=None, help="fetch bars from this date, e.g. 2020-01-01 (Alpaca only)")
+    p.add_argument("--n-bars", type=int, default=5000, help="bars to fetch from Binance/TradingView")
+    p.add_argument("--start", default=None, help="fetch bars from this date, e.g. 2020-01-01 (Binance only)")
     p.add_argument("--bars", type=int, default=5000, help="synthetic bar count")
     p.add_argument("--seed", type=int, default=7, help="synthetic generator seed")
     p.add_argument("--start-price", type=float, default=100.0)
     p.add_argument("--bars-per-year", type=float, default=None,
                    help="annualisation factor; inferred from bar spacing by default")
-    p.add_argument("--max-years", type=float, default=3.0,
-                   help="keep only the last N years of bars (default 3; 0 disables)")
+    p.add_argument("--max-years", type=float, default=2.0,
+                   help="keep only the last N years of bars (default 2; 0 disables)")
 
 
 def _add_strategy_args(p: argparse.ArgumentParser) -> None:
@@ -111,21 +113,32 @@ def _parse_params(raw: list[str]) -> dict[str, object]:
     return params
 
 
+def _binance_bars(symbol: str, timeframe: str, *, start=None, limit: int = 5000) -> list:
+    """Bars from production Binance; public klines, no API keys needed."""
+    interval, _ = interval_for(timeframe)
+    _, _, pair = split_symbol(symbol)
+    limit = max(1, int(limit))
+    if start is None and limit > 1000:
+        # The venue returns at most 1000 rows per page; start from the far
+        # edge of the requested window so the pager fills it.
+        start = datetime.now(timezone.utc) - INTERVALS[interval] * limit
+    return fetch_binance_bars(pair, interval, start=start, limit=limit)[-limit:]
+
+
 def _load_bars(args: argparse.Namespace) -> list:
     if args.source == "csv":
         if not args.csv:
             raise SystemExit("--source csv requires --csv PATH")
         bars = load_csv(args.csv)
-    elif args.source == "alpaca":
+    elif args.source == "binance":
         start = None
         if args.start:
             from datetime import datetime, timezone
 
             start = datetime.fromisoformat(args.start).replace(tzinfo=timezone.utc)
-        client = AlpacaClient()
         print(f"fetching up to {args.n_bars} bars of {args.symbol} @ {args.interval} "
-              f"from Alpaca (paper keys) ...", file=sys.stderr)
-        bars = client.fetch_bars(args.symbol, args.interval, start=start, limit=args.n_bars)
+              f"from Binance production klines ...", file=sys.stderr)
+        bars = _binance_bars(args.symbol, args.interval, start=start, limit=args.n_bars)
     elif args.source == "tv":
         print(f"fetching {args.n_bars} bars of {args.exchange}:{args.symbol} "
               f"@ {args.interval} from TradingView ...", file=sys.stderr)
@@ -134,8 +147,8 @@ def _load_bars(args: argparse.Namespace) -> list:
         bars = generate_synthetic(args.bars, seed=args.seed, start_price=args.start_price)
 
     # Hard user rule: backtests and strategy searches never see more than the
-    # last three years.  ``--max-years 0`` is the explicit research escape.
-    max_years = getattr(args, "max_years", 3.0)
+    # last two years.  ``--max-years 0`` is the explicit research escape.
+    max_years = getattr(args, "max_years", 2.0)
     if max_years and bars:
         cutoff = bars[-1].ts - timedelta(days=365.25 * max_years)
         bars = [b for b in bars if b.ts >= cutoff]
@@ -292,8 +305,8 @@ def cmd_serve_alerts(args: argparse.Namespace) -> int:
 
 
 def cmd_account(_: argparse.Namespace) -> int:
-    """Show the Alpaca PAPER account summary and open positions."""
-    client = AlpacaClient()
+    """Show the Binance demo account summary and open positions."""
+    client = BinanceLiveClient()
     acct = client.get_account()
     print(f"account       {acct.get('account_number')} ({acct.get('status')})")
     print(f"mode          PAPER (no real orders possible from this code)")
@@ -313,11 +326,11 @@ def cmd_account(_: argparse.Namespace) -> int:
 
 
 def cmd_live(args: argparse.Namespace) -> int:
-    """Trade a strategy on live bars into the Alpaca PAPER account."""
+    """Trade a strategy on live Binance bars; orders go to the demo account."""
     from .live import LiveTrader
 
     strategy = build(args.strategy, **_parse_params(args.param))
-    client = AlpacaClient()
+    client = BinanceLiveClient()
     bars = client.fetch_bars(args.symbol, args.interval, limit=max(strategy.warmup + 2, 300))
     config = _config(args, bars)
     LiveTrader(
@@ -339,8 +352,8 @@ def cmd_live(args: argparse.Namespace) -> int:
 def cmd_scan(args: argparse.Namespace) -> int:
     """Backtest strategy/timeframe combinations and rank the results.
 
-    Bars come from Alpaca (stocks or crypto).  ``6h`` is aggregated from 1h
-    bars.  Results are printed as a table and saved to runs/scan.csv.
+    Bars come from production Binance klines (Postgres-cached, delta-synced).
+    Results are printed as a table and saved to runs/scan.csv.
     """
     import csv as _csv
     from datetime import datetime, timedelta, timezone
@@ -355,12 +368,14 @@ def cmd_scan(args: argparse.Namespace) -> int:
     elif args.days:
         start = datetime.now(timezone.utc) - timedelta(days=args.days)
 
-    client = AlpacaClient()
     rows: list[dict[str, object]] = []
     for sym in symbols:
         for tf in timeframes:
             print(f"fetching {sym} @ {tf} ...")
-            bars = client.fetch_bars(sym, tf, start=start, limit=args.n_bars)
+            bars = load_scan_bars(
+                sym, tf, source="binance", start=start,
+                days=args.days, n_bars=args.n_bars, cache_key=sym,
+            )
             if len(bars) < 60:
                 print(f"  !! only {len(bars)} bars; skipping {sym} @ {tf}")
                 continue
@@ -451,11 +466,10 @@ def cmd_rotate(args: argparse.Namespace) -> int:
     if args.source == "csv":
         closes = load_closes_from_csv(args.dir, symbols, args.timeframe)
     else:
-        client = AlpacaClient()
-        print(f"fetching {len(symbols)} symbols @ {args.timeframe} from Alpaca ...", file=sys.stderr)
+        print(f"fetching {len(symbols)} symbols @ {args.timeframe} from Binance ...", file=sys.stderr)
         bars = {}
         for sym in symbols:
-            bars[sym] = client.fetch_bars(sym, args.timeframe, limit=args.n_bars)
+            bars[sym] = _binance_bars(sym, args.timeframe, limit=args.n_bars)
             print(f"  {sym:<10} {len(bars[sym]):>5} bars", file=sys.stderr)
         closes = closes_from_bars(bars)
 
@@ -500,11 +514,10 @@ def cmd_book(args: argparse.Namespace) -> int:
     if args.source == "csv":
         bars = load_bars_from_csv(args.dir, symbols, args.timeframe)
     else:
-        client = AlpacaClient()
-        print(f"fetching {len(symbols)} symbols @ {args.timeframe} from Alpaca ...", file=sys.stderr)
+        print(f"fetching {len(symbols)} symbols @ {args.timeframe} from Binance ...", file=sys.stderr)
         bars = {}
         for sym in symbols:
-            bars[sym] = client.fetch_bars(sym, args.timeframe, limit=args.n_bars)
+            bars[sym] = _binance_bars(sym, args.timeframe, limit=args.n_bars)
             print(f"  {sym:<10} {len(bars[sym]):>5} bars", file=sys.stderr)
 
     if args.start:
@@ -767,19 +780,19 @@ def build_parser() -> argparse.ArgumentParser:
     _add_cost_args(p_alerts)
     p_alerts.set_defaults(func=cmd_serve_alerts)
 
-    p_acct = sub.add_parser("account", help="show Alpaca PAPER account summary and positions")
+    p_acct = sub.add_parser("account", help="show the Binance demo account and open positions")
     p_acct.set_defaults(func=cmd_account)
 
-    p_live = sub.add_parser("live", help="paper-trade a strategy on live bars via Alpaca PAPER")
+    p_live = sub.add_parser("live", help="paper-trade a strategy on live Binance bars (demo orders)")
     _add_strategy_args(p_live)
     _add_cost_args(p_live)
-    p_live.add_argument("--symbol", default="SPY", help="e.g. SPY, AAPL, BTC/USD, ETH/USD")
+    p_live.add_argument("--symbol", default="BTC/USDT", help="e.g. BTC/USDT, ETH/USDT")
     p_live.add_argument("--interval", default="1d", help="bar timeframe, e.g. 1h, 4h, 1d")
     p_live.add_argument("--poll", type=float, default=60.0, help="seconds between polls")
     p_live.add_argument("--lookback", type=int, default=400, help="bars fetched each poll")
     p_live.add_argument("--capital", type=float, default=None,
-                       help="max equity this bot may size from (default: whole paper account) so "
-                            "several bots can share one Alpaca account with separate wallets")
+                       help="max equity this bot may size from (default: whole demo account) so "
+                            "several bots can share one account with separate wallets")
     p_live.add_argument("--state", default="runs/live_state.json", help="loop state file")
     p_live.add_argument("--heartbeat-url", default=os.environ.get("HEARTBEAT_URL", ""),
                         help="ping this URL on each cycle; an outside service "
@@ -789,10 +802,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_live.add_argument("--once", action="store_true", help="run a single poll cycle and exit")
     p_live.set_defaults(func=cmd_live)
 
-    p_scan = sub.add_parser("scan", help="rank strategies across timeframes (Alpaca bars)")
+    p_scan = sub.add_parser("scan", help="rank strategies across timeframes (Binance bars)")
     _add_strategy_args_multi(p_scan)
     _add_cost_args(p_scan)
-    p_scan.add_argument("--symbol", default="BTC/USD", help="comma-separated symbols, e.g. BTC/USD,ETH/USD")
+    p_scan.add_argument("--symbol", default="BTC/USDT", help="comma-separated symbols, e.g. BTC/USDT,ETH/USDT")
     p_scan.add_argument("--timeframes", default="1h,4h,6h,1d", help="comma-separated: 1h,4h,6h,1d,1w")
     p_scan.add_argument("--start", default=None, help="fetch bars from this date, e.g. 2024-11-01")
     p_scan.add_argument("--days", type=int, default=365, help="lookback days if --start not given")
@@ -802,8 +815,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_rot = sub.add_parser("rotate", help="backtest the top-N multi-coin trend rotation")
     p_rot.add_argument("--coins", default="BTCUSDT,ETHUSDT,BNBUSDT,XRPUSDT,SOLUSDT",
-                       help="comma-separated symbols (csv filenames or Alpaca pairs, e.g. BTC/USD)")
-    p_rot.add_argument("--source", choices=["csv", "alpaca"], default="csv")
+                       help="comma-separated symbols (csv filenames or Binance pairs, e.g. BTC/USDT)")
+    p_rot.add_argument("--source", choices=["csv", "binance"], default="csv")
     p_rot.add_argument("--dir", type=Path, default=Path("data/crypto"), help="csv directory")
     p_rot.add_argument("--timeframe", default="1d")
     p_rot.add_argument("--n-bars", type=int, default=5000)
@@ -821,8 +834,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_book = sub.add_parser("book", help="backtest one shared wallet across coins (one slot)")
     p_book.add_argument("--coins", default="BTCUSDT,ETHUSDT,BNBUSDT,XRPUSDT,SOLUSDT",
-                        help="comma-separated symbols (csv filenames or Alpaca pairs)")
-    p_book.add_argument("--source", choices=["csv", "alpaca"], default="csv")
+                        help="comma-separated symbols (csv filenames or Binance pairs)")
+    p_book.add_argument("--source", choices=["csv", "binance"], default="csv")
     p_book.add_argument("--dir", type=Path, default=Path("data/crypto"), help="csv directory")
     p_book.add_argument("--timeframe", default="4h")
     p_book.add_argument("--n-bars", type=int, default=5000)
@@ -845,9 +858,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_auto = sub.add_parser("auto", help="run the paper books forward on live bars (no orders sent)")
     p_auto.add_argument("--coins", default="BTCUSDT,ETHUSDT,BNBUSDT,XRPUSDT,SOLUSDT")
-    p_auto.add_argument("--source", choices=["binance", "alpaca", "tv"], default="binance")
+    p_auto.add_argument("--source", choices=["binance", "tv"], default="binance")
     p_auto.add_argument("--timeframe", default="4h")
-    p_auto.add_argument("--days", type=int, default=1095, help="history window (3-year cap)")
+    p_auto.add_argument("--days", type=int, default=730, help="history window (2-year cap)")
     p_auto.add_argument("--books", default="A,B,C", help="A,B,C or all")
     p_auto.add_argument("--cash", type=float, default=1000.0, help="starting wallet per book")
     p_auto.add_argument("--interval", type=int, default=900, help="seconds between cycles")

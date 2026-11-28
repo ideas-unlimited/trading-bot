@@ -13,7 +13,7 @@ production.** It is not a research machine:
 - Anything past routine operation (status, logs, restart, pull) needs the
   owner's permission first.
 
-No live broker path exists yet: orders go to Alpaca paper or Binance demo.
+No live broker path exists: orders only ever go to the Binance demo account.
 
 Target hosts:
 
@@ -59,10 +59,10 @@ Installs Python venv + Postgres, creates the `trading_bot` database, writes
 terminal, UFW (SSH only) and fail2ban, and schedules a nightly `pg_dump`.
 Re-running is safe; it never overwrites `.env`.
 
-## 4. Add the Alpaca keys
+## 4. Add the Binance demo keys
 
 ```bash
-sudo vi /opt/trading-bot/.env     # ALPACA_KEY_ID / ALPACA_SECRET_KEY
+sudo vi /opt/trading-bot/.env     # BINANCE_DEMO_KEY / BINANCE_DEMO_SECRET
 sudo systemctl enable --now tradingbot@btc tradingbot@eth tradingbot@sol
 ```
 
@@ -145,7 +145,7 @@ a position.
 | Restore a dump | `zcat /var/backups/tradingbot/trading_bot-<date>.sql.gz | runuser -u postgres -- psql trading_bot` |
 
 Every bot gets its own wallet (`--capital`), its own state file and its own
-unit, but they share one Alpaca paper account: two bots on the same symbol
+unit, but they share one demo account: two bots on the same symbol
 would fight over the position. One symbol per bot.
 
 ## Memory budget (8 GB box)

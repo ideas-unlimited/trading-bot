@@ -122,7 +122,6 @@
         <label>Market</label>
         <div class="chips" id="marketChips">
           <span class="chip on" data-mkt="crypto">Crypto</span>
-          <span class="chip" data-mkt="stocks">Stocks</span>
         </div>
         <label>Ticker</label>
         <select id="botSymbol"></select>
@@ -200,11 +199,10 @@
         <label>Market</label>
         <div class="chips" id="btMarketChips">
           <span class="chip on" data-mkt="crypto">Crypto</span>
-          <span class="chip" data-mkt="stocks">Stocks</span>
         </div>
         <label>Data feed</label>
         <div class="chips" id="btFeedChips">
-          <span class="chip on" data-feed="alpaca">Alpaca</span>
+          <span class="chip on" data-feed="binance">Binance</span>
           <span class="chip" data-feed="tv">TradingView</span>
         </div>
         <label>Ticker</label>
@@ -251,10 +249,10 @@
       <div class="card">
         <h2>Scan timeframes × strategies</h2>
         <label>Symbols (comma separated)</label>
-        <input type="text" id="scSymbols" value="BTC/USD">
+        <input type="text" id="scSymbols" value="BTC/USDT">
         <label>Data feed</label>
         <div class="chips" id="scFeedChips">
-          <span class="chip on" data-feed="alpaca">Alpaca</span>
+          <span class="chip on" data-feed="binance">Binance</span>
           <span class="chip" data-feed="tv">TradingView</span>
         </div>
         <label>Timeframes</label>
@@ -282,7 +280,7 @@
         <table id="pnlSummary"></table>
       </div>
       <div class="card">
-        <h2>Paper account fills <button class="small ghost" id="btnSyncTrades" style="float:right">↻ Sync from Alpaca</button></h2>
+        <h2>Paper account fills <button class="small ghost" id="btnSyncTrades" style="float:right">↻ Sync from Binance</button></h2>
         <div class="scroll"><table id="tradesTable"></table></div>
       </div>
     </div>
@@ -296,11 +294,10 @@
         <label>Market</label>
         <div class="chips" id="ingMarketChips">
           <span class="chip on" data-mkt="crypto">Crypto</span>
-          <span class="chip" data-mkt="stocks">Stocks</span>
         </div>
         <label>Data feed</label>
         <div class="chips" id="ingFeedChips">
-          <span class="chip on" data-feed="alpaca">Alpaca</span>
+          <span class="chip on" data-feed="binance">Binance</span>
           <span class="chip" data-feed="tv">TradingView</span>
         </div>
         <label>Ticker</label>
@@ -310,7 +307,7 @@
         <label>Lookback (days)</label>
         <input type="number" id="ingDays" value="365" min="7" max="2000">
         <button class="primary" id="btnIngest">Ingest bars</button>
-        <div class="hint">Cached bars make backtests instant. Backtests run from the cache when it covers the range, otherwise they fetch from Alpaca and cache automatically.</div>
+        <div class="hint">Cached bars make backtests instant. Backtests run from the cache when it covers the range, otherwise they fetch from Binance and cache automatically.</div>
       </div>
       <div class="card">
         <h2>Cached bars</h2>
@@ -328,7 +325,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&l
 
 let S = { strategies: {}, presets: [], symbols: {}, symbolMeta: {},
           market: {bots:"crypto", bt:"crypto", ing:"crypto"},
-          feed: {bt:"alpaca", sc:"alpaca", ing:"alpaca"},
+          feed: {bt:"binance", sc:"binance", ing:"binance"},
           botTf: "1h", btTf: "4h", scTf: ["1h","4h","6h","1d"], ingTf: ["1d"], scStrategies: [] };
 
 function fail(m){ $("err").textContent = m; $("err").classList.remove("hidden"); }
@@ -425,24 +422,29 @@ function feedChips(containerId, key){
     S.feed[key] = c.dataset.feed;
   });
 }
+function binancePair(symbol){
+  /* Binance spot pairs: catalog crypto entries, or a custom "BASE/QUOTE". */
+  if (!symbol) return false;
+  if ((S.symbols.crypto || []).some(e => e.symbol === symbol)) return true;
+  return !symbol.includes(":") && symbol.includes("/");
+}
 function autoFeed(key, symbol){
-  /* pairs without an Alpaca listing force the TradingView feed */
-  const meta = S.symbolMeta[symbol];
-  if (meta && meta.alpaca === false && S.feed[key] === "alpaca"){
+  /* Commodities and indices are research feeds only: no Binance pair. */
+  if (S.feed[key] === "binance" && !binancePair(symbol)){
     S.feed[key] = "tv";
     const map = {bt:"btFeedChips", ing:"ingFeedChips"};
     if (map[key]) [...$(map[key]).children].forEach(c =>
       c.classList.toggle("on", c.dataset.feed === "tv"));
-    return "not on Alpaca — using TradingView data (backtest only)";
+    return "no Binance pair — using TradingView data (backtest only)";
   }
   return null;
 }
 function currentSymbol(dropdownId){
   const sel = $(dropdownId);
   if (sel.value !== "__custom__") return sel.value;
-  const custom = prompt("Symbol (EXCHANGE:TICKER for TradingView, plain TICKER for Alpaca):\ne.g. BINANCE:BNBUSDT  or  SPY");
+  const custom = prompt("Symbol (EXCHANGE:TICKER for TradingView, or a Binance pair):\ne.g. BINANCE:BNBUSDT  or  BTC/USDT");
   if (!custom){ sel.selectedIndex = 0; return currentSymbol(dropdownId); }
-  S.symbolMeta[custom] = {symbol: custom, alpaca: !custom.includes(":")};
+  S.symbolMeta[custom] = {symbol: custom};
   const opt = document.createElement("option"); opt.value = custom; opt.textContent = custom;
   sel.insertBefore(opt, sel.options[sel.options.length-1]); sel.value = custom;
   return custom;
@@ -452,7 +454,8 @@ function fillSymbolDropdown(dropdownId, market){
   const entries = S.symbols[market] || [];
   const prev = sel.value;
   sel.innerHTML = entries.map(e => {
-    const tags = [e.alpaca ? "A" : null, e.tv ? "TV" : null].filter(Boolean).join("+");
+    const isPair = (S.symbols.crypto || []).some(x => x.symbol === e.symbol);
+    const tags = [isPair ? "B" : null, e.tv ? "TV" : null].filter(Boolean).join("+");
     const label = e.label ? `${e.symbol} · ${e.label}` : e.symbol;
     return `<option value="${esc(e.symbol)}">${esc(label)}  [${tags}]</option>`;
   }).join("") + `<option value="__custom__">✎ custom…</option>`;
@@ -821,10 +824,9 @@ timeframes("scTf", ["1h","4h","6h","1d"], true); timeframes("ingTf", ["1d"], tru
 marketChips("marketChips", "bots"); marketChips("btMarketChips", "bt"); marketChips("ingMarketChips", "ing");
 feedChips("btFeedChips", "bt"); feedChips("scFeedChips", "sc"); feedChips("ingFeedChips", "ing");
 $("botSymbol").addEventListener("change", () => {
-  const hint = autoFeed("bots", $("botSymbol").value);
-  $("botFeedHint").textContent = hint || (S.symbolMeta[$("botSymbol").value]?.alpaca === false
-    ? "backtests use TradingView data; live paper-trading via Alpaca is unavailable for this pair"
-    : "");
+  const sym = $("botSymbol").value;
+  $("botFeedHint").textContent = binancePair(sym)
+    ? "" : "no Binance pair for this symbol — backtest only (TradingView data)";
 });
 $("btSymbol").addEventListener("change", () => autoFeed("bt", $("btSymbol").value));
 $("ingSymbol").addEventListener("change", () => autoFeed("ing", $("ingSymbol").value));

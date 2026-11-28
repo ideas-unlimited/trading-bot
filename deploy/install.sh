@@ -110,11 +110,11 @@ else
   DB_PASS=$(openssl rand -hex 16)
   runuser -u postgres -- psql -qc "ALTER ROLE tradingbot PASSWORD '$DB_PASS'"
   cat > "$APP_DIR/.env" <<EOF
-ALPACA_KEY_ID=replace-me
-ALPACA_SECRET_KEY=replace-me
+BINANCE_DEMO_KEY=replace-me
+BINANCE_DEMO_SECRET=replace-me
 DATABASE_URL=postgresql://tradingbot:$DB_PASS@127.0.0.1:5432/trading_bot
 EOF
-  grep -q '^ALPACA_KEY_ID=replace-me' "$APP_DIR/.env" && NEED_KEYS=1 || NEED_KEYS=0
+  grep -q '^BINANCE_DEMO_KEY=replace-me' "$APP_DIR/.env" && NEED_KEYS=1 || NEED_KEYS=0
 fi
 chown "$SVC_USER:$SVC_USER" "$APP_DIR/.env"
 chmod 600 "$APP_DIR/.env"
@@ -137,9 +137,9 @@ only_if_missing() {
   local path=$1 body=$2
   [[ -f "$path" ]] || printf '%s\n' "$body" > "$path"
 }
-write_bot btc "BTC/USD" 4h momentum_swing 1000
-write_bot eth "ETH/USD" 4h momentum_swing 1000
-write_bot sol "SOL/USD" 4h momentum_swing 1000
+write_bot btc "BTC/USDT" 4h momentum_swing 1000
+write_bot eth "ETH/USDT" 4h momentum_swing 1000
+write_bot sol "SOL/USDT" 4h momentum_swing 1000
 
 log "systemd"
 install -m 0644 "$APP_DIR/deploy/tradingbot-web.service" /etc/systemd/system/
@@ -152,7 +152,7 @@ systemctl enable --now tradingbot-web.service
 systemctl enable --now tradingbot-backup.timer
 
 if [[ "${NEED_KEYS:-0}" == "1" ]]; then
-  echo "WARNING: $APP_DIR/.env still has placeholder Alpaca keys."
+  echo "WARNING: $APP_DIR/.env still has placeholder Binance demo keys."
   echo "         Bots are NOT enabled yet.  Fill it in, then run:"
   for b in $BOTS; do echo "           systemctl enable --now tradingbot@$b"; done
 else

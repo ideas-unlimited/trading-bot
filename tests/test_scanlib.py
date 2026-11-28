@@ -6,6 +6,11 @@ from unittest import mock
 from bot import scanlib
 
 
+class HistoryCapTests(unittest.TestCase):
+    def test_cap_is_two_years(self) -> None:
+        self.assertEqual(scanlib.MAX_HISTORY_DAYS, 730)
+
+
 class DatabaseOutageTests(unittest.TestCase):
     def test_falls_back_to_the_source_when_the_database_is_missing(self):
         from datetime import datetime, timezone

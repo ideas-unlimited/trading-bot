@@ -1,14 +1,15 @@
-"""Fetch 1h klines for the 3-year window (2023-08 onward)."""
+"""Fetch 1h klines for the 2-year storage window."""
 
 from __future__ import annotations
 
 import json, time, urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 BASE = 'https://api.binance.com/api/v3/klines'
 OUT = Path(__file__).resolve().parents[1] / 'data' / 'crypto'
 COINS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'XRPUSDT', 'SOLUSDT']
-START = 1690848000000  # 2023-08-01
+KEEP_DAYS = 730  # hard user cap: two years of history
 STEP = 3600 * 1000
 
 
@@ -26,8 +27,9 @@ def get(symbol, start, limit=1000):
 
 
 def main():
+    start0 = int((datetime.now(timezone.utc) - timedelta(days=KEEP_DAYS)).timestamp() * 1000)
     for sym in COINS:
-        rows, start = [], START
+        rows, start = [], start0
         while True:
             batch = get(sym, start)
             if not batch:

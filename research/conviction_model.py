@@ -26,7 +26,7 @@ REFIT = {"4h": 240, "1d": 45}
 MIN_TRAIN = {"4h": 2000, "1d": 500}
 CAL_FRAC = 0.25
 HALF_LIFE = {"4h": 1460, "1d": 365}  # ~1 year sample-weight decay
-DATA_YEARS = 3  # hard limit: strategy research uses at most the last 3 years
+DATA_YEARS = 2  # hard limit: strategy research uses at most the last 2 years
 
 
 def _gbm():

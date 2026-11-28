@@ -19,7 +19,7 @@ def load(sym: str, tf: str) -> pd.DataFrame:
     df = pd.read_csv(DATA / f'{sym}_{tf}.csv')
     df['ts'] = pd.to_datetime(df['timestamp'], unit='s')
     df = df.drop(columns=['timestamp']).sort_values('ts').reset_index(drop=True)
-    cutoff = df['ts'].max() - pd.DateOffset(years=3)
+    cutoff = df['ts'].max() - pd.DateOffset(years=2)
     return df[df['ts'] >= cutoff].reset_index(drop=True)
 
 

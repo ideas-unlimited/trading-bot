@@ -1,8 +1,8 @@
 """Broker abstraction — one interface, venue-specific clients.
 
-The engine never talks to an exchange directly; it talks to a broker. Two
-implementations exist (or will): Alpaca paper for the stock/paper loop and
-Binance spot for the crypto demo/live path.
+The engine never talks to an exchange directly; it talks to a broker. One
+venue: Binance spot, read-only production klines for signals, demo trading for
+orders.  ``BinanceLiveClient`` is the duck-typed adapter the loop/CLI/web use.
 
 Honesty rules that live in this package:
 

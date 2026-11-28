@@ -1,4 +1,4 @@
-"""Fetch one crypto timeframe into data/crypto/<SYM>_<tf>.csv (3-year window).
+"""Fetch one crypto timeframe into data/crypto/<SYM>_<tf>.csv (2-year window).
 
 Scratch research helper: mirrors research/fetch_binance.py but takes the
 interval from the command line so 15m / 1h comparisons use the same store.
@@ -11,6 +11,7 @@ import json
 import sys
 import time
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 BASE = "https://api.binance.com/api/v3/klines"
@@ -33,6 +34,8 @@ def get(symbol: str, interval: str, start_ms: int, limit: int = 1000) -> list[li
 
 def main(interval: str, since: str) -> int:
     ms = int(time.mktime(time.strptime(since, "%Y-%m-%d")) * 1000)
+    cutoff = int((datetime.now(timezone.utc) - timedelta(days=730)).timestamp() * 1000)
+    ms = max(ms, cutoff)
     step = {"15m": 900_000, "1h": 3_600_000}[interval]
     for sym in COINS:
         rows: list[list] = []

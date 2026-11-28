@@ -2,10 +2,11 @@
 
     python -m bot web --port 8000
 
-Serves a single-page UI (``web/index.html``) plus a small JSON API.  Runs on
-the user's machine so the Alpaca endpoints are reachable.  Same honesty rules
-as the rest of the project: the only order-related endpoint belongs to the
-paper trader, and nothing here can reach a live broker.
+Serves a single-page UI (``web/index.html``) plus a small JSON API.  Bars
+come from Binance (production klines, Postgres-cached); the account tab reads
+the demo wallet.  Same honesty rules as the rest of the project: the only
+order-related endpoint belongs to the paper trader, and nothing here can
+reach a live broker.
 """
 
 from __future__ import annotations
@@ -17,7 +18,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from .alpaca_client import AlpacaClient, AlpacaError, PAPER_TRADING_BASE
+from .exchange.binance import BrokerError
+from .exchange.live_client import BinanceLiveClient
 from .backtest import run_backtest
 from .config import BotConfig, CostConfig, RiskConfig
 from .data.feed import generate_synthetic
@@ -28,56 +30,39 @@ from . import db as store
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
-# Curated ticker lists for the terminal dropdowns.  Each entry carries the
-# feeds that can serve it: Alpaca trades a subset of crypto pairs; everything
-# else backtests through TradingView data (tvDatafeed, unofficial).
+# Curated ticker lists for the terminal dropdowns.  Crypto pairs come from
+# Binance; the other lists exist only as TradingView research feeds
+# (tvDatafeed, unofficial) and cannot be paper-traded.
 SYMBOLS = {
-    "stocks": [
-        {"symbol": "SPY", "alpaca": True},
-        {"symbol": "QQQ", "alpaca": True},
-        {"symbol": "AAPL", "alpaca": True},
-        {"symbol": "MSFT", "alpaca": True},
-        {"symbol": "NVDA", "alpaca": True},
-        {"symbol": "TSLA", "alpaca": True},
-        {"symbol": "AMZN", "alpaca": True},
-        {"symbol": "META", "alpaca": True},
-        {"symbol": "GOOGL", "alpaca": True},
-        {"symbol": "AMD", "alpaca": True},
-        {"symbol": "NFLX", "alpaca": True},
-        {"symbol": "JPM", "alpaca": True},
-        {"symbol": "V", "alpaca": True},
-        {"symbol": "UNH", "alpaca": True},
-        {"symbol": "XOM", "alpaca": True},
-        {"symbol": "KO", "alpaca": True},
-    ],
     "crypto": [
-        # The user's full watchlist.  alpaca=False pairs backtest via TV data
-        # and cannot paper-trade through Alpaca (not listed there).
-        {"symbol": "BTC/USD", "alpaca": True, "tv": "BINANCE:BTCUSDT"},
-        {"symbol": "ETH/USD", "alpaca": True, "tv": "BINANCE:ETHUSDT"},
-        {"symbol": "SOL/USD", "alpaca": True, "tv": "BINANCE:SOLUSDT"},
-        {"symbol": "XRP/USD", "alpaca": True, "tv": "BINANCE:XRPUSDT"},
-        {"symbol": "LINK/USD", "alpaca": True, "tv": "BINANCE:LINKUSDT"},
-        {"symbol": "DOGE/USD", "alpaca": True, "tv": "BINANCE:DOGEUSDT"},
-        {"symbol": "AVAX/USD", "alpaca": True, "tv": "BINANCE:AVAXUSDT"},
-        {"symbol": "LTC/USD", "alpaca": True, "tv": "BINANCE:LTCUSDT"},
-        {"symbol": "BCH/USD", "alpaca": True, "tv": "BINANCE:BCHUSDT"},
-        {"symbol": "DOT/USD", "alpaca": False, "tv": "BINANCE:DOTUSDT"},
-        {"symbol": "BNB/USDT", "alpaca": False, "tv": "BINANCE:BNBUSDT"},
-        {"symbol": "HYPE/USDT", "alpaca": False, "tv": "HYPE:HYPEUSDT"},
-        {"symbol": "UNI/USD", "alpaca": False, "tv": "BINANCE:UNIUSDT"},
-        {"symbol": "JUP/USDT", "alpaca": False, "tv": "BINANCE:JUPUSDT"},
-        {"symbol": "PYTH/USDT", "alpaca": False, "tv": "BINANCE:PYTHUSDT"},
-        {"symbol": "CAKE/USDT", "alpaca": False, "tv": "BINANCE:CAKEUSDT"},
-        {"symbol": "CC/USDC", "alpaca": False, "tv": "MEXC:CCUSDC"},
+        # Binance spot pairs.  symbol is the display form ("BTC/USDT"); tv is
+        # the TradingView ticker the research feed uses.  No stock pairs:
+        # this desk trades spot crypto only.
+        {"symbol": "BTC/USDT", "tv": "BINANCE:BTCUSDT"},
+        {"symbol": "ETH/USDT", "tv": "BINANCE:ETHUSDT"},
+        {"symbol": "SOL/USDT", "tv": "BINANCE:SOLUSDT"},
+        {"symbol": "XRP/USDT", "tv": "BINANCE:XRPUSDT"},
+        {"symbol": "LINK/USDT", "tv": "BINANCE:LINKUSDT"},
+        {"symbol": "DOGE/USDT", "tv": "BINANCE:DOGEUSDT"},
+        {"symbol": "AVAX/USDT", "tv": "BINANCE:AVAXUSDT"},
+        {"symbol": "LTC/USDT", "tv": "BINANCE:LTCUSDT"},
+        {"symbol": "BCH/USDT", "tv": "BINANCE:BCHUSDT"},
+        {"symbol": "DOT/USDT", "tv": "BINANCE:DOTUSDT"},
+        {"symbol": "BNB/USDT", "tv": "BINANCE:BNBUSDT"},
+        {"symbol": "HYPE/USDT", "tv": "HYPE:HYPEUSDT"},
+        {"symbol": "UNI/USDT", "tv": "BINANCE:UNIUSDT"},
+        {"symbol": "JUP/USDT", "tv": "BINANCE:JUPUSDT"},
+        {"symbol": "PYTH/USDT", "tv": "BINANCE:PYTHUSDT"},
+        {"symbol": "CAKE/USDT", "tv": "BINANCE:CAKEUSDT"},
+        {"symbol": "CC/USDC", "tv": "MEXC:CCUSDC"},
     ],
     "commodities": [
-        {"symbol": "XAUT/USD", "alpaca": False, "tv": "BITFINEX:XAUTUSD", "label": "Tether Gold"},
-        {"symbol": "XAG/USD", "alpaca": False, "tv": "OANDA:XAGUSD", "label": "Silver spot"},
-        {"symbol": "USOIL", "alpaca": False, "tv": "TVC:USOIL", "label": "WTI Crude Oil"},
+        {"symbol": "XAUT/USD", "tv": "BITFINEX:XAUTUSD", "label": "Tether Gold"},
+        {"symbol": "XAG/USD", "tv": "OANDA:XAGUSD", "label": "Silver spot"},
+        {"symbol": "USOIL", "tv": "TVC:USOIL", "label": "WTI Crude Oil"},
     ],
     "indices": [
-        {"symbol": "BTC.D", "alpaca": False, "tv": "CRYPTOCAP:BTC.D", "label": "Bitcoin dominance"},
+        {"symbol": "BTC.D", "tv": "CRYPTOCAP:BTC.D", "label": "Bitcoin dominance"},
     ],
 }
 
@@ -106,8 +91,8 @@ def api_strategies() -> dict[str, Any]:
 
 
 def _load_bars_for_api(payload: dict[str, Any]) -> list[Any]:
-    source = payload.get("source", "alpaca")
-    symbol = payload.get("symbol", "BTC/USD")
+    source = payload.get("source", "binance")
+    symbol = payload.get("symbol", "BTC/USDT")
     interval = payload.get("interval", "1d")
     days = int(payload.get("days") or 365)
     src, fetch = _resolve_feed(symbol, source)
@@ -137,8 +122,8 @@ def api_backtest(payload: dict[str, Any]) -> dict[str, Any]:
 
     try:
         bars = _load_bars_for_api(payload)
-    except AlpacaError as exc:
-        return {"error": f"Alpaca error: {exc}"}
+    except BrokerError as exc:
+        return {"error": f"Binance error: {exc}"}
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)}
     if len(bars) < strategy.warmup + 5:
@@ -230,10 +215,10 @@ def _resolve_feed(canonical: str, source: str) -> tuple[str, str]:
 
 
 def api_scan(payload: dict[str, Any]) -> dict[str, Any]:
-    symbols = [s.strip() for s in (payload.get("symbols") or ["BTC/USD"]) if s.strip()]
+    symbols = [s.strip() for s in (payload.get("symbols") or ["BTC/USDT"]) if s.strip()]
     timeframes = [t.strip() for t in (payload.get("timeframes") or ["1d"]) if t.strip()]
     strategies = [s.strip() for s in (payload.get("strategies") or ["sma_cross"]) if s.strip()]
-    source = payload.get("source", "alpaca")
+    source = payload.get("source", "binance")
     config_overrides = {
         k: payload.get(k)
         for k in (
@@ -249,8 +234,8 @@ def api_scan(payload: dict[str, Any]) -> dict[str, Any]:
             params=payload.get("params") or {},
             config_overrides=config_overrides,
         )
-    except AlpacaError as exc:
-        return {"error": f"Alpaca error: {exc}"}
+    except BrokerError as exc:
+        return {"error": f"Binance error: {exc}"}
     return _jsonify({"rows": rows})
 
 
@@ -264,7 +249,7 @@ def run_scan_rows(
     params: dict[str, Any],
     config_overrides: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Scan across symbols, resolving each to its feed (Alpaca or TV)."""
+    """Scan across symbols, resolving each to its feed (Binance or TV)."""
     feeds = {s: _resolve_feed(s, source) for s in symbols}
     rows: list[dict[str, Any]] = []
     for symbol in symbols:
@@ -311,14 +296,11 @@ def run_scan_rows(
 
 def api_account() -> dict[str, Any]:
     try:
-        client = AlpacaClient()
-    except AlpacaError as exc:
-        return {"error": str(exc)}
-    try:
+        client = BinanceLiveClient()
         acct = client.get_account()
         positions = client.get_positions()
-    except AlpacaError as exc:
-        return {"error": f"Alpaca error: {exc}"}
+    except BrokerError as exc:
+        return {"error": f"Binance error: {exc}"}
     return _jsonify(
         {
             "account_number": acct.get("account_number"),
@@ -403,7 +385,7 @@ def api_bots_delete(bot_id: int) -> dict[str, Any]:
 
 
 def _bars_for_bot(bot: dict[str, Any], days: int = 730) -> list[Any]:
-    """Bars for a bot: Postgres cache when rich enough, else Alpaca."""
+    """Bars for a bot: Postgres cache when rich enough, else Binance."""
     symbol, tf = bot["symbol"], bot["timeframe"]
     start = datetime.now(timezone.utc) - timedelta(days=days)
     conn = None
@@ -412,23 +394,21 @@ def _bars_for_bot(bot: dict[str, Any], days: int = 730) -> list[Any]:
             conn = store.connect_common()
             cached = store.load_bars(conn, symbol, tf, start=start)
             if len(cached) >= 200:
+                conn.close()
                 return cached
         except store.DatabaseError:
             conn = None
-    client = AlpacaClient()
-    if tf == "6h":
-        from .data.feed import aggregate_bars
-
-        raw = client.fetch_bars(symbol, "1h", start=start, limit=10_000)
-        bars = aggregate_bars(raw, 6)
-    else:
-        bars = client.fetch_bars(symbol, tf, start=start, limit=10_000)
-    if conn is not None:
-        try:
-            store.upsert_bars(conn, symbol, tf, bars)
-        except store.DatabaseError:
-            pass
-    return bars
+    try:
+        bars = load_scan_bars(symbol, tf, source="binance", days=days)
+        if conn is not None:
+            try:
+                store.upsert_bars(conn, symbol, tf, bars)
+            except store.DatabaseError:
+                pass
+        return bars
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def api_bot_run(bot_id: int) -> dict[str, Any]:
@@ -441,8 +421,8 @@ def api_bot_run(bot_id: int) -> dict[str, Any]:
         return {"error": f"bot {bot_id} not found"}
     try:
         bars = _bars_for_bot(bot)
-    except AlpacaError as exc:
-        return {"error": f"Alpaca error: {exc}"}
+    except BrokerError as exc:
+        return {"error": f"Binance error: {exc}"}
     if len(bars) < 60:
         return {"error": f"only {len(bars)} bars available"}
     try:
@@ -535,34 +515,20 @@ def _json_loads(raw: Any) -> Any:
 
 
 def api_paper_trades() -> dict[str, Any]:
-    """Sync closed paper orders from Alpaca and compute running P&L."""
+    """Sync demo-account fills into paper_trades and compute running P&L."""
     try:
-        client = AlpacaClient()
-        orders = client._request(
-            f"{PAPER_TRADING_BASE}/v2/orders?status=closed&limit=500"
-        )
-    except AlpacaError as exc:
-        return {"error": f"Alpaca error: {exc}"}
-    if not isinstance(orders, list):
-        return {"error": "unexpected Alpaca response"}
-    fills = []
-    for o in orders:
-        if not o.get("filled_at") or not o.get("filled_avg_price"):
-            continue
-        fills.append(
-            {
-                "order_id": o["id"],
-                "symbol": o["symbol"],
-                "side": o.get("side", ""),
-                "qty": float(o.get("filled_qty") or 0),
-                "price": float(o.get("filled_avg_price") or 0),
-                "filled_at": o["filled_at"],
-                "bot_name": (o.get("client_order_id") or "").split(":")[0][:60],
-            }
-        )
-    fills.sort(key=lambda f: f["filled_at"])
+        client = BinanceLiveClient()
+    except BrokerError as exc:
+        return {"error": f"Binance error: {exc}"}
     conn = _db_conn()
     try:
+        symbols = [b["symbol"] for b in store.list_bots(conn)] or [
+            "BTC/USDT", "ETH/USDT", "SOL/USDT",
+        ]
+        try:
+            fills = client.closed_fills(symbols)
+        except BrokerError as exc:
+            return {"error": f"Binance error: {exc}"}
         store.upsert_paper_trades(conn, fills)
         rows = store.list_paper_trades(conn)
     finally:
@@ -596,7 +562,7 @@ def api_ingest(payload: dict[str, Any]) -> dict[str, Any]:
     days = int(payload.get("days") or 365)
     if not symbol:
         return {"error": "symbol required"}
-    src, fetch = _resolve_feed(symbol, payload.get("source", "alpaca"))
+    src, fetch = _resolve_feed(symbol, payload.get("source", "binance"))
     conn = _db_conn()
     ingested = []
     try:

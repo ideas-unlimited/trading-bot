@@ -47,11 +47,15 @@ python -m unittest discover -s tests
 ## Crypto swing / rotation playbook
 
 Research on Binance bars (BTC/ETH/BNB/XRP/SOL) lives in `research/`. All
-backtests and strategy selection are capped at the last three years - nothing
-older than `MAX_HISTORY_DAYS` is loaded.
+backtests and strategy selection are capped at the last two years - nothing
+older than `MAX_HISTORY_DAYS` is loaded. A coin with less history uses
+everything since its listing.
 
-The rule that survived a 1,750-config search on the last 12 months and a
-3-year re-check is a 4h SMA 30/50 cross, 2 ATR stop, one position at a time,
+> The return figures below were measured under the previous three-year cap.
+> They are retained as history; re-runs now use the two-year window.
+
+The rule that survived a 1,750-config search on the last 12 months and the
+old 3-year re-check is a 4h SMA 30/50 cross, 2 ATR stop, one position at a time,
 gated on the signal bar by two regime filters ported from a Pine library:
 the Damiani Volatmeter must be green (volatility awake) and the Schaff Trend
 Cycle must be at or above 50. Filters only ever *block* an entry - exits are
@@ -114,50 +118,53 @@ On the same three-year window the rotation core returned +119.7% with a
 -29.7% drawdown, so the 4h book is the default. All of these win less than
 half their trades - the edge is payoff asymmetry, not hit rate.
 
-## Alpaca paper trading (stocks + crypto)
+## Binance spot paper trading (demo account)
 
-The bot connects to [Alpaca](https://alpaca.markets) — free account, official
-API, **paper endpoint hard-coded** (no code path reaches a real broker).
+Signals read **production** Binance klines (`api.binance.com`, public, no key);
+orders go to **demo trading** (`https://demo-api.binance.com`) with demo keys.
+There is no production order path in the code, and no futures, margin or
+shorts — spot, long only.
 
-1. Create a free Paper-Only account at <https://app.alpaca.markets>.
-2. Copy `.env.example` to `.env` and fill in your paper API keys
-   (`ALPACA_KEY_ID` / `ALPACA_SECRET_KEY`).  `.env` is git-ignored.
-3. Verify the keys:
+1. Create demo-trading API keys in the Binance app (Demo Trading → API
+   management).  They authenticate against demo only and hold virtual
+   balances.
+2. Copy `.env.example` to `.env` and set `BINANCE_DEMO_KEY` /
+   `BINANCE_DEMO_SECRET` (plus `DATABASE_URL`).  `.env` is git-ignored.
+3. Verify:
 
 ```bash
-python -m bot account                     # paper account summary + positions
+python -m bot account                     # demo balances + open positions
 ```
 
-**Backtest on real bars** (SIP history on the free plan is 15-min delayed;
-crypto history is unrestricted):
+**Backtest on real bars** (no key needed; history is capped at two years):
 
 ```bash
-python -m bot backtest --source alpaca --symbol SPY     --interval 1d --start 2024-01-01 --strategy sma_cross
-python -m bot backtest --source alpaca --symbol BTC/USD --interval 4h --strategy sma_cross
+python -m bot backtest --source binance --symbol BTC/USDT --interval 1d --start 2024-01-01 --strategy sma_cross
+python -m bot backtest --source binance --symbol ETH/USDT --interval 4h --strategy sma_cross
 ```
 
 **Rank strategies across timeframes** (the strategy/timeframe scan):
 
 ```bash
-python -m bot scan --symbol BTC/USD --timeframes 1h,4h,6h,1d --strategies sma_cross --days 365
-python -m bot scan --symbol SPY,QQQ --timeframes 1d --strategies sma_cross,rsi_meanrev
+python -m bot scan --symbol BTC/USDT --timeframes 1h,4h,6h,1d --strategies sma_cross --days 365
+python -m bot scan --symbol BTC/USDT,ETH/USDT --timeframes 4h --strategies sma_cross,rsi_meanrev
 ```
 
-Writes a ranked table (by Sharpe) and `runs/scan.csv`.  `6h` is not a native
-Alpaca timeframe; it is aggregated client-side from 1-hour bars (most useful
-for 24/7 crypto).
+Writes a ranked table (by Sharpe) and `runs/scan.csv`.  Bars are cached in
+Postgres and delta-synced, so repeated scans cost no API calls.  `6h` is a
+native Binance timeframe.
 
-**Paper-trade live** — the loop polls freshly-closed bars, computes signals
-with the same no-lookahead semantics as the backtester, sizes positions from
-the stop distance, and sends orders to the *paper* account (stocks as bracket
-orders with the ATR stop; crypto as market orders with a locally-managed stop):
+**Paper-trade live** — the loop polls freshly-closed production bars, computes
+signals with the same no-lookahead semantics as the backtester, sizes from the
+stop distance, and sends market orders to the demo account.  Spot has no
+bracket orders, so the ATR stop is checked locally on each closed bar:
 
 ```bash
-python -m bot live --symbol BTC/USD --interval 1h --strategy sma_cross --poll 60
-python -m bot live --symbol SPY --interval 1d --strategy sma_cross --once   # single dry cycle
+python -m bot live --symbol BTC/USDT --interval 1h --strategy sma_cross --poll 60
+python -m bot live --symbol BTC/USDT --interval 1d --strategy sma_cross --once   # single dry cycle
 ```
 
-State (last processed bar, crypto stops) lives in `runs/live_state.json`.
+State (last processed bar, local stops) lives in `runs/live_state.json`.
 
 ## TradingView (optional companion)
 
@@ -167,7 +174,7 @@ payload.  `python -m bot tv-bars` downloads TradingView bars via the
 unofficial `tvDatafeed` package (`pip install tradingview-datafeed`), and
 `python -m bot serve-alerts` mirrors TradingView paper-fill alerts into this
 engine's risk rules on simulation money.  See `pine/README.md`.  Webhook
-alerts require a paid TradingView plan; the Alpaca route above needs none.
+alerts require a paid TradingView plan; the Binance route above needs none.
 
 ## What the output looks like
 
@@ -307,7 +314,7 @@ python -m bot auto --once # single cycle, for Task Scheduler
 | C | plain 4h cross, no filters, 3% risk | $1,000 |
 
 Nothing is ordered. Each cycle delta-syncs the bars cache, cuts the bar that
-is still forming, replays every book over the three-year window and writes
+is still forming, replays every book over the two-year window and writes
 `runs/autobooks/status.json` plus `runs/autobooks/<book>/{equity,trades}.csv`.
 The replay is deterministic, so a restart cannot corrupt a wallet; the number
 that matters forward is **live since deploy**, which starts when the book

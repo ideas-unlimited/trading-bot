@@ -32,13 +32,12 @@ class ApiBasicsTests(unittest.TestCase):
     def test_symbols_dropdowns(self) -> None:
         data = api_symbols()
         crypto_syms = [e["symbol"] for e in data["crypto"]]
-        stock_syms = [e["symbol"] for e in data["stocks"]]
-        self.assertIn("BTC/USD", crypto_syms)
+        self.assertIn("BTC/USDT", crypto_syms)
         self.assertIn("BNB/USDT", crypto_syms)          # watchlist, TV-only
         self.assertIn("BTC.D", data["indices"][0]["symbol"])
-        self.assertIn("SPY", stock_syms)
+        self.assertNotIn("stocks", data)                # spot crypto only
+        self.assertIn("XAUT/USD", [e["symbol"] for e in data["commodities"]])
         bnb = next(e for e in data["crypto"] if e["symbol"] == "BNB/USDT")
-        self.assertFalse(bnb["alpaca"])
         self.assertEqual(bnb["tv"], "BINANCE:BNBUSDT")
 
     def test_backtest_synthetic_demo(self) -> None:
