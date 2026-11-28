@@ -84,6 +84,9 @@ class Engine:
         self._stop: float | None = None
         self._take: float | None = None
         self._trail_atr: float | None = None
+        self._trail_after_r: float = 0.0
+        self._entry_px: float | None = None
+        self._risk0: float | None = None
         self._peak: float | None = None
         self._equity: list[tuple[datetime, float]] = []
         self._exposure: list[tuple[datetime, float]] = []
@@ -166,6 +169,9 @@ class Engine:
                 self._stop = signal.stop_loss
                 self._take = signal.take_profit
                 self._trail_atr = signal.trail_atr
+                self._trail_after_r = signal.trail_after_r
+                self._entry_px = fill.price
+                self._risk0 = fill.price - signal.stop_loss
                 self._peak = fill.price
             return
 
@@ -175,6 +181,9 @@ class Engine:
             self._stop = None
             self._take = None
             self._trail_atr = None
+            self._trail_after_r = 0.0
+            self._entry_px = None
+            self._risk0 = None
             self._peak = None
 
     def _check_exits(self, row: pd.Series, ts: datetime) -> None:
@@ -188,6 +197,9 @@ class Engine:
             self.broker.sell(ts, price, reason=f"stop loss ({self._stop:.4f})")
             self._stop = self._take = None
             self._trail_atr = None
+            self._trail_after_r = 0.0
+            self._entry_px = None
+            self._risk0 = None
             self._peak = None
             return
         if self._take is not None and high >= self._take:
@@ -195,6 +207,9 @@ class Engine:
             self.broker.sell(ts, price, reason=f"take profit ({self._take:.4f})")
             self._stop = self._take = None
             self._trail_atr = None
+            self._trail_after_r = 0.0
+            self._entry_px = None
+            self._risk0 = None
             self._peak = None
 
     def _ratchet_trail(self, row: pd.Series) -> None:
@@ -205,6 +220,12 @@ class Engine:
         """
         if not self._trail_atr or not self.broker.in_position:
             return
+        if self._trail_after_r > 0:
+            if not self._entry_px or not self._risk0 or self._risk0 <= 0:
+                return
+            gain_r = (float(row["close"]) - self._entry_px) / self._risk0
+            if gain_r < self._trail_after_r:
+                return
         high = float(row["high"])
         self._peak = high if self._peak is None else max(self._peak, high)
         atr = self._atr_at(self.i)

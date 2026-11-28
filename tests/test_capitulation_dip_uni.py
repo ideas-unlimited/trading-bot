@@ -35,6 +35,8 @@ class TestCapitulationDipUni(unittest.TestCase):
         self.assertEqual(s.params["stop_atr"], 2.5)
         self.assertEqual(s.params["rr"], 1.5)
         self.assertEqual(s.params["max_hold"], 18)
+        self.assertIsNone(s.params["trail_atr"])
+        self.assertEqual(s.params["trail_after_r"], 0.0)
 
     def test_invalid_parameters_raise(self):
         for kwargs in (
@@ -44,6 +46,8 @@ class TestCapitulationDipUni(unittest.TestCase):
             {"stop_atr": 0.0},
             {"rr": 0.0},
             {"max_hold": 0},
+            {"trail_atr": 0.0},
+            {"trail_after_r": -0.1},
         ):
             with self.assertRaises(ValueError):
                 build("capitulation_dip_uni", **kwargs)
@@ -57,6 +61,15 @@ class TestCapitulationDipUni(unittest.TestCase):
         self.assertIs(sig.action, Action.BUY)
         self.assertLess(sig.stop_loss, df["close"].iloc[-1])
         self.assertGreater(sig.take_profit, df["close"].iloc[-1])
+
+    def test_trail_is_carried_on_the_buy_signal(self):
+        closes = [100.0] * 40 + [70.0]
+        s = build("capitulation_dip_uni", trail_atr=2.0, trail_after_r=1.0)
+        df = s.prepare(frame(closes))
+        sig = s.signal(len(df) - 1, df, 0.0)
+        self.assertIsNotNone(sig)
+        self.assertEqual(sig.trail_atr, 2.0)
+        self.assertEqual(sig.trail_after_r, 1.0)
 
     def test_does_not_buy_shallow_dip(self):
         closes = [100.0] * 40 + [95.0]

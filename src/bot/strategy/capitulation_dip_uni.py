@@ -37,7 +37,7 @@ class CapitulationDipUni(Strategy):
     """UNI-tuned long of a sharp drawdown from the prior high."""
 
     name = "capitulation_dip_uni"
-    PARAMS = ("window", "drop_pct", "stop_atr", "rr", "max_hold")
+    PARAMS = ("window", "drop_pct", "stop_atr", "rr", "max_hold", "trail_atr", "trail_after_r")
 
     def __init__(
         self,
@@ -46,6 +46,8 @@ class CapitulationDipUni(Strategy):
         stop_atr: float = 2.5,
         rr: float | None = 1.5,
         max_hold: int = 18,
+        trail_atr: float | None = None,
+        trail_after_r: float = 0.0,
     ) -> None:
         if window < 2:
             raise ValueError("window must be at least 2")
@@ -57,18 +59,26 @@ class CapitulationDipUni(Strategy):
             raise ValueError("rr must be positive or None")
         if max_hold < 1:
             raise ValueError("max_hold must be at least 1")
+        if trail_atr is not None and trail_atr <= 0:
+            raise ValueError("trail_atr must be positive or None")
+        if trail_after_r < 0:
+            raise ValueError("trail_after_r must be >= 0")
         super().__init__(
             window=window,
             drop_pct=drop_pct,
             stop_atr=stop_atr,
             rr=rr,
             max_hold=max_hold,
+            trail_atr=trail_atr,
+            trail_after_r=trail_after_r,
         )
         self.window = window
         self.drop_pct = drop_pct
         self.stop_atr = stop_atr
         self.rr = rr
         self.max_hold = max_hold
+        self.trail_atr = trail_atr
+        self.trail_after_r = trail_after_r
         self.warmup = max(window, ATR_WINDOW) + 2
         self._entry_ts: pd.Timestamp | None = None
 
@@ -124,4 +134,6 @@ class CapitulationDipUni(Strategy):
             ),
             stop_loss=stop,
             take_profit=target,
+            trail_atr=self.trail_atr,
+            trail_after_r=self.trail_after_r,
         )

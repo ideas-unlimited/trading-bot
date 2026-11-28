@@ -35,6 +35,9 @@ class Signal:
     #: Trail the stop this many ATRs below the highest high since entry.
     #: The engine only ever ratchets the stop upwards.  None disables it.
     trail_atr: float | None = None
+    #: Arm the trail only after the trade shows this many R of profit
+    #: (0 = arm immediately).  Measured on the close, like ``book.py``.
+    trail_after_r: float = 0.0
 
 
 class Strategy(ABC):

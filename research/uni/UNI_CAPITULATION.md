@@ -58,6 +58,60 @@ Six-month folds, same rules and costs:
 Every slice is positive, but the trade count per slice is tiny. The holdout is
 7 trades, not a statistically independent second experiment.
 
+## What 1.5R means in price
+
+R is the distance from entry to stop, so every exit scales with volatility
+instead of a fixed percentage:
+
+- stop = entry - 2.5 x ATR14, so **1R = 2.5 ATR** below entry;
+- target = entry + 1.5R = entry + **3.75 ATR**;
+- time exit = 18 bars after entry = **72 hours** on 4h bars.
+
+On UNI 4h one ATR14 was ~5.4% of price over this sample, so the median trade
+risked **12.4%** of price to make **18.6%** (the target is 1.5x the risk;
+mean stop 13.5%, mean target 20.3%). The stop is deliberately wide - a normal
+4h bar is ~5% - which is why size is small: 5% of equity risk, and notional
+runs 30-50% of equity, with the 50% cap binding once the wallet grows.
+
+First trade on exactly $1,000: entry 14.689, stop 12.178 (-$2.51/UNI), target
+18.455 (+$3.77). Risk $50 buys 19.9 UNI ($292 notional); the target paid **+$74**
+(+1.49R after costs). By 2026-11-20 the wallet was ~$1.58k, so the last trade
+risked ~$79: entry 4.354, stop 3.910 (-10.2%), target 5.020 (+15.3%), high
+tagged it 64h later, exit 5.013 = **+$115 (+1.48R)**.
+
+Every trade in price terms (P&L scaled to a $1,000 start; the reported run
+started at $10,000 and the percentages are identical):
+
+| entry | entry px | stop | target | exit | kind | R | P&L |
+|---|---:|---:|---:|---|---|---:|---:|
+| 2024-12-10 | 14.689 | 12.178 (-17.1%) | 18.455 (+25.6%) | 2024-12-12 | take | +1.49R | +74 |
+| 2024-12-19 | 13.164 | 11.193 (-15.0%) | 16.120 (+22.5%) | 2024-12-23 | time | +0.37R | +19 |
+| 2025-01-27 | 10.500 | 9.531 (-9.2%) | 11.954 (+13.8%) | 2025-01-29 | take | +1.45R | +72 |
+| 2025-02-02 | 9.585 | 8.385 (-12.5%) | 11.385 (+18.8%) | 2025-02-03 | stop | -0.93R | -60 |
+| 2025-02-03 | 8.134 | 6.433 (-20.9%) | 10.686 (+31.4%) | 2025-02-06 | time | +0.71R | +43 |
+| 2025-03-11 | 5.712 | 5.005 (-12.4%) | 6.773 (+18.6%) | 2025-03-14 | time | +0.23R | +12 |
+| 2025-04-07 | 4.705 | 4.172 (-11.3%) | 5.505 (+17.0%) | 2025-04-09 | take | +1.45R | +86 |
+| 2025-05-31 | 5.998 | 5.289 (-11.8%) | 7.062 (+17.7%) | 2025-06-03 | time | +0.56R | +33 |
+| 2025-06-22 | 6.193 | 5.489 (-11.4%) | 7.249 (+17.1%) | 2025-06-25 | take | +1.51R | +94 |
+| 2025-10-11 | 5.791 | 4.218 (-27.2%) | 8.150 (+40.7%) | 2025-10-14 | time | +0.68R | +46 |
+| 2025-11-12 | 7.821 | 6.375 (-18.5%) | 9.990 (+27.7%) | 2025-11-15 | time | -0.23R | -17 |
+| 2025-11-21 | 6.124 | 5.285 (-13.7%) | 7.383 (+20.6%) | 2025-11-24 | time | +0.08R | +4 |
+| 2026-01-31 | 3.825 | 3.441 (-10.0%) | 4.401 (+15.1%) | 2026-02-04 | time | +0.08R | +4 |
+| 2026-02-06 | 3.168 | 2.716 (-14.3%) | 3.847 (+21.4%) | 2026-02-09 | time | +0.74R | +57 |
+| 2026-02-11 | 3.494 | 2.971 (-15.0%) | 4.278 (+22.4%) | 2026-02-15 | time | +0.25R | +18 |
+| 2026-08-14 | 3.201 | 2.962 (-7.5%) | 3.560 (+11.2%) | 2026-08-17 | time | +0.45R | +24 |
+| 2026-10-08 | 7.327 | 6.716 (-8.3%) | 8.243 (+12.5%) | 2026-10-11 | time | +0.65R | +39 |
+| 2026-11-14 | 5.126 | 4.571 (-10.8%) | 5.958 (+16.2%) | 2026-11-17 | time | +0.20R | +14 |
+| 2026-11-20 | 4.354 | 3.910 (-10.2%) | 5.020 (+15.3%) | 2026-11-23 | take | +1.48R | +115 |
+
+Outcome mix: 5 targets at **+1.48R** average, 13 time exits at **+0.37R**
+(the clock closes whatever is left, including one small loss), 1 stop at
+**-0.93R** (gapped through). Expectancy **+0.59R/trade**, i.e. ~$30 per trade
+on a $1,000 wallet at 5% risk - but only **0.79 trades per month**. Median gap
+between entries is 30 days and the longest was 6 months, so two weeks of paper
+trading will usually contain **zero trades**; budget ~6 weeks for the first
+fill and a year for a dozen.
+
 ## Risk scaling (same trades, 50% position cap)
 
 | Risk per trade | Return | Max DD | Sharpe |
@@ -197,7 +251,16 @@ crash events.
 ## Deployment status
 
 The module is registered and backtests through the normal CLI, but it is not
-running forward yet:
+running forward yet. "Forward" here means one of two runners:
+
+- **`bot live`** places real (demo) orders through the exchange client and
+  tracks one symbol per bot.
+- **A forward book runner** is the `bot auto` pattern applied to one sleeve:
+  each cycle replays the sleeve over closed bars with simulated fills, persists
+  equity and trades, and reports "live since deploy". No keys, no order state,
+  restart-safe because it re-replays history. The book engine currently
+  supports a stop and a trail but not a strategy's take-profit, so wiring this
+  sleeve in needs the same target/time-exit support as `bot live`.
 
 - **`bot auto` is hardcoded to SmaCross.** The 15-minute paper books replay a
   multi-coin SMA/trail book; there is no generic strategy hook for this
@@ -223,7 +286,8 @@ loop to persist and check the target (and the entry timestamp) the same way it
 handles the stop - or it must be promoted as the `rr=None` variant with that
 choice recorded in the manifest evidence (`deploy/PROMOTION.md`, exit parity).
 After that: a paper sleeve that records simulated fills with the same exit
-semantics, then 20 forward trades.
+semantics, then a forward record long enough to cover several trades - at
+0.79 trades/month, a dozen trades is about 15 months.
 
 To watch the historical replay through the CLI:
 
@@ -235,9 +299,17 @@ To watch the historical replay through the CLI:
 
 ## Reproduce
 
+    # writes runs/trades.csv (the trade table below reads it)
+    $env:PYTHONPATH='src'; .venv\Scripts\python.exe -m bot backtest --source binance `
+      --symbol UNI/USDT --interval 4h --start 2024-11-28 `
+      --strategy capitulation_dip_uni --risk-per-trade 0.05 --max-position-pct 0.5 `
+      --fee-bps 10 --slippage-bps 5
+
+    $env:PYTHONPATH='src'; .venv\Scripts\python.exe research/uni/uni_trade_table.py
     $env:PYTHONPATH='src'; .venv\Scripts\python.exe research/uni/uni_final.py
     $env:PYTHONPATH='src'; .venv\Scripts\python.exe research/uni/uni_walkforward.py
     $env:PYTHONPATH='src'; .venv\Scripts\python.exe -m unittest tests.test_capitulation_dip_uni -v
 
-The first script prints the full, train, test, fold, risk, cost, trade and
-bootstrap tables. The second prints the 180-config walk-forward summary.
+`uni_trade_table.py` rebuilds the per-trade price translation above;
+`uni_final.py` prints the full, train, test, fold, risk, cost, trade and
+bootstrap tables; `uni_walkforward.py` prints the 180-config grid summary.
