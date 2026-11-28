@@ -25,8 +25,8 @@ reproduces the 180-config grid byte-for-byte, not just the headline run.
 - Window: **2024-11-28 04:00 to 2026-11-28 00:00 UTC**, 4,381 4h bars.
 - Fills: signal on bar close, fill at next bar open.
 - Costs: **10 bps fee + 5 bps adverse slippage on both sides**.
-- Risk: 5% of equity per trade, max position **50% of equity**, 50% hard
-  drawdown stop in the base run.
+- Risk: 5% of equity per trade, max position **50% of equity**, 10% hard
+  drawdown stop (the system default; the brake was never reached here).
 - No shorting, no margin, no leverage.
 
 ## Headline result
@@ -294,7 +294,7 @@ crash events.
 - Params: window 20, drop_pct 0.20, stop_atr 2.5, rr 1.5, max_hold 18
 - Risk: 5% per trade
 - Max position: 50% of equity
-- Max drawdown stop: 25% (tighter than the 50% base run)
+- Max drawdown stop: 10% (system default; never reached in the two-year run)
 - Review: after 20 forward trades or 3 months, whichever comes first; promote
   only if the forward sample is consistent with the backtest's trade shape
   (average winner, stop frequency, exposure), not just its return.
@@ -327,8 +327,9 @@ will be flat most weeks and the first forward fill can take a month or more.
 Judge it on the forward trades only, and do not read a 0-trade first month as
 a failure of the rule.
 - **A drawdown stop is a brake, not a floor.** It stops new entries after
-  the account is down; it does not cap the loss at 25%. The slow-bleed test
-  still lost ~27% before the switch.
+  the account is down; it does not cap the loss at 10%. The slow-bleed test
+  still lost ~27% before the then-25% switch; a 10% brake halts new entries
+  sooner but cannot floor a position already open.
 
 So: do not treat a `bot live` run with the 1.5R target as a validation of
 this backtest. Promotion to paper needs one code change first - teach the live
@@ -345,7 +346,7 @@ To watch the historical replay through the CLI:
       --symbol UNI/USDT --interval 4h --n-bars 4381 --strategy capitulation_dip_uni `
       --param window=20 --param drop_pct=0.20 --param stop_atr=2.5 `
       --param rr=1.5 --param max_hold=18 --risk-per-trade 0.05 `
-      --max-position-pct 0.5 --max-drawdown-stop 0.25
+      --max-position-pct 0.5 --max-drawdown-stop 0.10
 
 ## Reproduce
 

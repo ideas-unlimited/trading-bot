@@ -275,6 +275,9 @@ End equity      7,541.55
 !! trading halted: max drawdown 25.1% reached
 ```
 
+(Shown with `--max-drawdown-stop 0.25`, the default when this sample was
+captured; `RiskConfig` now defaults to `0.10`.)
+
 Note what the halt does: entries stop, the curve goes flat, and the loss stays
 bounded. That is the risk layer doing its job, not a bug.
 
@@ -302,7 +305,7 @@ src/bot/
   scanlib.py       bars cache + incremental Binance sync under the 2-year cap
   web.py           dashboard and JSON API (env-branded, promotion-aware)
   db.py            Postgres schema: bots, trades, equity, events, promotions
-tests/             336 unittest cases, no network
+tests/             342 unittest cases, no network
 ```
 
 `research/` is the lab (`research/README.md` is the map), `config/` holds the

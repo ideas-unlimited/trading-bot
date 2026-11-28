@@ -92,7 +92,7 @@ def _add_cost_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--slippage-bps", type=float, default=5.0)
     p.add_argument("--risk-per-trade", type=float, default=0.01)
     p.add_argument("--max-position-pct", type=float, default=0.95)
-    p.add_argument("--max-drawdown-stop", type=float, default=0.25)
+    p.add_argument("--max-drawdown-stop", type=float, default=0.10)
 
 
 def _parse_params(raw: list[str]) -> dict[str, object]:
@@ -690,11 +690,15 @@ def cmd_forward(args: argparse.Namespace) -> int:
         run_forever, run_specs,
     )
 
+    env = envcfg.env_name()
+    # Resolve after env_name(): that call loads .env, so the heartbeat URL may
+    # live in the repo dotfile, a systemd EnvironmentFile, or the shell.
+    heartbeat_url = args.heartbeat_url or os.environ.get("HEARTBEAT_URL", "")
+
     if args.all:
         if args.strategy or args.symbol or args.param or args.outdir:
             print("refused: --all takes no --strategy/--symbol/--param/--outdir", file=sys.stderr)
             return 2
-        env = envcfg.env_name()
         specs = active_specs(env)
         common = dict(
             fee_bps=args.fee_bps,
@@ -725,7 +729,13 @@ def cmd_forward(args: argparse.Namespace) -> int:
                 else:
                     print(f"state      {result['status_path']}")
             return 1 if any(r.get("error") for r in results) else 0
-        run_all_forever(args.poll, env=env, **common)
+        run_all_forever(
+            args.poll,
+            env=env,
+            heartbeat_url=heartbeat_url,
+            heartbeat_every=args.heartbeat_every,
+            **common,
+        )
         return 0
 
     if not args.strategy or not args.symbol:
@@ -735,7 +745,7 @@ def cmd_forward(args: argparse.Namespace) -> int:
     manifest = None
     if not envcfg.lab_mode():
         try:
-            manifest = promo.require(args.strategy, envcfg.env_name())
+            manifest = promo.require(args.strategy, env)
         except promo.PromotionError as exc:
             print(f"refused: {exc}", file=sys.stderr)
             return 2
@@ -789,8 +799,14 @@ def cmd_forward(args: argparse.Namespace) -> int:
         print()
         print(f"state      {payload['status_path']}")
         return 0
-    run_forever(args.poll, **kwargs)
+    run_forever(
+        args.poll,
+        heartbeat_url=heartbeat_url,
+        heartbeat_every=args.heartbeat_every,
+        **kwargs,
+    )
     return 0
+
 
 def cmd_pool(args: argparse.Namespace) -> int:
     '''Show or edit the per-symbol parameter sets in config/target_symbols.json.'''
@@ -1147,10 +1163,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_fwd.add_argument("--slippage-bps", type=float, default=5.0)
     p_fwd.add_argument("--risk-per-trade", type=float, default=0.05)
     p_fwd.add_argument("--max-position-pct", type=float, default=0.5)
-    p_fwd.add_argument("--max-drawdown-stop", type=float, default=0.25)
+    p_fwd.add_argument("--max-drawdown-stop", type=float, default=0.10)
     p_fwd.add_argument("--days", type=int, default=730, help="history window (2-year cap)")
     p_fwd.add_argument("--source", choices=["binance", "tv"], default="binance")
     p_fwd.add_argument("--poll", type=int, default=900, help="seconds between cycles")
+    p_fwd.add_argument("--heartbeat-url", default=None,
+                       help="dead-man ping URL (default: HEARTBEAT_URL)")
+    p_fwd.add_argument("--heartbeat-every", type=float, default=1800.0,
+                       help="seconds between pings")
     p_fwd.add_argument("--once", action="store_true", help="one cycle then exit (Task Scheduler)")
     p_fwd.add_argument("--outdir", default=None,
                        help="single-sleeve override; defaults to runs/<env>/<strategy>/forward")

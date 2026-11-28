@@ -125,7 +125,7 @@ class MirrorAccount:
         initial_cash: float = 10_000.0,
         risk_per_trade: float = 0.01,
         max_position_pct: float = 0.95,
-        max_drawdown_stop: float = 0.25,
+        max_drawdown_stop: float = 0.10,
         fee_bps: float = 0.0,
     ) -> None:
         if initial_cash <= 0:

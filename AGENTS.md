@@ -316,7 +316,7 @@ when you hit a new environment quirk and solve it, add it here and commit.
 ## Deployment (VPS)
 
 - `deploy/` holds the server bundle: `install.sh` (Debian 13 / Ubuntu 24.04),
-  `run_bot.sh`, `backup.sh`, and four systemd units. See `deploy/README.md`.
+  `run_bot.sh`, `backup.sh`, and five systemd units. See `deploy/README.md`.
 - Production layout: code in `/opt/trading-bot`, per-bot env files in
   `/etc/tradingbot/<name>.env`, state in `/var/lib/tradingbot/*.json`,
   dumps in `/var/backups/tradingbot`. Services run as the `trader` user,
@@ -327,6 +327,9 @@ when you hit a new environment quirk and solve it, add it here and commit.
   `--heartbeat-url`, throttled to 30 min) so an outside service alerts when
   the loop stops. It fires on flat cycles too — the point is proving the
   process turns, not that it trades. A failed ping must never stop the loop.
+  The forward runner does the same once per pass and reads
+  `/etc/tradingbot/forward.env`; `tradingbot-forward.service` runs
+  `bot forward --all` with state in `/var/lib/tradingbot/paper/`.
 - **Trading host (bought 2026-11-27): OVH VPS, Sydney** — 4 vCPU, 8 GB RAM,
   75 GB local disk, 6 months prepaid, automated backup (1 rotation), Linux.
   This is the only box that can reach Binance: `api.binance.com` answers US
@@ -344,7 +347,7 @@ when you hit a new environment quirk and solve it, add it here and commit.
   passwordless sudo, so every privileged step is `sudo ...`. The service user
   `trader` has no shell — reach the dashboard with
   `ssh -L 9000:127.0.0.1:9000 debian@139.99.236.166`.
-  Verified on the box: web returns 200, the test suite passes (336 tests
+  Verified on the box: web returns 200, the test suite passes (342 tests
   locally as of 2026-11-28),
   `load_scan_bars("BTC/USDT","4h",source="binance")` fetches 2,190 bars (no
   451), so the venue path works from this IP.

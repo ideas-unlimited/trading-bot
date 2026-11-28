@@ -30,6 +30,19 @@ fi
 
 .venv/bin/pip install -q -e ".[web]"
 chown -R trader:trader runs logs 2>/dev/null || true
+
+# New units ship in the repo; install them here so a plain update is enough.
+install -m 0644 deploy/tradingbot-forward.service /etc/systemd/system/
+if [[ ! -f /etc/tradingbot/forward.env ]]; then
+  printf '%s\n' 'BOT_ENV=paper' \
+    '# Ping URL from healthchecks.io / Uptime Kuma.  Empty = no heartbeat.' \
+    'HEARTBEAT_URL=' > /etc/tradingbot/forward.env
+  chown root:trader /etc/tradingbot/forward.env
+  chmod 640 /etc/tradingbot/forward.env
+fi
+systemctl daemon-reload
+systemctl enable tradingbot-forward.service
+
 for web_unit in tradingbot-web tradingbot-web-prod; do
   if systemctl cat "$web_unit" >/dev/null 2>&1; then
     systemctl restart "$web_unit"
@@ -39,5 +52,8 @@ done
 for unit in $(systemctl list-units --type=service --state=running 'tradingbot@*' --no-legend --plain | awk '{print $1}'); do
   systemctl restart "$unit"
 done
+
+# One process for every sleeve; restart it so the new code is what runs.
+systemctl restart tradingbot-forward
 
 echo "$BEFORE -> $AFTER"

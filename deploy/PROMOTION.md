@@ -58,7 +58,9 @@ active manifest from one process and re-reads the manifests each cycle, so a
 promote/demote takes effect without editing a unit; `--strategy ... --symbol
 ...` runs one sleeve by hand. A cycle is deterministic and idempotent; the
 deploy mark is pinned on the first cycle and re-pinned (old date kept as
-`repinned_at`) only when the two-year window start moves.
+`repinned_at`) only when the two-year window start moves. On the server one
+systemd unit runs it: `tradingbot-forward.service`, state under
+`/var/lib/tradingbot/paper/<strategy>/forward/`.
 
 ## 2. paper -> prod
 

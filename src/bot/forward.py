@@ -35,6 +35,7 @@ from .autobook import closed_bars
 from .backtest import Engine, bars_to_frame
 from .config import BotConfig, CostConfig, RiskConfig
 from .data.feed import Bar
+from .heartbeat import Heartbeat
 from .strategy import build
 from .strategy.base import Strategy
 
@@ -117,7 +118,7 @@ def run_cycle(
     slippage_bps: float = 5.0,
     risk_per_trade: float = 0.05,
     max_position_pct: float = 0.5,
-    max_drawdown_stop: float = 0.25,
+    max_drawdown_stop: float = 0.10,
     days: int = scanlib.MAX_HISTORY_DAYS,
     source: str = "binance",
     outdir: str | Path | None = None,
@@ -378,8 +379,21 @@ def run_specs(specs: Sequence[Mapping[str, Any]], **kwargs: Any) -> list[dict[st
     return results
 
 
-def run_all_forever(interval: float, *, env: str | None = None, **kwargs: Any) -> None:
-    """Poll loop over the active manifests; re-read them every cycle."""
+def run_all_forever(
+    interval: float,
+    *,
+    env: str | None = None,
+    heartbeat_url: str | None = None,
+    heartbeat_every: float = 1800.0,
+    **kwargs: Any,
+) -> None:
+    """Poll loop over the active manifests; re-read them every cycle.
+
+    One outside ping per pass, after the pass (and after a failed pass), proves
+    the loop is turning even when there is nothing to trade.  A monitoring
+    outage must never stop the record, so the ping never raises.
+    """
+    heartbeat = Heartbeat(heartbeat_url, every=heartbeat_every)
     while True:
         try:
             specs = active_specs(env)
@@ -389,11 +403,20 @@ def run_all_forever(interval: float, *, env: str | None = None, **kwargs: Any) -
         except Exception as exc:  # noqa: BLE001 - the loop must outlive one cycle
             print(f"[forward] cycle failed: {type(exc).__name__}: {exc}", flush=True)
             traceback.print_exc()
+        finally:
+            heartbeat.ping()
         time.sleep(max(30.0, float(interval)))
 
 
-def run_forever(interval: float, **kwargs: Any) -> None:
+def run_forever(
+    interval: float,
+    *,
+    heartbeat_url: str | None = None,
+    heartbeat_every: float = 1800.0,
+    **kwargs: Any,
+) -> None:
     """Poll loop; each cycle is independent and idempotent."""
+    heartbeat = Heartbeat(heartbeat_url, every=heartbeat_every)
     while True:
         try:
             payload = run_cycle(**kwargs)
@@ -401,4 +424,6 @@ def run_forever(interval: float, **kwargs: Any) -> None:
         except Exception as exc:  # noqa: BLE001 - one bad cycle must not stop the record
             print(f"[forward] cycle failed: {type(exc).__name__}: {exc}", flush=True)
             traceback.print_exc()
+        finally:
+            heartbeat.ping()
         time.sleep(max(30.0, float(interval)))

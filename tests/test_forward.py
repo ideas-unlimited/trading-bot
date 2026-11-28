@@ -11,7 +11,9 @@ from unittest import mock
 
 from bot import promotions as promo
 from bot.data.feed import Bar
-from bot.forward import active_specs, default_outdir, run_cycle, run_specs
+from bot.forward import (
+    active_specs, default_outdir, run_all_forever, run_cycle, run_forever, run_specs,
+)
 from bot.strategy.base import Action, Signal, Strategy
 
 
@@ -199,6 +201,33 @@ class TestRunSpecs(unittest.TestCase):
             results = run_specs([bad])
         cycle.assert_not_called()
         self.assertIn("promote the change", results[0]["error"])
+
+
+
+class TestForwardLoopHeartbeat(unittest.TestCase):
+    def test_all_loop_pings_once_per_pass_even_with_no_sleeves(self):
+        heartbeat = mock.Mock()
+        with mock.patch("bot.forward.Heartbeat", return_value=heartbeat) as hb_cls, \
+                mock.patch("bot.forward.active_specs", return_value=[]), \
+                mock.patch("bot.forward.run_specs") as specs, \
+                mock.patch("bot.forward.time.sleep", side_effect=KeyboardInterrupt), \
+                mock.patch("sys.stdout"):
+            with self.assertRaises(KeyboardInterrupt):
+                run_all_forever(30, env="paper", heartbeat_url="https://hc.example/ping")
+        hb_cls.assert_called_once_with("https://hc.example/ping", every=1800.0)
+        heartbeat.ping.assert_called_once_with()
+        specs.assert_called_once_with([])
+
+    def test_single_loop_pings_after_the_cycle(self):
+        heartbeat = mock.Mock()
+        with mock.patch("bot.forward.Heartbeat", return_value=heartbeat), \
+                mock.patch("bot.forward.run_cycle", return_value={"ok": True}), \
+                mock.patch("bot.forward.format_status", return_value="ok"), \
+                mock.patch("bot.forward.time.sleep", side_effect=KeyboardInterrupt), \
+                mock.patch("sys.stdout"):
+            with self.assertRaises(KeyboardInterrupt):
+                run_forever(30, strategy_name="s", symbol="A/USDT")
+        heartbeat.ping.assert_called_once_with()
 
 
 if __name__ == '__main__':

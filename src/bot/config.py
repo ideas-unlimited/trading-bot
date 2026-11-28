@@ -25,7 +25,7 @@ class RiskConfig:
     max_position_pct: float = 0.95  # never allocate more than this fraction
     max_leverage: float = 1.0  # set > 1 only if you really mean it
     # Fraction of peak equity that, once lost, halts new entries.
-    max_drawdown_stop: float = 0.25
+    max_drawdown_stop: float = 0.10
 
 
 @dataclass(frozen=True)

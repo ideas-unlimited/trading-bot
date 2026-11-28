@@ -1,0 +1,36 @@
+[Unit]
+Description=Trading bot forward sleeve runner (paper)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=trader
+Group=trader
+WorkingDirectory=/opt/trading-bot
+Environment=PYTHONUNBUFFERED=1
+# One process replays every active sleeve, so it gets the same single-threaded
+# BLAS / malloc caps as a bot; MemoryMax restarts a leak instead of the box.
+Environment=OMP_NUM_THREADS=1
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=MALLOC_ARENA_MAX=2
+# State is per sleeve: BOT_STATE_DIR/<env>/<strategy>/forward/status.json.
+Environment=BOT_ENV=paper
+Environment=BOT_STATE_DIR=/var/lib/tradingbot
+# HEARTBEAT_URL lives here (root:trader, 0640), never in git.
+EnvironmentFile=-/etc/tradingbot/forward.env
+ExecStart=/opt/trading-bot/.venv/bin/bot forward --all --poll 900
+Restart=always
+RestartSec=30
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/tradingbot
+MemoryHigh=384M
+MemoryMax=768M
+MemorySwapMax=0
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

@@ -140,15 +140,25 @@ write_bot btc "BTC/USDT" 4h momentum_swing 1000
 write_bot eth "ETH/USDT" 4h momentum_swing 1000
 write_bot sol "SOL/USDT" 4h momentum_swing 1000
 
+# One loop replays every active paper sleeve; no key is needed (public bars
+# only).  The heartbeat URL is the only secret and stays out of git.
+only_if_missing "$CONF_DIR/forward.env" "BOT_ENV=paper
+# Ping URL from healthchecks.io / Uptime Kuma.  Empty = no heartbeat.
+HEARTBEAT_URL="
+chown "root:$SVC_USER" "$CONF_DIR/forward.env"
+chmod 640 "$CONF_DIR/forward.env"
+
 log "systemd"
 install -m 0644 "$APP_DIR/deploy/tradingbot-web.service" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/tradingbot-web-prod.service" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/tradingbot@.service" /etc/systemd/system/
+install -m 0644 "$APP_DIR/deploy/tradingbot-forward.service" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/tradingbot-backup.service" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/tradingbot-backup.timer" /etc/systemd/system/
 chmod +x "$APP_DIR/deploy/run_bot.sh" "$APP_DIR/deploy/backup.sh"
 systemctl daemon-reload
 systemctl enable --now tradingbot-web.service tradingbot-web-prod.service
+systemctl enable --now tradingbot-forward.service
 systemctl enable --now tradingbot-backup.timer
 
 if [[ "${NEED_KEYS:-0}" == "1" ]]; then
@@ -167,7 +177,8 @@ systemctl enable --now fail2ban >/dev/null 2>&1 || true
 log "done"
 cat <<EOF
 Web terminal : http://127.0.0.1:9000  (via ssh -L 9000:127.0.0.1:9000 <your-ssh-user>@<ip>)
-Logs         : journalctl -u tradingbot-web -u 'tradingbot@*' -f
+Logs         : journalctl -u tradingbot-web -u 'tradingbot@*' -u tradingbot-forward -f
 Status       : systemctl status tradingbot@btc
+Forward      : systemctl status tradingbot-forward (state: /var/lib/tradingbot/paper/<strategy>/forward/)
 Backups      : /var/backups/tradingbot (daily 03:17 UTC, 14 days)
 EOF

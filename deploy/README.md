@@ -56,9 +56,9 @@ bash deploy/install.sh
 
 Installs Python venv + Postgres, creates the three databases
 (`trading_common`, `trading_paper`, `trading_prod`), writes
-`/opt/trading-bot/.env`, installs the bot and both web units plus the backup
-timer, enables the dashboards, UFW (SSH only) and fail2ban, and schedules a
-nightly `pg_dump`.
+`/opt/trading-bot/.env`, installs the bot and both web units, the forward
+sleeve runner and the backup timer, enables the dashboards and the forward
+loop, opens UFW (SSH only), starts fail2ban, and schedules a nightly `pg_dump`.
 Re-running is safe; it never overwrites `.env`.
 
 ## 4. Add the Binance demo keys
@@ -88,8 +88,8 @@ The deployed tree is a clone, not a copy:
 sudo bash /opt/trading-bot/deploy/update.sh
 ```
 
-It fast-forwards `origin`, reinstalls the package, restarts the web service
-and any running bot unit. Hand-editing files inside `/opt/trading-bot` is
+It fast-forwards `origin`, reinstalls the package, restarts the web service,
+any running bot unit and the forward runner. Hand-editing files inside `/opt/trading-bot` is
 what breaks this: change code locally, `git commit`, `git push`, pull here.
 
 Editorial config stays outside the clone — `/etc/caddy/Caddyfile` (rendered
@@ -137,11 +137,16 @@ per bot and silence becomes information.
 1. Create a free check at <https://healthchecks.io> (or self-host Uptime Kuma).
 2. **Period 1h, grace 2h.** The bot pings every 30 minutes by default
    (`--heartbeat-every`), so one missed ping is jitter and two is an outage.
-3. Put the check's ping URL in that bot's env file:
+3. Put the check's ping URL in that bot's env file (the forward runner reads
+   `/etc/tradingbot/forward.env`):
 
    ```bash
    echo 'HEARTBEAT_URL=https://hc-ping.com/<uuid>' >> /etc/tradingbot/btc.env
    systemctl restart tradingbot@btc
+   # forward runner:
+   sudo sed -i 's|^HEARTBEAT_URL=.*|HEARTBEAT_URL=https://hc-ping.com/<uuid>|' \
+     /etc/tradingbot/forward.env
+   sudo systemctl restart tradingbot-forward
    ```
 
 The ping fires after **every** poll cycle — including cycles with no new bar
