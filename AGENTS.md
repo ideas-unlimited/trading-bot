@@ -84,6 +84,18 @@ when you hit a new environment quirk and solve it, add it here and commit.
   to 20 collapses the trail book to +8% with a -49% drawdown because the
   score ranking buys the strongest recent mover. Do not widen the universe
   without re-measuring that ranking.
+- **Per-symbol tuning does not survive a holdout (measured 2026-11-28).**
+  Fit each coin separately on year 1 (fast/slow x trail grid, Calmar-ranked,
+  >=8 trades and <=-30% dd floor) and score on year 2: the fitted config lost
+  to the pooled 30/50 + trail 1.5 on **5 of 5 coins**. Narrowing to a single
+  per-symbol knob (trail only) still only wins **2 of 5** - a coin flip - and
+  the picked values scatter (2.5, 1.0, 2.5, fixed, 1.5) with no regime logic.
+  Cause: at 4h over two years one coin supplies 9-16 trades a year, so a
+  three-knob fit has fewer than four decisions per parameter. Report every
+  symbol's own year1/year2 table, but keep the *parameters* pooled until a
+  symbol's trade count can support them - the honest way to earn that is more
+  entries per coin (more patterns gated together), not more knobs.
+  See `research/per_symbol.py` and `research/per_symbol_knob.py`.
 - **The pin is per window.** If the replay window's start moves by more than
   two days (history cap changed, a coin delisted, backfill), the pin is
   re-taken at the current equity and `repinned_at` records the old deploy
@@ -109,6 +121,9 @@ when you hit a new environment quirk and solve it, add it here and commit.
 - **Spot only (rule restated 2026-11-27).** Cash spot balances: no futures
   (`/fapi`), no margin (`/sapi` margin endpoints), no leverage, no shorts.
   The Binance broker only ever touches `/api/v3/*`.
+- **USDT is the quote currency** (agreed 2026-11-28): every bot pair is
+  X/USDT and the wallet is kept in USDT, not split across stables. Stray USDC
+  is converted by a spot `USDCUSDT` market sell, not held as a second dollar.
 - **Binance demo trading (2026-11-27).** Rehearse live orders against
   `https://demo-api.binance.com` — same endpoints, signing and order types as
   production, keys issued from the real account, virtual balances. Verified
