@@ -1,0 +1,208 @@
+{
+  "schema": 1,
+  "updated": "2026-11-28",
+  "description": "Authoritative target symbols for per-symbol strategy research. One strategy/parameter set per symbol; do not replace these with a shared multi-symbol model.",
+  "rules": {
+    "one_strategy_per_symbol": true,
+    "timeframes": [
+      "4h",
+      "1d"
+    ],
+    "max_history_days": 730,
+    "sub_4h_max_history_days": 365,
+    "long_only_spot": true,
+    "tune_on_train_validate_out_of_sample": true
+  },
+  "unresolved": "Venue/data source is not fixed by this file. Binance spot is the house default; HYPE and CC are known to use non-Binance feeds (Hyperliquid/MEXC). Resolve and record the venue before fetching or promoting a symbol.",
+  "symbols": [
+    {
+      "symbol": "ETH/USDT",
+      "base": "ETH",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "BNB/USDT",
+      "base": "BNB",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "SOL/USDT",
+      "base": "SOL",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "XRP/USDT",
+      "base": "XRP",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "HYPE/USDT",
+      "base": "HYPE",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "LINK/USDT",
+      "base": "LINK",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "UNI/USDT",
+      "base": "UNI",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "CC/USDC",
+      "base": "CC",
+      "quote": "USDC",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "AVAX/USDT",
+      "base": "AVAX",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "SUI/USDT",
+      "base": "SUI",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "TAO/USDT",
+      "base": "TAO",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "ONDO/USDT",
+      "base": "ONDO",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "JUP/USDT",
+      "base": "JUP",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "RENDER/USDT",
+      "base": "RENDER",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "LIT/USDT",
+      "base": "LIT",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "INJ/USDT",
+      "base": "INJ",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "CAKE/USDT",
+      "base": "CAKE",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "PYTH/USDT",
+      "base": "PYTH",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "FET/USDT",
+      "base": "FET",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "AKT/USDT",
+      "base": "AKT",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    },
+    {
+      "symbol": "EDGE/USDT",
+      "base": "EDGE",
+      "quote": "USDT",
+      "status": "untuned",
+      "strategy": null,
+      "timeframe": null,
+      "params": {}
+    }
+  ]
+}
