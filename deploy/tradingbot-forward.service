@@ -27,13 +27,17 @@ EnvironmentFile=-/etc/tradingbot/forward.env
 # sleeve mid-year and the forward record stops being comparable to its own
 # evidence).  The per-trade ATR stop is the real risk control.
 ExecStart=/opt/trading-bot/.venv/bin/bot forward --all --poll 900 --risk-per-trade 0.03 --max-position-pct 0.95 --max-drawdown-stop 0.99
+# Durable log file (paper-only runner): journald stays the live tail.
+Environment=LOG_DIR=/var/log/tradingbot/paper
+StandardOutput=append:${LOG_DIR}/forward.log
+StandardError=inherit
 Restart=always
 RestartSec=30
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/var/lib/tradingbot
+ReadWritePaths=/var/lib/tradingbot /var/log/tradingbot
 MemoryHigh=384M
 MemoryMax=768M
 MemorySwapMax=0
