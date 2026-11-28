@@ -382,6 +382,13 @@ def cmd_live(args: argparse.Namespace) -> int:
         heartbeat_every=args.heartbeat_every,
         record=True,
         notifier=notifier,
+        # Service bots opt in via STARTUP_REPLAY=1 (run_bot.sh defaults it on).
+        # A manual `bot live` keeps the conservative anchor-to-newest default.
+        startup_replay=(
+            args.startup_replay
+            or os.environ.get("STARTUP_REPLAY", "").strip().lower()
+            not in ("", "0", "false", "no", "off")
+        ),
     ).run(once=args.once)
     return 0
 
@@ -1169,6 +1176,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_live.add_argument("--heartbeat-every", type=float, default=1800.0,
                         help="minimum seconds between pings (default 1800)")
     p_live.add_argument("--once", action="store_true", help="run a single poll cycle and exit")
+    p_live.add_argument(
+        "--startup-replay", action="store_true",
+        help="on a fresh state, replay closed bars and open the model's "
+             "current long as a new entry at today's price (service bots "
+             "enable this via STARTUP_REPLAY=1; historical P&L is not credited)",
+    )
     p_live.set_defaults(func=cmd_live)
 
     p_scan = sub.add_parser("scan", help="rank strategies across timeframes (Binance bars)")

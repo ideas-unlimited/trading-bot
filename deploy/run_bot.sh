@@ -19,6 +19,11 @@ mkdir -p /var/log/tradingbot
 chown trader:trader /var/log/tradingbot 2>/dev/null || true
 
 cd /opt/trading-bot
+# Fresh-state bootstrap: replay the fetched closed bars to learn whether the
+# strategy is currently long, then open that exposure at today's price.  This
+# is a new entry, not a copied historical fill.  A bot can opt out with
+# STARTUP_REPLAY=0 in its env file; a manual `bot live` defaults to off.
+export STARTUP_REPLAY="${STARTUP_REPLAY:-1}"
 # Risk knobs default to BotConfig's own defaults, so a bot that sets nothing
 # behaves exactly as before.  A per-symbol sleeve sets them to the profile its
 # backtest used (see deploy/README.md, "Add a bot").

@@ -763,6 +763,95 @@ class LiveAnchorTests(unittest.TestCase):
             self.assertEqual(state["last_ts"], "2024-02-28T00:00:00+00:00")
             self.assertIn("not trading", trader.stream.getvalue())
 
+    def test_startup_replay_bootstraps_an_open_position(self) -> None:
+        class BuyNoTarget(BuyNow):
+            def signal(self, i, df, position):
+                return Signal(Action.BUY, "test entry", stop_loss=90.0)
+
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            client = _FakeClient(self._long_rows())
+            trader = LiveTrader(
+                client,
+                BuyNoTarget(),
+                BotConfig(initial_cash=10_000.0),
+                "BTC/USDT",
+                "1d",
+                state_path=tmp / "state.json",
+                poll=60,
+                lookback=300,
+                stream=io.StringIO(),
+                clock=lambda s: None,
+                startup_replay=True,
+            )
+            trader.poll(now=datetime(2024, 6, 1, tzinfo=timezone.utc))
+            # The replay found the model already long; one new entry, never a
+            # copied historical fill.
+            self.assertEqual(len(client.orders), 1)
+            self.assertEqual(client.orders[0]["side"], "buy")
+            state = json.loads((tmp / "state.json").read_text())
+            self.assertEqual(state["last_ts"], "2024-02-28T00:00:00+00:00")
+            self.assertIn("startup replay", trader.stream.getvalue())
+            self.assertIn("open position", trader.stream.getvalue())
+            self.assertIn("historical fills/P&L not credited", trader.stream.getvalue())
+            entry = state["entries"]["BTC/USDT"]
+            self.assertAlmostEqual(entry["price"], 158.5)
+            self.assertEqual(state["stops"]["BTC/USDT"], 90.0)
+
+    def test_startup_replay_catches_a_pending_entry(self) -> None:
+        class LastBarBuy(BuyNow):
+            def signal(self, i, df, position):
+                if position <= 0 and i == len(df) - 1:
+                    return Signal(Action.BUY, "last bar", stop_loss=90.0)
+                return None
+
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            client = _FakeClient(self._long_rows())
+            trader = LiveTrader(
+                client,
+                LastBarBuy(),
+                BotConfig(initial_cash=10_000.0),
+                "BTC/USDT",
+                "1d",
+                state_path=tmp / "state.json",
+                poll=60,
+                lookback=300,
+                stream=io.StringIO(),
+                clock=lambda s: None,
+                startup_replay=True,
+            )
+            trader.poll(now=datetime(2024, 6, 1, tzinfo=timezone.utc))
+            self.assertEqual(len(client.orders), 1)
+            self.assertIn("pending entry", trader.stream.getvalue())
+
+    def test_startup_replay_stays_flat_without_a_signal(self) -> None:
+        class NoSignal(BuyNow):
+            def signal(self, i, df, position):
+                return None
+
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            client = _FakeClient(self._long_rows())
+            trader = LiveTrader(
+                client,
+                NoSignal(),
+                BotConfig(initial_cash=10_000.0),
+                "BTC/USDT",
+                "1d",
+                state_path=tmp / "state.json",
+                poll=60,
+                lookback=300,
+                stream=io.StringIO(),
+                clock=lambda s: None,
+                startup_replay=True,
+            )
+            trader.poll(now=datetime(2024, 6, 1, tzinfo=timezone.utc))
+            self.assertEqual(client.orders, [])
+            state = json.loads((tmp / "state.json").read_text())
+            self.assertEqual(state["last_ts"], "2024-02-28T00:00:00+00:00")
+            self.assertIn("model flat", trader.stream.getvalue())
+
     def test_long_gap_resumes_on_the_newest_bars(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)

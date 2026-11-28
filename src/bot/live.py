@@ -17,6 +17,7 @@ only remembers the last processed bar and the locally-managed exits.
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 import time
@@ -30,7 +31,7 @@ from .data.feed import Bar
 from .heartbeat import Heartbeat
 from .notify import Notifier
 from .risk import RiskManager
-from .strategy.base import Action, Strategy
+from .strategy.base import Action, Signal, Strategy
 
 
 def compute_entry_qty(
@@ -69,6 +70,7 @@ class LiveTrader:
         clock: Any = time.sleep,
         record: bool = False,
         notifier: Notifier | None = None,
+        startup_replay: bool = False,
     ) -> None:
         self.client = client
         self.strategy = strategy
@@ -115,6 +117,13 @@ class LiveTrader:
         # Trade alerts are a side effect of a booked fill, never a trading
         # path: a dead SMTP server must not leave a position unmanaged.
         self.notifier = notifier
+        # Fresh-state bootstrap: replay the strategy over the fetched closed
+        # bars to learn whether it is currently long (or has a pending entry),
+        # then open that exposure at today's price.  Historical P&L is never
+        # credited; this is a new position, not a copied fill.  Off by
+        # default so tests and one-off runs keep the old anchor behaviour;
+        # deploy/run_bot.sh turns it on for service bots.
+        self.startup_replay = bool(startup_replay)
         self._last_equity = 0.0
         self._alert_warned = False
         # D8: signals, order rejects and errors reach the events table so the
@@ -185,16 +194,25 @@ class LiveTrader:
             if b.ts + self.duration <= now and (last is None or b.ts > last)
         ]
         if closed and last is None:
-            # Fresh state file: anchor to the newest closed bar instead of
-            # replaying history.  Replaying would submit orders at today's
-            # price for signals that fired months ago.
-            self.state["last_ts"] = closed[-1].ts.isoformat()
-            self._save_state()
-            self._emit(
-                f"[live] fresh state: anchored to {closed[-1].ts:%Y-%m-%d %H:%M}, "
-                f"not trading {len(closed)} historical bars"
-            )
-            closed = []
+            if self.startup_replay:
+                # Reconstruct the strategy's current stance, then open it as
+                # a NEW position at today's price.  The replay is state-only:
+                # no historical fill is booked and no historical P&L is
+                # credited.  Without this, a fresh start anchors past the
+                # newest closed bar and can miss an entry that just fired.
+                self._startup_replay(closed, now, equity)
+                closed = []
+            else:
+                # Fresh state file: anchor to the newest closed bar instead of
+                # replaying history.  Replaying would submit orders at today's
+                # price for signals that fired months ago.
+                self.state["last_ts"] = closed[-1].ts.isoformat()
+                self._save_state()
+                self._emit(
+                    f"[live] fresh state: anchored to {closed[-1].ts:%Y-%m-%d %H:%M}, "
+                    f"not trading {len(closed)} historical bars"
+                )
+                closed = []
         elif len(closed) > self.max_catchup:
             # Long gap (machine asleep, crash, days offline): acting on a
             # backlog is not the plan, so resume on the most recent bars only.
@@ -511,6 +529,165 @@ class LiveTrader:
         if persisted != current:
             persisted.update(current)
             self._save_state()
+
+    def _startup_replay(
+        self, closed: list[Bar], now: datetime, equity: float,
+    ) -> None:
+        """Bootstrap the strategy's current stance on a fresh state file.
+
+        The replay uses only closed bars and the same Engine as the dry-run,
+        so stops, targets, trails and time exits follow the measured rule.  If
+        the model ends long (or has a BUY pending for the next open) this opens
+        a NEW position at the newest closed bar's close.  Historical fills are
+        deliberately not copied: the entry time, price and P&L are today's.
+        """
+        from .backtest import Engine, bars_to_frame
+
+        last = closed[-1]
+        self.state["last_ts"] = last.ts.isoformat()
+        if self.risk.halted:
+            self._emit(
+                f"[live] startup replay: {len(closed)} bars; drawdown brake "
+                f"({self.risk.halt_reason}), staying flat"
+            )
+            self._save_state()
+            return
+        try:
+            engine = Engine(bars_to_frame(closed), self.strategy, self.config)
+            while engine.step():
+                pass
+        except Exception as exc:  # noqa: BLE001 - a replay must not kill the loop
+            self._emit(
+                f"[live] startup replay unavailable: {exc}; "
+                f"anchored to {last.ts:%Y-%m-%d %H:%M}"
+            )
+            self._save_state()
+            return
+
+        if engine.risk.halted:
+            self._emit(
+                f"[live] startup replay: {len(closed)} bars; replay drawdown "
+                f"brake ({engine.risk.halt_reason}), staying flat"
+            )
+            self._save_state()
+            return
+
+        pending = engine._pending
+        signal = None
+        origin = ""
+        if pending is not None and pending.limit_prices:
+            self._emit(
+                "[live] startup replay: model has a resting limit ladder; "
+                "not converting it to a market entry"
+            )
+            self._save_state()
+            return
+        if pending is not None and pending.action is Action.CLOSE:
+            # The model wants out at the next open: do not buy just to sell.
+            pass
+        elif pending is not None and pending.action is Action.BUY and not engine.broker.in_position:
+            signal = pending
+            origin = "pending entry"
+        elif engine.broker.in_position:
+            signal = Signal(
+                Action.BUY,
+                "startup replay",
+                stop_loss=engine._stop,
+                take_profit=engine._take,
+                trail_atr=engine._trail_atr,
+                trail_after_r=engine._trail_after_r,
+                trail_after_price=engine._trail_after_price,
+            )
+            origin = (
+                f"open position (entry {engine._entry_px:.4f})"
+                if engine._entry_px is not None
+                else "open position"
+            )
+
+        if signal is None:
+            self._emit(
+                f"[live] startup replay: {len(closed)} bars; model flat at "
+                f"{last.ts:%Y-%m-%d %H:%M}, anchored without trading history"
+            )
+            self._save_state()
+            return
+
+        price = float(last.close)
+        stop = signal.stop_loss
+        take = signal.take_profit
+        if stop is not None and (
+            not math.isfinite(float(stop)) or float(stop) >= price
+        ):
+            self._emit(
+                f"[live] startup replay: model long but stop {stop} is not "
+                f"below {price:.4f}; staying flat"
+            )
+            self._save_state()
+            return
+        if take is not None and (
+            not math.isfinite(float(take)) or float(take) <= price
+        ):
+            self._emit(
+                f"[live] startup replay: model long but target {take} is not "
+                f"above {price:.4f}; staying flat"
+            )
+            self._save_state()
+            return
+
+        qty = compute_entry_qty(
+            equity, price, stop,
+            risk_per_trade=self.config.risk.risk_per_trade,
+            max_position_pct=self.config.risk.max_position_pct,
+        )
+        if qty * price < 1.0:
+            self._emit(
+                f"[live] startup replay: model long but "
+                f"${qty * price:.2f} size is too small"
+            )
+            self._save_state()
+            return
+
+        order = self.client.submit_order(
+            self.symbol, "buy", qty, price=price,
+            stop=stop, take_profit=take,
+        )
+        filled = float(order.get("filled_qty") or qty)
+        fill_px = float(order.get("filled_avg_price") or price)
+        self.state.setdefault("stops", {}).pop(self.symbol, None)
+        self.state.setdefault("tps", {}).pop(self.symbol, None)
+        if stop is not None:
+            self.state["stops"][self.symbol] = float(stop)
+        if take is not None:
+            self.state["tps"][self.symbol] = float(take)
+        self.state.setdefault("entries", {})[self.symbol] = {
+            "qty": filled, "price": fill_px, "ts": now.isoformat(),
+        }
+        self._set_trail(signal, fill_px, now)
+        # The time exit starts now, not at a historical entry this book never held.
+        if hasattr(self.strategy, "_entry_ts"):
+            self.strategy._entry_ts = now
+        self._book_fill(
+            "buy", filled, fill_px, order_id=str(order.get("id") or ""),
+        )
+        self._alert_fill(
+            "buy", filled, fill_px, why=signal.reason,
+            stop=stop, take_profit=take, entry_ts=now, ts=now, equity=equity,
+        )
+        self._event(
+            "fill",
+            f"BUY {filled:.4f} {self.symbol} @ {fill_px:.4f} (startup replay)",
+            payload={"side": "buy", "qty": filled, "price": fill_px,
+                     "order_id": str(order.get("id") or ""), "stop": stop,
+                     "take_profit": take, "reason": "startup replay",
+                     "ts": now.isoformat()},
+        )
+        self._emit(
+            f"[live] startup replay: {len(closed)} bars; {origin} -> BUY "
+            f"{filled:.4f} {self.symbol} @ {fill_px:.4f}"
+            + (f" stop={stop:.4f}" if stop is not None else "")
+            + " (new entry now; historical fills/P&L not credited)"
+        )
+        self._save_state()
 
     def _last_ts(self) -> datetime | None:
         raw = self.state.get("last_ts")
