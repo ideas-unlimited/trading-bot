@@ -9,7 +9,7 @@
 # Checks per bot (from /etc/tradingbot/<name>.env):
 #   unit active | env values == manifest (symbol, timeframe, capital, risk
 #   knobs) | manifest active | state file under /var/lib/tradingbot |
-#   heartbeat fresh and not halted (API) | forward sleeve replaying |
+#   heartbeat fresh and not halted (API) | dry-run sleeve replaying |
 #   no journal errors in the last 24h.
 # Never prints secret values.
 set -uo pipefail
@@ -87,7 +87,7 @@ PY
 
   state=$(get STATE)
   [[ $state == /var/lib/tradingbot/* ]] && check 1 "state under /var/lib/tradingbot" || check 0 "state outside /var/lib/tradingbot: $state"
-  [[ -f /var/lib/tradingbot/paper/${strategy}/forward/status.json ]] && check 1 "forward sleeve replaying" || check 0 "forward sleeve missing"
+  [[ -f /var/lib/tradingbot/paper/${strategy}/forward/status.json ]] && check 1 "dry-run sleeve replaying" || check 0 "dry-run sleeve missing"
 
   # The web unit restarts on every deploy; retry so reconcile never reports
   # a false heartbeat outage just because it ran right after update.sh.

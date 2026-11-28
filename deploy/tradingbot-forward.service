@@ -1,5 +1,5 @@
 [Unit]
-Description=Trading bot forward sleeve runner (paper)
+Description=Trading bot dry-run sleeve runner (paper)
 After=network-online.target postgresql.service
 Wants=network-online.target
 
@@ -19,15 +19,15 @@ Environment=BOT_ENV=paper
 Environment=BOT_STATE_DIR=/var/lib/tradingbot
 # HEARTBEAT_URL lives here (root:trader, 0640), never in git.
 EnvironmentFile=-/etc/tradingbot/forward.env
-# Alerts are deliberately absent here: forward is a shadow replay, not a
+# Alerts are deliberately absent here: the dry-run is a shadow replay, not a
 # trade.  `bot forward --alerts` opts in manually; the service does not.
 # The sleeve profile, not the old book default: every manifest in
 # promotions/paper/ was measured at 3% risk, 95% max position and with the
 # account drawdown switch off (research convention - left at 10% it halts a
-# sleeve mid-year and the forward record stops being comparable to its own
+# sleeve mid-year and the dry-run record stops being comparable to its own
 # evidence).  The per-trade ATR stop is the real risk control.
 ExecStart=/opt/trading-bot/.venv/bin/bot forward --all --poll 900 --risk-per-trade 0.03 --max-position-pct 0.95 --max-drawdown-stop 0.99
-# Durable log file (paper-only runner): journald stays the live tail.
+# Durable log file (paper-only runner): journald remains the live tail.
 StandardOutput=append:/var/log/tradingbot/forward.log
 StandardError=inherit
 Restart=always

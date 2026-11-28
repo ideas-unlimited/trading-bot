@@ -286,11 +286,11 @@ drawdown switch off):
 | `swing_breakout_tao` | TAO/USDT | 1d | 5-bar high, 2 ATR stop, 3 ATR trail, 3-bar cap | **+21.6%** | 32 | -5.6% |
 | `swing_breakout_avax` | AVAX/USDT | 1d | 12-bar high, 2 ATR stop, 3 ATR trail, 3-bar cap | **+13.3%** | 20 | -6.1% |
 
-These are **forward replays, not live demo orders**. `bot live` still has no
-trail support, so SUI cannot be run there faithfully; the other four are
-live-compatible once their explicit trades are scheduled. The forward
-runner re-reads the manifests each cycle, and `live since deploy` will start
-at $1,000 on the first cycle; the table above is the full history replay.
+The dry-run sleeves are **shadow replays**; the matching trading bots place
+demo orders. `bot live` manages the stop, target and trail locally, so SUI can
+run there faithfully. The dry-run runner re-reads the manifests each cycle,
+and `since deploy` starts at $1,000 on the first cycle; the table above is the
+full history replay.
 
 The strict two-year evidence for SUI is **+61.3% / -13.1% / 30 trades**
 (2024-11-28 .. 2026-11-28). The +57.8% figure elsewhere in this report comes
@@ -301,20 +301,19 @@ dropped; the evidence replay has 19 closed trades.
 
 ## Deployment notes — read before promoting
 
-- The five manifests are active; no live-bot unit or order path was added.
+- The five manifests are active, each with a dry-run sleeve and a
+  `tradingbot@<strategy>-paper` unit placing demo orders.
 
 - The research harness `SwingLab` is still in `research/cake/cake_swing.py`;
   the deployable port is `src/bot/strategy/swing_sleeve.py` plus the four
   per-coin breakout modules. The static sleeves carry the tuned defaults —
   there is no runtime parameter shelf.
-- **The live loop does not implement `trail_atr`.** The forward replay
-  (`bot forward`) does, because it uses `Engine`; `bot live` only honours stop,
-  fixed target and strategy CLOSE signals. SUI therefore cannot be run
-  faithfully as a live demo bot yet — forward shadow only, or add trail support
-  first. TAO and AVAX can drop the inert trail and run as stop + 3-day time;
-  INJ can do the same for 2.3 points less.
-- XRP WVF is live-compatible: fixed 2R target, stop, and the strategy's own
-  time-exit CLOSE.
+- **`trail_atr` is implemented in the trading loop** (added 2026-11-28): the
+  peak and ATR distance persist in `trails`, the stop ratchets up only, and the
+  trail is applied after each bar's exit check. SUI, INJ, TAO and AVAX run the
+  same Chandelier exit their backtest measured; XRP WVF is stop + fixed 2R
+  target + its own time exit. Before that date `bot live` ignored the trail and
+  target, so a trading bot could not reproduce its evidence.
 - It is now running at 3% risk, 95% cap and the account drawdown switch off.
   Poll the 4h sleeves at 00/04/08/12/16/20 UTC and the 1d sleeves just after
   00:00 UTC.

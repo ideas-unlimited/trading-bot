@@ -3,6 +3,11 @@
 What was agreed, why, and what it commits us to. Peers: read this before
 touching environments, branches or promotions; `AGENTS.md` has the short form.
 
+**Names (2026-11-28).** Older entries below say *forward* and *live*. The
+current user-facing names are **dry-run bot** (`bot forward`) and **trading
+bot** (`bot live`). Historical wording is left as written; commands, units,
+paths and API keys keep the old spellings because they are identifiers.
+
 ## D1 - One repo, two branches (2026-11-27)
 
 `master` is the deployable line: reviewed core plus strategies that earned a
@@ -49,7 +54,8 @@ paths is enforced by review, not by a script.
 - No round-trip count gate.
 - $1,000 paper capital per bot/strategy.
 - Zero duplicate orders, zero unexplained rejects.
-- Fills within 30 bps of the signal bar open.
+- Fills within 30 bps of the signal bar's close (the live market-order
+  reference); the backtest's next-open fill is a separate, expected difference.
 - Fees + slippage within 10% of the 10 bps model.
 - Unbroken heartbeat, no manual intervention.
 - Paper outperforming its own backtest blocks promotion (lookahead smell).

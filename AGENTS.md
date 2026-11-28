@@ -70,8 +70,13 @@ when you hit a new environment quirk and solve it, add it here and commit.
   2026-11-28). Pass payloads through `bot.web._jsonify`, which also turns
   NaN into null; `_send_json` keeps `_json_default` as the backstop.
 
-## Live paper books (`bot auto`)
+## Dry-run and trading paper books (`bot auto`)
 
+- **Names.** A **dry-run bot** is the internal `forward` replay
+  (`bot forward`, `tradingbot-forward.service`, `/api/forward`): no orders, no
+  Bots row. A **trading bot** is the internal `live` loop
+  (`tradingbot@<name>.service`): demo orders, fills, alerts, Bots row. Commands,
+  units, paths and API keys keep the old spellings; they are identifiers.
 - `start_bots.cmd [seconds]` runs the five research books as $1,000 paper
   wallets (A gated 3%, B gated 5%, C plain 3%, D room-gated 3%, E gated
   entries + 1.5 ATR trail) every 15 minutes, detached,
@@ -82,8 +87,8 @@ when you hit a new environment quirk and solve it, add it here and commit.
   bar is dropped, then `simulate_book(..., close_at_end=False)` replays each
   book. Because the replay is deterministic, a restart cannot corrupt state;
   `runs/<env>/autobooks/status.json` holds every wallet, position and signal, and
-  `history` vs `live since deploy` are reported separately (deploy equity is
-  pinned on the first cycle - that line is the honest forward number).
+  `history` vs since-deploy are reported separately (deploy equity is pinned
+  on the first cycle - that line is the honest dry-run number).
 - **Trailing stop (added 2026-11-28).** `BookConfig.trail_atr` is a Chandelier
   trail that many ATRs under the highest high since entry, ratcheted up only,
   applied after the intrabar stop check so no bar can both raise the trail and
@@ -114,7 +119,7 @@ when you hit a new environment quirk and solve it, add it here and commit.
   earlier part, report the later part, and publish the symbol's own year1 /
   year2 table. See `research/per_symbol.py`, `research/per_symbol_knob.py`
   and `research/PER_SYMBOL.md` (peer analysis, same conclusion).
-- **The forward sleeve runner is the same replay for one strategy.**
+- **The dry-run sleeve runner is the same replay for one strategy.**
   `bot forward --all` walks every active manifest in one loop and runs each
   strategy/symbol through `Engine` (stop, target, trailing stop and time
   exit included), with one folder per sleeve:
@@ -131,24 +136,42 @@ when you hit a new environment quirk and solve it, add it here and commit.
   the engine. The trail is persisted as `trails` next to `stops`/`tps`: the
   peak and ATR distance survive a restart, the stop only ratchets upwards,
   and the trail is applied after the bar's exit check so no bar can both
-  raise the stop and fill against it. A live bot therefore runs the same
+  raise the stop and fill against it. A trading bot therefore runs the same
   exit rule its backtest measured; before 2026-11-28 it silently ignored
   `take_profit` and the trail, exiting only on the stop or a signal.
+- **A dry-run and a trading bot are not tick-for-tick twins.** The dry-run
+  replays from history and can already hold a position opened before its
+  deploy pin; a trading bot starts flat and ignores those historical signals.
+  The dry-run fills at the next bar's open, while the trading bot fills at the
+  signal bar's close. The dry-run has one independent $1,000 wallet per sleeve
+  that compounds; all trading bots share one demo account, size from
+  `min(account equity, CAPITAL)` and stop compounding at `CAPITAL`. A backlog
+  beyond `max_catchup` is skipped live but replayed dry-run. Compare since the
+  same bar, never history equity against the trading wallet; XRP on
+  2026-11-28 is the canonical example (dry-run long from 25 November, trading
+  bot released 28 November flat).
 
-- **One risk profile per runner, and it must be the one the sleeves were
-  measured at.** `tradingbot-forward.service` runs 3% risk, 95% max position
-  and the account drawdown switch **off** (`--max-drawdown-stop 0.99`), and
-  every `promotions/paper/` manifest was measured that way. Left at the old
-  5%/50%/10% defaults, ARB, RENDER and NEAR halted on their own 10-13%
-  historical drawdown within one replay and their forward history stopped
-  matching their evidence (NEAR read -9.6% instead of +86%). Per-bot env
-  files carry the same three knobs: `RISK_PER_TRADE`, `MAX_POSITION_PCT`,
-  `MAX_DRAWDOWN_STOP` (see `deploy/README.md`).
-- **Live fills alert; the forward replay is silent.** Every live
+- **Each sleeve replays the risk profile its manifest was measured at.**
+  `bot forward --all` reads `risk_per_trade`, `max_position_pct` and
+  `max_drawdown_stop` from each manifest's evidence; the unit's `--risk-*`
+  flags are only the fallback for older manifests that omit them (or when
+  `--profile flags` deliberately asks for a what-if). Most paper sleeves are
+  3% / 95% / no brake (`0.99`), but `capitulation_dip_uni` and
+  `jup_liquidity_15m` are 5% / 50% / a 10% brake. A profile change is a
+  different book: the deploy pin is re-taken and `repinned_at` keeps the old
+  date. Per-bot env files must carry the same three knobs
+  (`RISK_PER_TRADE`, `MAX_POSITION_PCT`, `MAX_DRAWDOWN_STOP`); one global
+  runner profile produced phantom moves (UNI read +38.5% instead of its
+  measured +67.8%). Left at 5%/50%/10%, ARB, RENDER and NEAR halted on their
+  own 10-13% historical drawdown and their history stopped matching evidence
+  (NEAR read -9.6% instead of +86%). `bot live` applies the drawdown brake to
+  new entries and persists the peak in `state["risk"]`, so a restart cannot
+  reset the protection.
+- **Trading fills alert; the dry-run replay is silent.** Every trading
   `tradingbot@<name>` bot reads `/etc/tradingbot/alerts.env` (template
   `deploy/alerts.env.example`) and sends one email/Telegram/ntfy message per
-  entry and exit, subject `strategy:side:price: entry/sl/tp`. Forward is a
-  shadow replay, so its unit does not read that file; `bot forward --alerts`
+  entry and exit, subject `strategy:side:price: entry/sl/tp`. The dry-run is
+  a shadow replay, so its unit does not read that file; `bot forward --alerts`
   opts in manually, and its fill-key cursor then prevents history replay.
   Verify with `bot notify-test --env-file ...`; alerts off by default, and an
   alert failure is logged, never fatal.
@@ -158,7 +181,7 @@ when you hit a new environment quirk and solve it, add it here and commit.
   date. Without that, a 3y-to-2y cap change showed every wallet at -78%
   "since deploy" while its history was +50% - a phantom loss from comparing
   two different books.
-- **The live loop writes to the database.** `bot live` registers itself once
+- **The trading loop writes to the database.** `bot live` registers itself once
   (name `<SYMBOL>-<strategy>`) and records equity plus a heartbeat every poll,
   so the dashboard can answer "what is running and at what rate" from
   `bots`/`equity_snapshots` rather than from the log. Failures are logged
@@ -173,7 +196,7 @@ when you hit a new environment quirk and solve it, add it here and commit.
 
 ## Market-data venues
 
-- **One venue.** Signals, backtests, scans, the live loop and the dashboard
+- **One venue.** Signals, backtests, scans, the trading loop and the dashboard
   all read Binance spot: `load_scan_bars(sym, tf, source="binance")` (public
   REST, no key, cached in `bars` like everything else). There is no second
   feed to reconcile — a 0.04% price difference from another venue once moved
@@ -208,11 +231,11 @@ when you hit a new environment quirk and solve it, add it here and commit.
 
 ## Bots page (monitor + kill switch)
 
-- **Forward sleeves are not bots.** They have no `bots` row, heartbeat or
+- **Dry-run sleeves are not bots.** They have no `bots` row, heartbeat or
   kill switch; one process replays every active manifest and writes
-  `<state>/<strategy>/forward/status.json`. The Dashboard's **Forward paper
-  sleeves** card reads `/api/forward` and is the place to see them. The Bots
-  page stays empty unless a real `bot live` loop is registered.
+  `<state>/<strategy>/forward/status.json`. The Dashboard's **Dry-run bots**
+  card reads `/api/forward` and is the place to see them. The Bots page stays
+  empty unless a real `bot live` loop is registered.
 - Bots are **created and promoted from lab**; paper and prod do not have a
   create form. The Bots page is a monitor: per loop it shows state, equity,
   run rate, the position (entry, mark, unrealized P&L), the **local stop and
@@ -385,11 +408,11 @@ when you hit a new environment quirk and solve it, add it here and commit.
   pings the dead-man URL in `/etc/tradingbot/watchdog.env` **only when no
   running bot is stale**. Episodes are deduped in
   `/var/lib/tradingbot/<env>/watchdog.json`.
-  **Two checks, never one.** `forward.env` owns the forward *process* check
+  **Two checks, never one.** `forward.env` owns the dry-run *process* check
   (one process, all sleeves, pings unconditionally after every pass);
   `watchdog.env` owns the *book* check (only green when no bot is stale).
-  Pointing both at one check makes the gate meaningless, because forward's
-  unconditional ping re-greens it while a bot is dead. And never point five
+  Pointing both at one check makes the gate meaningless, because the dry-run
+  ping re-greens it while a trading bot is dead. And never point five
   loops at one ping URL: it stays green while any survivor pings, so one dead
   loop is invisible — exactly the bug the watchdog exists to remove.
   The per-poll ping (`HEARTBEAT_URL` in a bot env file, throttled 30 min)
@@ -402,7 +425,7 @@ when you hit a new environment quirk and solve it, add it here and commit.
   IPs with HTTP 451, so exchange calls must originate outside the US.
 - **Paper/prod host = the OVH Sydney box, one for both worlds** (cleaned up
   2026-11-28). An earlier plan split paper/UI onto a separate "CometVPS,
-  Seattle" box; that was dropped — both dashboards and the forward runner run
+  Seattle" box; that was dropped — both dashboards and the dry-run runner run
   on the OVH box, which is also the only one that reaches Binance. Never run
   the venue-matching bot or its data sync from a US-located box; a paper book
   fed elsewhere does not validate a Binance execution venue.

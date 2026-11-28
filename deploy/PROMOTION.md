@@ -17,6 +17,19 @@ when a manifest names it.
 The loader imports nothing that a manifest does not name, so a strategy module
 can sit on a box and be completely inert there.
 
+## Names used here
+
+- **Dry-run bot** (also *dry-run sleeve*): the replay process. It reads bars,
+  writes `.../forward/status.json`, and never sends an order.
+- **Trading bot**: the demo-order loop started as
+  `tradingbot@<strategy>-<env>`. It is the only half that can fill, alert or
+  appear on the Bots page.
+
+The historical words survive in commands, units, paths and API keys:
+`bot forward`, `tradingbot-forward.service`, `/etc/tradingbot/forward.env`,
+`/api/forward`, and `.../forward/status.json`. Those are identifiers, not the
+user-facing names. Read `forward` as dry-run and `live` as trading below.
+
 ## 1. lab -> paper
 
 Package contents, and nothing else:
@@ -38,7 +51,7 @@ Entry requirements:
   1 year), strategy params hash, symbols, timeframe, and the run's metrics -
   the gate reads `bars`, `window_days`, `trades`, `fee_bps`,
   `slippage_bps` and `params_hash` (the hash of `--params`);
-- the forward runner reproduces the backtest's exits: `bot forward` replays
+- the dry-run runner reproduces the backtest's exits: `bot forward` replays
   the same `Engine`, so the stop, take-profit, trailing stop and time exit
   are the measured ones. `bot live` manages the same stop, fixed-R target
   and Chandelier trail locally on each closed bar (stop checked first, then
@@ -47,7 +60,7 @@ Entry requirements:
 Paper capital is **$1,000 per bot/strategy**. It is simulated money; the point
 is that every strategy is measured on the same stake.
 
-Start the paper record with the forward runner (outside `BOT_LAB` it refuses
+Start the paper record with the dry-run runner (`bot forward`; outside `BOT_LAB` it refuses
 to start without the active manifest and refuses a parameter hash that does
 not match it):
 
@@ -63,22 +76,25 @@ deploy mark is pinned on the first cycle and re-pinned (old date kept as
 systemd unit runs it: `tradingbot-forward.service`, state under
 `/var/lib/tradingbot/paper/<strategy>/forward/`.
 
-**Changing the runner's `--risk-*` flags rescales the whole curve and does not
-move the window, so the deploy mark is not re-taken** and every sleeve shows a
-phantom move "since deploy". After such a change, delete the affected
-`.../forward/status.json` files: the next cycle re-pins at the current equity.
-Done for `capitulation_dip_uni` and `jup_liquidity_15m` on 2026-11-28, where
-moving the unit from 5%/50%/10% to the sleeves' 3%/95%/no-brake turned UNI from
-a correct +38.5% history into a fake -17.5% "live since deploy" in two minutes.
+**Each sleeve replays the risk profile recorded in its own manifest.**
+`bot forward --all` reads `risk_per_trade`, `max_position_pct` and
+`max_drawdown_stop` from the manifest evidence; the unit's `--risk-*` flags
+are only the fallback for an older manifest that omits them (or when
+`--profile flags` deliberately asks for a what-if). Most paper sleeves are
+3% / 95% / no brake, but `capitulation_dip_uni` and `jup_liquidity_15m` are
+5% / 50% / a 10% brake. A profile change is a different book, so the deploy
+mark is re-taken and `repinned_at` keeps the old date; the status payload
+records the profile and its source. Flattening all sleeves onto one global
+profile made UNI read +38.5% in history instead of its measured +67.8%.
 
 ### Release steps on the box (the step that was missed for UNI)
 
 A promotion only **authorizes** a strategy. Nothing runs until two different
 things are live on the box, and confusing them is how UNI sat flat for hours
-on 2026-11-28 while its forward sleeve replayed and the Bots page stayed
+on 2026-11-28 while its dry-run sleeve replayed and the Bots page stayed
 empty:
 
-- **`tradingbot-forward.service`** (already running) picks the new manifest
+- **`tradingbot-forward.service`** (the dry-run runner, already running) picks the new manifest
   up on its next cycle and replays the sleeve as a simulated wallet. This is
   the measurement harness - no orders, never on the Bots page.
 - **`tradingbot@<strategy>-paper`** is the actual bot. Until it is started,
@@ -93,9 +109,41 @@ and this one box hosts both paper and prod, so only `<strategy>-<env>` is
 unambiguous (the same strategy may run in both worlds at different capital).
 
 **The standard: a paper promotion is complete only when BOTH halves are
-live** - the forward sleeve replaying and the `tradingbot@<strategy>-paper`
-unit running. A forward-only sleeve is a deliberate exception (e.g. two
+live** - the dry-run sleeve replaying and the `tradingbot@<strategy>-paper`
+unit running. A dry-run-only sleeve is a deliberate exception (e.g. two
 sleeves on one symbol) and must say so in its manifest evidence.
+
+### Why the two records do not match tick for tick
+
+They are two different instruments, not two copies of one account. A release
+does **not** clone the dry-run book into the trading bot:
+
+1. **Start state.** The dry-run replays the whole window from a pinned $1,000
+   wallet and can already be holding a position that opened before the deploy
+   pin. A trading bot starts flat on release and deliberately ignores the
+   historical bars that would have entered it. On 2026-11-28 the XRP dry-run
+   was long from 25 November while its trading bot, released on 28 November,
+   was flat. That is expected; it is not a failed release. The bot can only
+   enter on a new signal after its own start.
+2. **Fill price.** The dry-run `Engine` fills a signal at the **next bar's
+   open**. The trading bot sends a market order at the **signal bar's close**;
+   it cannot wait for an open that has not happened. The same signal therefore
+   books a different price and a different P&L.
+3. **Wallet.** The dry-run keeps one independent $1,000 wallet per sleeve and
+   compounds it. Trading bots share one demo account; each sizes from
+   `min(account equity, CAPITAL)` and stops compounding at `CAPITAL`. A loss
+   or win in one sleeve changes the equity every other sleeve sizes from. Do
+   not compare the two equity curves dollar-for-dollar.
+4. **Catch-up.** The dry-run replays every bar in its window. A trading bot
+   skips a backlog larger than `max_catchup` and resumes on the newest bars, so
+   downtime can remove signals the replay still took.
+5. **The honest comparison.** Compare the return and position **since the same
+   bar** (`since deploy` / since release), never the dry-run's two-year
+   `history` equity against the trading bot's $1,000. Use the execution gate -
+   fills within 30 bps of the signal bar's close, the price the bot decided at -
+   to judge the bot; the backtest's next-open fill is a separate, expected
+   difference. Do not expect identical trades. If either half is absent or was
+   started late, fix that before comparing anything.
 
 Release is one command on the box, after commit -> push -> `sudo bash
 /opt/trading-bot/deploy/update.sh`:
@@ -136,7 +184,7 @@ unavailable:
    BOT_ENV=paper
    RISK_PER_TRADE=0.05
    MAX_POSITION_PCT=0.50
-   MAX_DRAWDOWN_STOP=0.10
+   MAX_DRAWDOWN_STOP=0.10   # read this sleeve's manifest evidence
    ```
 
    plus `HEARTBEAT_URL=` copied from `/etc/tradingbot/forward.env` (copy it
@@ -145,15 +193,16 @@ unavailable:
 
    **The three risk knobs are not optional.** `run_bot.sh` defaults them to
    1% / 95% / a 10% brake, which is nobody's measured profile. They must
-   match exactly what the sleeve was backtested at (read the research note
-   or the evidence `command`). On 2026-11-28 all five live bots were caught
+   match exactly what the sleeve was backtested at: read the manifest
+   evidence, not a global runner flag. On 2026-11-28 the trading bots were caught
    running at those defaults hours after release - same signals, wrong
    sizing, and the swing sleeves would have halted on their own historical
    drawdown because their evidence says run the brake off (0.99). The
-   forward unit has its own `--risk-per-trade/--max-position-pct/
-   --max-drawdown-stop` on its ExecStart; one runner serves every sleeve, so
-   a sleeve measured at a different profile is only mirrored exactly by its
-   own `bot live` process.
+   dry-run runner resolves each sleeve's profile from its manifest (the unit's
+   `--risk-*` flags are fallback only); a trading bot carries the same three
+   knobs in its env. `bot live` enforces the drawdown brake as well as the
+   dry-run engine does; the remaining difference is the shared account, not
+   the brake.
 3. **Verify the bot is really alive**, all four:
    - `journalctl -u tradingbot@<strategy>-paper` shows "paper trading <SYMBOL> @ <tf>
      on Binance DEMO account" and the first poll line (anchored to now,
@@ -187,21 +236,21 @@ unavailable:
    `telegram` / `email`). If it says `trade alerts off`, fix the shared
    file and restart the bot. Run
    `bot notify-test --env-file /etc/tradingbot/alerts.env` to check delivery.
-   Never add alerts to `tradingbot-forward`: that is the shadow replay.
+   Never add alerts to `tradingbot-forward`: that is the dry-run replay.
 5. **Box checks:** `/etc/tradingbot/` must be `root:trader 750` - the
    `trader` user has to traverse it to read its own env file (this silently
    broke every bot on 2026-11-28). One bot per symbol (they share one demo
    account, so two bots read the same balance and close each other's
    position). **If the symbol already has a bot, the new sleeve stays
-   forward-only - do not start a second unit.** `capitulation_dip_jup` is in
+   dry-run-only - do not start a second unit.** `capitulation_dip_jup` is in
    exactly that state while `jup_liquidity_15m` trades JUP: the 4h sleeve
-   accrues its record in the forward replay and the live slot stays with the
+   accrues its record in the dry-run replay and the trading slot stays with the
    bot that already owns the symbol. `STATE` lives under `/var/lib/tradingbot/`. A sub-4h strategy
    keeps the 1-year evidence cap everywhere, including here.
 6. **Reconcile after every release.** Re-walk this checklist against what
    is actually running - `sudo bash /opt/trading-bot/deploy/reconcile_paper.sh`
    does it automatically: units active, env risk knobs equal the measured
-   profile, heartbeat fresh, forward sleeve present, no errors in
+   profile, heartbeat fresh, dry-run sleeve present, no errors in
    `journalctl`. Every incident so far was a release step done halfway, not
    a code bug.
 7. **Secrets:** any credential touched during release goes into
@@ -222,7 +271,7 @@ Eligibility:
 |---|---|
 | **2 weeks live** on paper | long enough for the scheduler, the data sync and a real order to happen at least once |
 | **no duplicate orders, no unexplained rejects** | the failure that actually costs money |
-| **every fill within 30 bps of the signal bar open** | execution fidelity, measurable from the first trade |
+| **every fill within 30 bps of the signal bar's close** | execution fidelity against the price the bot decided at; the backtest fills next open |
 | **fees + slippage within 10% of the 10 bps model** | cost model is not fiction |
 | **unbroken heartbeat, no manual intervention** | the process was alive the whole time |
 | **paper must not beat its own backtest by a wide margin** | the best lookahead detector we have |
@@ -254,7 +303,7 @@ the promoted size.
                "params_hash": "sha256:1f3c...",
                "risk_per_trade": 0.05, "max_position_pct": 0.5,
                "max_drawdown_stop": 0.1,
-               "note": "forward-only release (reason) goes here if applicable"},
+               "note": "dry-run-only release (reason) goes here if applicable"},
   "active": true,
   "demoted_at": "",
   "demote_reason": ""
@@ -265,7 +314,7 @@ the promoted size.
 `max_position_pct`, `max_drawdown_stop`): the release script generates each
 bot's env file from it, and `deploy/reconcile_paper.sh` diffs the running
 config against it. A promotion without those three fields is unreleasable
-by the script - by design, since omitting them is how every live bot ended
+by the script - by design, since omitting them is how every trading bot ended
 up at `run_bot.sh` defaults on 2026-11-28.
 
 ## 4. These gates are defaults, not walls

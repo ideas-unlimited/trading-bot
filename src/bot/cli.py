@@ -333,7 +333,7 @@ def cmd_account(_: argparse.Namespace) -> int:
 
 
 def cmd_live(args: argparse.Namespace) -> int:
-    """Trade a strategy on live Binance bars; orders go to the demo account.
+    """Trade a strategy on freshly closed Binance bars; orders go to the demo account.
 
     Outside lab, only an active promotion manifest may run - the same rule
     the dashboard follows, enforced where the orders actually happen.
@@ -643,7 +643,7 @@ def cmd_book(args: argparse.Namespace) -> int:
 
 
 def cmd_auto(args: argparse.Namespace) -> int:
-    '''Run the paper books forward on live bars.  No orders are ever sent.'''
+    '''Dry-run the paper books on closed bars.  No orders are ever sent.'''
     from .autobook import (books_from_pool, default_books, format_status, run_forever,
                            run_once, select_books)
     from . import symbolcfg
@@ -691,10 +691,10 @@ def cmd_auto(args: argparse.Namespace) -> int:
 
 
 def cmd_forward(args: argparse.Namespace) -> int:
-    """Replay promoted sleeves forward as simulated wallets.  No orders are sent.
+    """Dry-run promoted sleeves as simulated wallets.  No orders are sent.
 
     This is the per-symbol counterpart of `bot auto`: the same deterministic
-    replay reports "live since deploy" without an exchange key, an order or a
+    replay reports "since deploy" without an exchange key, an order or a
     position the demo account could close.  With --all it walks every active
     manifest in one process, one folder per sleeve; without it, one sleeve is
     checked and replayed by hand.  Outside lab a single-sleeve run requires an
@@ -721,6 +721,9 @@ def cmd_forward(args: argparse.Namespace) -> int:
             print("refused: --all takes no --strategy/--symbol/--param/--outdir", file=sys.stderr)
             return 2
         specs = active_specs(env)
+        if args.profile == "flags":
+            specs = [{k: v for k, v in spec.items() if k not in promo.RISK_PROFILE_KEYS}
+                     for spec in specs]
         common = dict(
             fee_bps=args.fee_bps,
             slippage_bps=args.slippage_bps,
@@ -736,8 +739,9 @@ def cmd_forward(args: argparse.Namespace) -> int:
             print(f"  {spec['strategy']:<28} {spec['symbol']:<10} {spec['timeframe']:<3}"
                   f"  ${spec['capital']:,.0f}")
         print(f"risk       {args.risk_per_trade:.1%}/trade   cap {args.max_position_pct:.0%}"
-              f"   fees {args.fee_bps:g}/{args.slippage_bps:g} bps")
-        print(f"alerts     {notifier.describe() or 'off (forward replay)'}")
+              f"   fees {args.fee_bps:g}/{args.slippage_bps:g} bps"
+              f"   profile {args.profile}")
+        print(f"alerts     {notifier.describe() or 'off (dry-run replay)'}")
         print()
         if args.once:
             if not specs:
@@ -796,6 +800,15 @@ def cmd_forward(args: argparse.Namespace) -> int:
             )
             return 2
         params = dict(probe.params)
+    if manifest is not None and args.profile == "manifest":
+        # The sleeve was measured on one book; replay that book unless the
+        # caller asked for the flags on purpose.
+        measured = manifest.risk_profile()
+        for key, value in measured.items():
+            current = getattr(args, key)
+            if abs(float(current) - float(value)) > 1e-12:
+                print(f"profile    {key} {value:g} (manifest) overrides the flag {current:g}")
+            setattr(args, key, float(value))
     kwargs = dict(
         strategy_name=args.strategy,
         symbol=args.symbol,
@@ -810,12 +823,13 @@ def cmd_forward(args: argparse.Namespace) -> int:
         days=args.days,
         source=args.source,
         outdir=args.outdir or default_outdir(args.strategy),
+        profile_source="manifest" if manifest is not None and args.profile == "manifest" else "flags",
     )
     print(f"sleeve     {args.strategy}  {args.symbol}  {args.interval}")
     print(f"wallet     ${args.initial_cash:,.0f}   risk {args.risk_per_trade:.1%}/trade"
           f"   cap {args.max_position_pct:.0%}")
     print(f"data       {args.source} {args.interval}  window {args.days}d")
-    print(f"alerts     {notifier.describe() or 'off (forward replay)'}")
+    print(f"alerts     {notifier.describe() or 'off (dry-run replay)'}")
     print()
     if args.once:
         payload = run_cycle(notifier=notifier, **kwargs)
@@ -1138,7 +1152,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_acct = sub.add_parser("account", help="show the Binance demo account and open positions")
     p_acct.set_defaults(func=cmd_account)
 
-    p_live = sub.add_parser("live", help="paper-trade a strategy on live Binance bars (demo orders)")
+    p_live = sub.add_parser("live", help="run a trading bot on closed Binance bars (demo orders)")
     _add_strategy_args(p_live)
     _add_cost_args(p_live)
     p_live.add_argument("--symbol", default="BTC/USDT", help="e.g. BTC/USDT, ETH/USDT")
@@ -1237,7 +1251,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_book.add_argument("--outdir", default="runs/book")
     p_book.set_defaults(func=cmd_book)
 
-    p_auto = sub.add_parser("auto", help="run the paper books forward on live bars (no orders sent)")
+    p_auto = sub.add_parser("auto", help="dry-run the paper books on closed bars (no orders sent)")
     p_auto.add_argument("--coins", default="BTCUSDT,ETHUSDT,BNBUSDT,XRPUSDT,SOLUSDT")
     p_auto.add_argument("--source", choices=["binance", "tv"], default="binance")
     p_auto.add_argument("--timeframe", default="4h")
@@ -1258,7 +1272,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_fwd = sub.add_parser(
         "forward",
-        help="replay promoted sleeves forward as simulated wallets (no orders sent)",
+        help="dry-run promoted sleeves as simulated wallets (no orders sent)",
     )
     p_fwd.add_argument("--all", action="store_true",
                        help="run every active manifest, one folder per sleeve")
@@ -1285,6 +1299,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="also send trade alerts from this replay (off by default)")
     p_fwd.add_argument("--outdir", default=None,
                        help="single-sleeve override; defaults to runs/<env>/<strategy>/forward")
+    p_fwd.add_argument("--profile", choices=["manifest", "flags"], default="manifest",
+                       help="risk profile: the manifest's measured one (default) or the flags")
     p_fwd.set_defaults(func=cmd_forward)
     p_wd = sub.add_parser(
         "watchdog",

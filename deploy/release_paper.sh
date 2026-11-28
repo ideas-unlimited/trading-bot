@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Standard paper release: deploy BOTH halves of a promotion on this box.
 #
-#   1. the forward sleeve - tradingbot-forward picks the manifest up on its
+#   1. the dry-run sleeve - tradingbot-forward picks the manifest up on its
 #      next cycle automatically (measurement, no orders);
-#   2. the live bot unit  - tradingbot@<strategy>-paper, demo orders, Bots page.
+#   2. the trading bot    - tradingbot@<strategy>-paper, demo orders, Bots page.
 #
 # Usage (on the box):
 #   sudo bash deploy/release_paper.sh <strategy-name>
@@ -116,15 +116,15 @@ EOF
   echo "env        wrote $conf"
 fi
 
-# --- forward sleeve (informational; --all picks it up itself) ---
+# --- dry-run sleeve (informational; --all picks it up itself) ---
 fwd=/var/lib/tradingbot/paper/${strategy}/forward/status.json
 if [[ -f $fwd ]]; then
-  echo "forward    sleeve replaying ($fwd)"
+  echo "dry-run    sleeve replaying ($fwd)"
 else
-  echo "forward    no state yet - the runner creates it on its next cycle (poll 900s)" >&2
+  echo "dry-run    no state yet - the runner creates it on its next cycle (poll 900s)" >&2
 fi
 
-# --- start / verify the live bot ---
+# --- start / verify the trading bot ---
 systemctl enable --now tradingbot@${name}.service >/dev/null 2>&1 || true
 sleep 8
 if [[ $(systemctl is-active tradingbot@${name}) != active ]]; then
@@ -155,8 +155,8 @@ bots = json.load(sys.stdin)['bots']
 ok = any('${strategy}' in b['name'] and b.get('last_heartbeat_at') for b in bots)
 sys.exit(0 if ok else 1)
 "; then
-  echo "live       tradingbot@${name} active, registered, heartbeat fresh"
+  echo "trading    tradingbot@${name} active, registered, heartbeat fresh"
 else
   echo "warn       bot active but not yet on /api/bots with a heartbeat; re-check in a minute" >&2
 fi
-echo "done       $name ($strategy) released: forward sleeve + live bot"
+echo "done       $name ($strategy) released: dry-run sleeve + trading bot"

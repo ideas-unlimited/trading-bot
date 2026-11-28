@@ -20,7 +20,7 @@ Target hosts:
 - **Trading (Binance), paper and prod:** OVH VPS, **Sydney** — 4 vCPU, 8 GB
   RAM, 75 GB local disk, automated backup with 1 rotation. Binance returns
   HTTP 451 to US IPs, so the exchange-connected bots can only run here. Both
-  dashboards and the forward runner live on this one box (an earlier plan
+  dashboards and the dry-run runner live on this one box (an earlier plan
   split paper onto a separate "CometVPS Seattle" host; that was dropped
   2026-11-28).
 
@@ -58,8 +58,8 @@ bash deploy/install.sh
 
 Installs Python venv + Postgres, creates the three databases
 (`trading_common`, `trading_paper`, `trading_prod`), writes
-`/opt/trading-bot/.env`, installs the bot and both web units, the forward
-sleeve runner and the backup timer, enables the dashboards and the forward
+`/opt/trading-bot/.env`, installs the bot and both web units, the dry-run
+sleeve runner and the backup timer, enables the dashboards and the dry-run
 loop, opens UFW (SSH only), starts fail2ban, and schedules a nightly `pg_dump`.
 Re-running is safe; it never overwrites `.env`.
 
@@ -91,7 +91,7 @@ sudo bash /opt/trading-bot/deploy/update.sh
 ```
 
 It fast-forwards `origin`, reinstalls the package, restarts the web service,
-any running bot unit and the forward runner. Hand-editing files inside `/opt/trading-bot` is
+any running bot unit and the dry-run runner. Hand-editing files inside `/opt/trading-bot` is
 what breaks this: change code locally, `git commit`, `git push`, pull here.
 
 Editorial config stays outside the clone — `/etc/caddy/Caddyfile` (rendered
@@ -161,13 +161,13 @@ the env file, restart the unit.
 
 | Check | URL in | Pings | Green means |
 |---|---|---|---|
-| forward runner | `/etc/tradingbot/forward.env` | after every pass, every 30 min, even a failed one | the sleeve replay process is turning |
-| book | `/etc/tradingbot/watchdog.env` | every 5 min, **only while no running bot is stale** | every live loop is beating |
+| dry-run runner | `/etc/tradingbot/forward.env` | after every pass, every 30 min, even a failed one | the sleeve replay process is turning |
+| book | `/etc/tradingbot/watchdog.env` | every 5 min, **only while no running bot is stale** | every trading loop is beating |
 
-The forward check is about one process: `tradingbot-forward` replays every
+The dry-run check is about one process: `tradingbot-forward` replays every
 promoted sleeve in a single loop, and when it dies the record simply stops
 advancing - indistinguishable from a quiet market. The book check is about
-the five `tradingbot@*` loops, read per bot from the database, which is also
+the `tradingbot@*` loops, read per bot from the database, which is also
 why the watchdog can name the one that died.
 
 Verify either one by hand:
@@ -177,11 +177,11 @@ sudo systemctl start tradingbot-watchdog.service   # one pass now
 journalctl -u tradingbot-watchdog -n 20            # ends with 'dead-man pinged'
 ```
 
-**Never point both files at one check.** The forward ping is unconditional, so
+**Never point both files at one check.** The dry-run ping is unconditional, so
 it would re-green the book check while a bot is stale and the gate would mean
-nothing. Five bots on one URL is the other trap: it stays green while any
-survivor pings, and one check has one period, so it cannot hold five
-deadlines. One process on one check (forward) is fine; five loops on one is
+nothing. Several bots on one URL is the other trap: it stays green while any
+survivor pings, and one check has one period, so it cannot hold several
+deadlines. One process on one check (dry-run) is fine; several loops on one is
 not. `run_bot.sh` still passes `HEARTBEAT_URL` through from a bot's env file
 if you also want a per-bot check - give each its own URL.
 
@@ -190,30 +190,30 @@ not a position.
 
 ## Trade alerts (email, Telegram, ntfy)
 
-The live `tradingbot@<name>` bots send one message when they book a fill:
+The trading `tradingbot@<name>` bots send one message when they book a fill:
 **TRADE OPENED** at entry and **TRADE CLOSED** with the realised P&L and
 exit reason.  The subject is compact, e.g.
 `capitulation_dip_uni:buy:4.8123: 4.8123/4.7000/5.1000` —
 `strategy:side:price: entry/sl/tp` — and the body carries the details.
 
-The forward runner is deliberately **silent by default**: it is a shadow
-replay, not a trade, so it would duplicate the live message.  `bot forward
+The dry-run runner is deliberately **silent by default**: it is a shadow
+replay, not a trade, so it would duplicate the trading message.  `bot forward
 --alerts` opts in for a manual check; the systemd unit does not pass it, and
 its cursor still prevents replaying history.
 
-Alerts are off until at least one channel is configured.  Every live
+Alerts are off until at least one channel is configured.  Every trading
 `tradingbot@<name>` bot reads `/etc/tradingbot/alerts.env` (template:
 `deploy/alerts.env.example`).  Each says `trade alerts: ...` (or `off`) at
 startup.  `EnvironmentFile=-` means a missing file or an empty value is not
 an error.
 
-Edit the shared file, then restart the live bot(s) and verify:
+Edit the shared file, then restart the trading bot(s) and verify:
 
 ```bash
 sudo vi /etc/tradingbot/alerts.env
 sudo -u trader /opt/trading-bot/.venv/bin/bot notify-test \
   --env-file /etc/tradingbot/alerts.env
-sudo systemctl restart 'tradingbot@uni'   # repeat for each live bot you run
+sudo systemctl restart 'tradingbot@uni'   # repeat for each trading bot you run
 ```
 
 The `notify-test` command sends one message through every configured
@@ -270,7 +270,7 @@ and never stops the record.
 ### Per-bot env file
 
 `/etc/tradingbot/<name>.env` is `root:trader` 0640 and never committed.  The
-live loop reads it through `deploy/run_bot.sh`; every value is quoted there, so
+trading loop reads it through `deploy/run_bot.sh`; every value is quoted there, so
 keep one `NAME=value` per line with no spaces around `=`.
 
 ```bash
@@ -295,9 +295,11 @@ them behaves exactly as before.  The per-symbol swing sleeves were measured at
 would halt mid-year (NEAR's own history draws down 12.9% before recovering),
 which is why both the bot env files and `tradingbot-forward.service` carry that
 profile.  The ATR stop on each trade is the real risk control.
-Every bot gets its own wallet (`--capital`), its own state file and its own
-unit, but they share one demo account: two bots on the same symbol
-would fight over the position. One symbol per bot.
+Every bot gets its own `CAPITAL` sizing cap, state file and unit, but they
+share one demo account: two bots on the same symbol would fight over the
+position. `CAPITAL` is not a separate ledger - a win or loss in one bot changes
+the equity every other bot sizes from, and it does not compound above the cap.
+One symbol per bot.
 
 ## Memory budget (8 GB box)
 

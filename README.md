@@ -55,7 +55,7 @@ with less history uses everything since its listing.
 > found; several measurements were taken under the previous three-year cap or
 > against books that have since changed. They are kept because they explain
 > why the rules look the way they do, and they are not reproducible under
-> today's two-year rule. The forward paper books (A-E) are documented at the
+> today's two-year rule. The dry-run paper books (A-E) are documented at the
 > end of this file.
 
 The rule that survived a 1,750-config search on the last 12 months and the
@@ -202,22 +202,28 @@ Writes a ranked table (by Sharpe) and `runs/scan.csv`.  Bars are cached in
 Postgres and delta-synced, so repeated scans cost no API calls.  `6h` is a
 native Binance timeframe.
 
-**Paper-trade live** — the loop polls freshly-closed production bars, computes
-signals with the same no-lookahead semantics as the backtester, sizes from the
-stop distance, and sends market orders to the demo account.  Spot has no
+**Trading bot (paper)** — the internal `bot live` loop polls freshly-closed
+production bars, computes signals with the same no-lookahead semantics as the
+backtester, sizes from the stop distance, and sends market orders to the demo
+account.  Spot has no
 bracket orders, so the ATR stop is checked locally on each closed bar:
 
 ```bash
 python -m bot live --symbol BTC/USDT --interval 1h --strategy sma_cross --poll 60
-python -m bot live --symbol BTC/USDT --interval 1d --strategy sma_cross --once   # single dry cycle
+python -m bot live --symbol BTC/USDT --interval 1d --strategy sma_cross --once   # single poll
 ```
 
 State (last processed bar, local stops) lives in `runs/live_state.json`.
 
-**Forward sleeve runner** — the per-symbol counterpart of `bot auto`.  It
-replays each sleeve over the cached window through the same `Engine` as the
-backtest (next-open fills, stop-first, take-profit, time exit), pins the
-deploy equity and writes one folder per sleeve:
+The names say what the book does: a **trading bot** (`bot live`) places demo
+orders and appears on the Bots page; a **dry-run bot** (`bot forward`) only
+replays. Commands, systemd units and API keys keep the old `live`/`forward`
+spellings because they are identifiers.
+
+**Dry-run sleeve runner** (command: `bot forward`) — the per-symbol counterpart
+of `bot auto`.  It replays each sleeve over the cached window through the same
+`Engine` as the backtest (next-open fills, stop-first, take-profit, time exit),
+pins the deploy equity and writes one folder per sleeve:
 
 ```
 runs/<env>/<strategy>/forward/status.json
@@ -241,9 +247,8 @@ checks the sleeve's parameter hash against that manifest, so the replay
 measures exactly what was promoted.  A failed sleeve is logged and skipped,
 never fatal to the others.  `start_forward.cmd [seconds]` launches the
 all-sleeve loop detached on Windows, logging to `logs/forward_<ts>.log`.
-`live since deploy` starts at the first cycle and is re-pinned only if the
-two-year window start moves, so a history cap change cannot show up as a
-phantom loss.
+`since deploy` starts at the first cycle and is re-pinned only if the two-year
+window start moves, so a history cap change cannot show up as a phantom loss.
 
 ## TradingView (optional companion)
 
@@ -288,7 +293,7 @@ src/bot/
   config.py        cost + risk settings (frozen dataclasses)
   backtest.py      single-symbol bar-by-bar engine, next-bar fills, intrabar stops
   book.py          one wallet across several coins, per-symbol configs, trailing stop
-  autobook.py      BookSpec definitions + the forward paper books
+  autobook.py      BookSpec definitions + the dry-run paper books
   broker.py        long-only fills, fees, slippage, round-trip accounting
   risk.py          stop-based sizing, position caps, drawdown kill switch
   metrics.py       return/CAGR/Sharpe/Sortino/drawdown/win-rate/profit factor
@@ -369,7 +374,7 @@ both work.
 
 ## Plugging in a live feed
 
-`Engine` is stateful and advances one bar per `step()`, so a live loop is:
+`Engine` is stateful and advances one bar per `step()`, so a trading loop is:
 
 ```python
 engine = Engine(bars_to_frame(bars_so_far), strategy, config)
@@ -397,13 +402,13 @@ verify that simulated and live fills agree before scaling.
   only accepted when an untouched later slice agrees (`docs/TARGETS.md`).
 - **Synthetic data is a random walk**, not a market. Do not tune against it.
 
-Next steps worth doing, in order: capital-scaled slippage, then a forward
+Next steps worth doing, in order: capital-scaled slippage, then a dry-run
 paper run for each sleeve. Walk-forward validation and an out-of-sample
 holdout already exist in `research/`; use them before shipping a fit.
 
-## Running the books live (paper)
+## Running the paper books
 
-Five wallets of $1,000 each, replayed forward on Binance 4h bars:
+Five wallets of $1,000 each, replayed as dry runs on Binance 4h bars:
 
 ```bash
 start_bots.cmd            # background loop, one cycle every 15 min
@@ -423,8 +428,8 @@ Nothing is ordered. Each cycle delta-syncs the bars cache, cuts the bar that
 is still forming, replays every book over the two-year window and writes
 `runs/paper/autobooks/status.json` plus `runs/paper/autobooks/<book>/{equity,trades}.csv`.
 The replay is deterministic, so a restart cannot corrupt a wallet; the number
-that matters forward is **live since deploy**, which starts when the book
-first runs. The `history` line is the backtest, shown for context only.
+that matters is **since deploy**, which starts when the book first runs. The
+`history` line is the backtest, shown for context only.
 
 Run the cycle just after a 4h close (00:00, 04:00, 08:00, 12:00, 16:00,
 20:00 UTC). The replay always fills at the next bar's true open, so a late
@@ -467,15 +472,15 @@ python -m bot promote capitulation_dip_uni --to paper \
 `trades`, `fee_bps`, `slippage_bps` and `params_hash` (printed by a failed
 gate, or computed with `bot.promotions.params_hash`). The gate prints one
 PASS/FAIL line per check; `--force --reason "..."` overrides it and records
-the reason in the manifest.  Then start its forward record:
+the reason in the manifest.  Then start its dry-run record:
 
 ```bash
 python -m bot forward --all --poll 900   # one loop for every active manifest
 ```
 
 It writes `runs/<env>/<strategy>/forward/status.json`; the deploy mark is
-pinned on the first cycle, so "live since deploy" is the honest forward
-number and not a re-slice of the backtest.
+pinned on the first cycle, so "since deploy" is the honest dry-run number and
+not a re-slice of the backtest.
 why. `bot promotions` lists what is active, `bot demote` drains it. The full
 contract, including the paper -> prod gate, is `deploy/PROMOTION.md`.
 
