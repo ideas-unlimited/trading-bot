@@ -132,28 +132,45 @@ For a tunnel instead: `ssh -L 9000:127.0.0.1:9000 <user>@<ip>` (paper) or
 
 ## Heartbeat (is the bot alive?)
 
-Same problem for every unattended bot: a dead process and a quiet market both
-produce no signals, no orders and no output. Set up a dead-man's switch once
-per bot and silence becomes information.
+A dead process and a quiet market look identical: no signals, no orders, no
+output. Two layers turn that silence into information, and only the first one
+knows *which* bot died.
+
+### The watchdog: which bot died?
+
+`tradingbot-watchdog.timer` runs `bot watchdog` every 5 minutes. It reads
+`bots.last_heartbeat_at`, which every loop already writes on each poll:
+
+- a bot silent past **10 minutes** (`WATCHDOG_STALE_MINUTES`) sends one alert
+  through `/etc/tradingbot/alerts.env`, subject `BOT STALE: <bot>` with the
+  symbol, last beat, age and the journal command. It repeats every 6 hours
+  while the bot stays dead (`WATCHDOG_REPEAT_HOURS`), and `BOT RECOVERED:`
+  follows when the heartbeat returns.
+- while every running bot is fresh, it pings the dead-man URL from
+  `/etc/tradingbot/watchdog.env`. With a stale bot it deliberately does not
+  ping.
+
+So one URL is honest here: green means "the watchdog ran and found no stale
+bot", and the message names the strategy that broke.
+
+### The external check: did the box die?
 
 1. Create a free check at <https://healthchecks.io> (or self-host Uptime Kuma).
-2. **Period 1h, grace 2h.** The bot pings every 30 minutes by default
-   (`--heartbeat-every`), so one missed ping is jitter and two is an outage.
-3. Put the check's ping URL in that bot's env file (the forward runner reads
-   `/etc/tradingbot/forward.env`):
+2. **Period 1h, grace 2h.** The watchdog pings every 5 minutes while the book
+   is healthy, so green is current and a missed hour is a real outage.
+3. Put its ping URL in `/etc/tradingbot/watchdog.env`, then:
 
    ```bash
-   echo 'HEARTBEAT_URL=https://hc-ping.com/<uuid>' >> /etc/tradingbot/btc.env
-   systemctl restart tradingbot@btc
-   # forward runner:
-   sudo sed -i 's|^HEARTBEAT_URL=.*|HEARTBEAT_URL=https://hc-ping.com/<uuid>|' \
-     /etc/tradingbot/forward.env
-   sudo systemctl restart tradingbot-forward
+   sudo systemctl start tradingbot-watchdog.service   # one pass now
+   journalctl -u tradingbot-watchdog -n 20
    ```
 
-The ping fires after **every** poll cycle — including cycles with no new bar
-and no trade — so it proves the loop is turning, not that the strategy is
-busy. It also covers the box dying, which no local watchdog can report.
+**One URL for five bots is the trap.** A shared ping URL stays green while
+*any* loop survives, so a single dead bot is invisible; a check also has one
+period, so it cannot hold five deadlines. The watchdog avoids both by reading
+per-bot heartbeats. If you want a per-bot check as well, give each env file
+its own URL - never the same one. `run_bot.sh` still passes `HEARTBEAT_URL`
+through from a bot's env file for that case.
 
 A failed ping never stops the bot: monitoring downtime costs you an alert, not
 a position.
@@ -233,6 +250,7 @@ and never stops the record.
 | One bot's state | `cat /var/lib/tradingbot/btc.json` |
 | Stop everything | `systemctl stop 'tradingbot@*' tradingbot-web` |
 | Add a bot | new `/etc/tradingbot/<name>.env` (template below), then `systemctl enable --now tradingbot@<name>` |
+| Watchdog | `systemctl list-timers tradingbot-watchdog` · `journalctl -u tradingbot-watchdog -n 50` · `sudo -u trader /opt/trading-bot/.venv/bin/bot watchdog --dry-run` |
 | Update | `sudo bash /opt/trading-bot/deploy/update.sh` |
 | Restore a dump | `for db in trading_common trading_paper trading_prod; do zcat /var/backups/tradingbot/$db-<date>.sql.gz | runuser -u postgres -- psql $db; done` |
 
@@ -254,7 +272,8 @@ POLL=60
 RISK_PER_TRADE=0.03
 MAX_POSITION_PCT=0.95
 MAX_DRAWDOWN_STOP=0.99
-# HEARTBEAT_URL=https://hc-ping.com/<uuid>   # optional, see Heartbeat above
+# HEARTBEAT_URL=https://hc-ping.com/<uuid>   # only for a per-bot check; the
+#                                             # watchdog covers this bot already
 ```
 
 The risk knobs fall back to the bot config's own defaults, so a bot that omits

@@ -820,6 +820,65 @@ def cmd_forward(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_watchdog(args: argparse.Namespace) -> int:
+    """One pass: alert the stale bots, ping only when every loop is fresh.
+
+    Run from tradingbot-watchdog.timer.  It reads bots.last_heartbeat_at, so
+    it names the dead loop instead of hiding it behind a shared ping URL.
+    """
+    from . import db, envcfg
+    from .heartbeat import Heartbeat
+    from .notify import Notifier
+    from .watchdog import (
+        DEFAULT_REPEAT_HOURS,
+        DEFAULT_STALE_MINUTES,
+        format_age,
+        run_once,
+    )
+
+    env = envcfg.env_name()
+    stale_minutes = args.stale_minutes
+    if stale_minutes is None:
+        stale_minutes = float(
+            os.environ.get("WATCHDOG_STALE_MINUTES") or DEFAULT_STALE_MINUTES
+        )
+    repeat_hours = args.repeat_hours
+    if repeat_hours is None:
+        repeat_hours = float(
+            os.environ.get("WATCHDOG_REPEAT_HOURS") or DEFAULT_REPEAT_HOURS
+        )
+    state_path = Path(args.state) if args.state else envcfg.state_dir() / "watchdog.json"
+    heartbeat_url = args.heartbeat_url or os.environ.get("HEARTBEAT_URL", "")
+    notifier = Notifier() if args.no_alerts else Notifier.from_env()
+
+    conn = db.connect()
+    try:
+        summary = run_once(
+            conn,
+            state_path=state_path,
+            stale_after=timedelta(minutes=stale_minutes),
+            repeat_after=timedelta(hours=repeat_hours),
+            heartbeat=Heartbeat(heartbeat_url),
+            notifier=notifier,
+            persist=not args.dry_run,
+        )
+    finally:
+        conn.close()
+
+    print()
+    print(f"env        {env}")
+    print(f"running    {summary['running']} bot(s)")
+    print(f"stale      {len(summary['stale'])}")
+    for bot in summary["stale"]:
+        print(f"  {bot['name']}  {bot['symbol']}  silent {format_age(bot['age_s'])}")
+    print(f"alerts     {summary['alerted']} sent  ({summary['delivered']} delivered, "
+          f"{notifier.describe() or 'no channels'})")
+    print(f"dead-man   {'pinged' if summary['pinged'] else 'not pinged'}"
+          + ("" if heartbeat_url else "  (no URL configured)"))
+    print(f"state      {state_path}" + ("  (dry run: not written)" if args.dry_run else ""))
+    return 0
+
+
 def cmd_notify_test(args: argparse.Namespace) -> int:
     """Send one test message through every configured alert channel."""
     from .envdot import load_env
@@ -1211,6 +1270,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_fwd.add_argument("--outdir", default=None,
                        help="single-sleeve override; defaults to runs/<env>/<strategy>/forward")
     p_fwd.set_defaults(func=cmd_forward)
+    p_wd = sub.add_parser(
+        "watchdog",
+        help="alert on a dead loop by name and ping the book's dead-man check",
+    )
+    p_wd.add_argument("--stale-minutes", type=float, default=None,
+                      help="silence before a bot is called stale "
+                           "(default: WATCHDOG_STALE_MINUTES or 10)")
+    p_wd.add_argument("--repeat-hours", type=float, default=None,
+                      help="repeat an alert about the same bot "
+                           "(default: WATCHDOG_REPEAT_HOURS or 6)")
+    p_wd.add_argument("--state", default=None,
+                      help="episode file (default: <state dir>/watchdog.json)")
+    p_wd.add_argument("--heartbeat-url", default=None,
+                      help="dead-man ping URL (default: HEARTBEAT_URL)")
+    p_wd.add_argument("--no-alerts", action="store_true",
+                      help="report only; never send an alert")
+    p_wd.add_argument("--dry-run", action="store_true",
+                      help="print findings; no alert, no ping, no state write")
+    p_wd.set_defaults(func=cmd_watchdog)
     p_notify = sub.add_parser(
         "notify-test", help="send a test message through the configured alert channels"
     )

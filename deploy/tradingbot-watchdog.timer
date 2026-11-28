@@ -1,0 +1,11 @@
+[Unit]
+Description=Watch the paper bots' heartbeats every 5 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=tradingbot-watchdog.service
+
+[Install]
+WantedBy=timers.target

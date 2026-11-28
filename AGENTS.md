@@ -218,6 +218,11 @@ when you hit a new environment quirk and solve it, add it here and commit.
   crashed loop onto the same row), and `/api/running` reports `uptime_s` only
   when the heartbeat is fresh — a dead row never reads "up 3d". The Bots card
   and the dashboard's Bots table both show the start time with its uptime.
+- **The watchdog is what makes a dead loop visible.** `bot watchdog` runs
+  from a 5-minute timer, not from the loop: it reads `bots.last_heartbeat_at`,
+  alerts by name (the shared ping URL cannot), and pings the external check
+  only while everything is fresh. A halted bot keeps heartbeating, so it is
+  fresh, not dead — halt is a choice, silence is a failure.
 - **The kill switch** is `bots.halted`, written by `POST /api/bots/<id>/halt`.
   The loop reads it every poll, closes any open position at market and skips
   new entries while halted; it keeps heartbeating, so a killed bot reads
@@ -357,13 +362,23 @@ when you hit a new environment quirk and solve it, add it here and commit.
   web binds 127.0.0.1:9000 only (reach it over SSH or Tailscale).
 - One bot per symbol: every bot shares one demo account, so two bots on the
   same symbol would close each other's position.
-- Heartbeat: every poll pings `HEARTBEAT_URL` (bot env file /
-  `--heartbeat-url`, throttled to 30 min) so an outside service alerts when
-  the loop stops. It fires on flat cycles too — the point is proving the
-  process turns, not that it trades. A failed ping must never stop the loop.
-  The forward runner does the same once per pass and reads
-  `/etc/tradingbot/forward.env`; `tradingbot-forward.service` runs
-  `bot forward --all` with state in `/var/lib/tradingbot/paper/`.
+- **Heartbeat is two layers, and only the second names the bot.**
+  `tradingbot-watchdog.timer` runs `bot watchdog` every 5 minutes: it reads
+  `bots.last_heartbeat_at` (written every poll by every loop), alerts through
+  `/etc/tradingbot/alerts.env` with subject `BOT STALE: <bot>` when a bot
+  has been silent past 10 minutes (repeat 6h, then `BOT RECOVERED:`), and
+  pings the dead-man URL in `/etc/tradingbot/watchdog.env` **only when no
+  running bot is stale**. Episodes are deduped in
+  `/var/lib/tradingbot/<env>/watchdog.json`.
+  **Never point five loops at one ping URL**: a shared URL stays green while
+  any survivor pings, so one dead loop is invisible — that is exactly the bug
+  the watchdog exists to remove. The per-poll ping (`HEARTBEAT_URL` in a bot
+  env file, throttled 30 min) still works and is only for a bot you want
+  paged on its own URL. A failed ping must never stop the loop. The forward
+  runner pings once per pass from `/etc/tradingbot/forward.env` (one process
+  for all sleeves, so one check is correct there);
+  `tradingbot-forward.service` runs `bot forward --all` with state in
+  `/var/lib/tradingbot/paper/`.
 - **Trading host (bought 2026-11-27): OVH VPS, Sydney** — 4 vCPU, 8 GB RAM,
   75 GB local disk, 6 months prepaid, automated backup (1 rotation), Linux.
   This is the only box that can reach Binance: `api.binance.com` answers US

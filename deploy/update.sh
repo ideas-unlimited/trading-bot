@@ -32,16 +32,24 @@ fi
 if [[ -f deploy/tradingbot-forward.service ]]; then
   install -m 0644 deploy/tradingbot-forward.service /etc/systemd/system/
 fi
-for env_name in forward alerts; do
+for unit in tradingbot-watchdog.service tradingbot-watchdog.timer; do
+  if [[ -f "deploy/$unit" ]]; then
+    install -m 0644 "deploy/$unit" /etc/systemd/system/
+  fi
+done
+for env_name in forward alerts watchdog; do
   if [[ ! -f "/etc/tradingbot/$env_name.env" ]]; then
     install -m 0640 -o root -g trader \
       "deploy/$env_name.env.example" "/etc/tradingbot/$env_name.env"
   fi
 done
+systemctl daemon-reload
 if [[ -f /etc/systemd/system/tradingbot-forward.service ]]; then
-  systemctl daemon-reload
   systemctl enable tradingbot-forward.service
   systemctl is-active --quiet tradingbot-forward || systemctl start tradingbot-forward
+fi
+if [[ -f /etc/systemd/system/tradingbot-watchdog.timer ]]; then
+  systemctl enable --now tradingbot-watchdog.timer
 fi
 # Git on Windows stores every file 0644; units exec these scripts directly.
 chmod +x "$APP_DIR"/deploy/*.sh

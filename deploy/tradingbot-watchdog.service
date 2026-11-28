@@ -1,0 +1,28 @@
+[Unit]
+Description=Trading bot watchdog (dead loop alert + book dead-man ping)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=trader
+Group=trader
+WorkingDirectory=/opt/trading-bot
+Environment=PYTHONUNBUFFERED=1
+Environment=BOT_ENV=paper
+Environment=BOT_STATE_DIR=/var/lib/tradingbot
+# Alert channels (same file the live bots use) and the dead-man URL.
+EnvironmentFile=-/etc/tradingbot/alerts.env
+EnvironmentFile=-/etc/tradingbot/watchdog.env
+ExecStart=/opt/trading-bot/.venv/bin/bot watchdog
+# One pass: opens the database, reads a handful of rows, exits.  A failed
+# run shows in `systemctl status`; the timer retries in five minutes.
+MemoryMax=256M
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/tradingbot
+
+[Install]
+WantedBy=multi-user.target
