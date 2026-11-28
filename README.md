@@ -80,6 +80,50 @@ risk-adjusted numbers, and it loses money on BTC and BNB over the window.
 The filters buy the better Sharpe and the flatter coin mix, and cost recent
 return.
 
+A third family of gates was ported from a TradingView pattern detector
+(2026-11-27): an ATR-margined breakout of the swing-pivot channel, a channel
+"squeeze" (height/ATR in its own low tail), and a measured-move "room" test
+(the channel height above the rail must pay at least N times the ATR stop).
+Over the two-year window on the same five coins the breakout and squeeze
+gates both cost return (+16.0% and +26.2% gated against +50.0% without).
+"room" looked spectacular for one afternoon - 1.5R on the unfiltered book
+returned +88.4% with a -20.0% drawdown against +33.9%/-24.2% plain - and then
+the walk-forward killed it: fitted on year one, the winning pivot span (15
+bars) was a spike between +30.5% at span 12 and +14.9% at span 18, so the
+number was the peak of a noisy surface, not a plateau. Median the channel
+across spans 10/15/20 and the surface goes flat (rr 1.2-2.0 all land within
+a few points of each other, and of plain) - which is what robustness looks
+like when the edge is really zero. The span-free version still earns its
+place as **book D**: it turned year one from -2.2% into +12.5% and finished
+the test year at +49.4% against +41.4% plain, at the same drawdown. Modest,
+but the same sign in both halves and no tuned parameter.
+
+```bash
+python -m bot book --structure-gate room --min-rr 1.2 --channel-spans 10,15,20
+python -m bot book --structure-gate breakout --breakout-atr 1.0 --breakout-within 3
+```
+
+A trailing exit is the largest single improvement found so far. Replacing the
+fixed 2 ATR stop with a Chandelier trail 1.5 ATRs under the highest high since
+entry, armed from the first bar, turns the gated 4h book from **+50.0% /
+-23.4% drawdown / Sharpe 0.88** into **+65.3% / -13.8% / 1.51** over the same
+two years, on the same entries (78 trades, 10% time in market; the fixed-stop
+book is in the market 34% of the time). It is a plateau, not a lucky cell:
+trail 1.25-2.0 ATR all land between +14% and +17% in year one and +43% and
++50% in year two, and the result is identical with 2, 3 or 5 slots because the
+book never holds more than two positions. Arming the trail later (after 0.5R
+or 1R of profit) is strictly worse. It only works on gated entries - the same
+trail on the unfiltered cross earns +17.5% with a -35.0% drawdown, because it
+whipsaws in and out of every false start.
+
+Timeframe: 4h beats 6h and 1d for this system. 6h has fewer, worse-timed
+entries (best cell +19.6%/-11.7% in year one but only +8.3% in year two); 1d
+on the same SMA logic produces 8 trades in two years for +7.4%, and the trail
+makes it worse, not better. Universe matters more than timeframe: the same 4h
+trail book that earns +65% on the five majors earns +8% with a -49% drawdown
+once 20 coins are in the pool, because the ranking buys whichever coin just
+ran hardest and small caps reverse.
+
 Faster charts do not pay. Under the sub-4h rule (one year only) the same
 logic on 1h best-ed at **+6%** with a -15.8% drawdown (120/200 gated) and on
 15m at **+11%** (960/1600 gated, 11 trades) against **+31%** for the 4h book
@@ -299,7 +343,7 @@ out-of-sample holdout, then capital-scaled slippage.
 
 ## Running the books live (paper)
 
-Three wallets of $1,000 each, replayed forward on Binance 4h bars:
+Five wallets of $1,000 each, replayed forward on Binance 4h bars:
 
 ```bash
 start_bots.cmd            # background loop, one cycle every 15 min
@@ -312,10 +356,12 @@ python -m bot auto --once # single cycle, for Task Scheduler
 | A | 4h SMA 30/50, Damiani + STC gate, 3% risk | $1,000 |
 | B | same signals, 5% risk | $1,000 |
 | C | plain 4h cross, no filters, 3% risk | $1,000 |
+| D | plain cross + measured-move "room" gate (median channel 10/15/20, 1.2R) | $1,000 |
+| E | gated entries + 1.5 ATR Chandelier trail (the stop rides the trend) | $1,000 |
 
 Nothing is ordered. Each cycle delta-syncs the bars cache, cuts the bar that
 is still forming, replays every book over the two-year window and writes
-`runs/autobooks/status.json` plus `runs/autobooks/<book>/{equity,trades}.csv`.
+`runs/paper/autobooks/status.json` plus `runs/paper/autobooks/<book>/{equity,trades}.csv`.
 The replay is deterministic, so a restart cannot corrupt a wallet; the number
 that matters forward is **live since deploy**, which starts when the book
 first runs. The `history` line is the backtest, shown for context only.

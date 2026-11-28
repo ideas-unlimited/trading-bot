@@ -112,6 +112,19 @@ class PrefixStability(unittest.TestCase):
              lambda d: an.damiani_volatmeter(d)["expanding"]),
             ("schaff_trend_cycle", an.schaff_trend_cycle(df["close"]),
              lambda d: an.schaff_trend_cycle(d["close"])),
+            ("trendline_channel.upper", an.trendline_channel(df)["upper"],
+             lambda d: an.trendline_channel(d)["upper"]),
+            ("trendline_channel.lower", an.trendline_channel(df)["lower"],
+             lambda d: an.trendline_channel(d)["lower"]),
+            ("trendline_channel.height", an.trendline_channel(df)["height"],
+             lambda d: an.trendline_channel(d)["height"]),
+            ("channel_breakout.break_up", an.channel_breakout(df)["break_up"],
+             lambda d: an.channel_breakout(d)["break_up"]),
+            ("measured_move.target_up", an.measured_move(df)["target_up"],
+             lambda d: an.measured_move(d)["target_up"]),
+            ("trendline_channel_ensemble.upper",
+             an.trendline_channel_ensemble(df)["upper"],
+             lambda d: an.trendline_channel_ensemble(d)["upper"]),
         ]
         for name, full, fn in cases:
             self._check(name, full, fn, df)
@@ -128,6 +141,101 @@ class PrefixStability(unittest.TestCase):
             got, want, equal_nan=True, rtol=1e-9, atol=1e-12,
             err_msg=f"{name} is not prefix-stable (lookahead!)",
         )
+
+
+def zigzag(n: int = 400, drift: float = 0.02, amp: float = 3.0, period: int = 20) -> pd.DataFrame:
+    '''Clean swing structure: a sine wave riding a slow uptrend.'''
+    t = np.arange(n)
+    close = 100.0 + drift * t + amp * np.sin(2 * np.pi * t / period)
+    return pd.DataFrame({
+        'open': close,
+        'high': close + 0.3,
+        'low': close - 0.3,
+        'close': close,
+        'volume': np.full(n, 1000.0),
+    }, index=pd.date_range('2025-01-01', periods=n, freq='4h'))
+
+
+class StructurePatterns(unittest.TestCase):
+    '''Channel / breakout / measured-move primitives ported from the pasted
+    pattern indicator: they must describe a known shape correctly.'''
+
+    def test_channel_slopes_follow_the_trend(self):
+        ch = an.trendline_channel(zigzag(), left=3, right=3)
+        us = ch['upper_slope'].dropna()
+        ls = ch['lower_slope'].dropna()
+        self.assertGreater(len(us), 100)
+        self.assertAlmostEqual(float(us.mean()), 0.02, delta=0.01)
+        self.assertAlmostEqual(float(ls.mean()), 0.02, delta=0.01)
+
+    def test_channel_height_matches_the_wave(self):
+        ch = an.trendline_channel(zigzag(amp=3.0), left=3, right=3)
+        height = ch['height'].dropna()
+        # rails run through the swing extremes, so the channel spans the
+        # 6-unit peak-to-trough wave (plus the 0.3 wicks on each side).
+        self.assertGreater(float(height.median()), 5.0)
+        self.assertLess(float(height.median()), 8.0)
+
+    def test_converging_wave_narrows_the_channel(self):
+        n = 400
+        t = np.arange(n)
+        amp = 6.0 * np.exp(-t / 220.0)
+        close = 100.0 + 0.01 * t + amp * np.sin(2 * np.pi * t / 20)
+        df = pd.DataFrame({
+            'open': close, 'high': close + 0.2, 'low': close - 0.2,
+            'close': close, 'volume': np.full(n, 1000.0),
+        }, index=pd.date_range('2025-01-01', periods=n, freq='4h'))
+        h = an.trendline_channel(df, left=3, right=3)['height'].dropna()
+        self.assertGreater(float(h.iloc[:50].median()), float(h.iloc[-60:].median()))
+
+    def test_breakout_needs_a_close_beyond_the_rail(self):
+        df = zigzag(n=400)
+        # a pure sine never leaves its own rails: add a real upside break
+        close = df['close'].to_numpy(dtype=float).copy()
+        close[-15:] += np.arange(1, 16) * 2.0
+        df = pd.DataFrame({
+            'open': close, 'high': close + 0.3, 'low': close - 0.3,
+            'close': close, 'volume': np.full(len(close), 1000.0),
+        }, index=df.index)
+        ch = an.trendline_channel(df, left=3, right=3)
+        brk = an.channel_breakout(df, ch, atr_mult=0.0)
+        self.assertTrue(bool(brk['break_up'].iloc[-15:].any()))
+        inside = df['close'] < ch['upper']
+        self.assertFalse(bool((brk['break_up'] & inside).any()))
+
+    def test_breakout_threshold_scales_with_atr_mult(self):
+        df = zigzag(n=400)
+        ch = an.trendline_channel(df, left=3, right=3)
+        loose = an.channel_breakout(df, ch, atr_mult=0.0)['break_up'].sum()
+        strict = an.channel_breakout(df, ch, atr_mult=2.0)['break_up'].sum()
+        self.assertGreaterEqual(int(loose), int(strict))
+
+    def test_measured_move_is_one_channel_height_above_the_rail(self):
+        df = zigzag()
+        ch = an.trendline_channel(df, left=3, right=3)
+        mm = an.measured_move(df, ch)
+        ok = ch['height'].notna() & mm['target_up'].notna()
+        diff = (mm['target_up'] - ch['upper'])[ok].dropna()
+        height = ch['height'].abs()[ok].dropna()
+        np.testing.assert_allclose(diff.to_numpy(), height.to_numpy(), rtol=1e-9)
+
+    def test_ensemble_channel_sits_between_its_spans(self):
+        df = zigzag(n=400)
+        ens = an.trendline_channel_ensemble(df, spans=(5, 10, 15))
+        lo = an.trendline_channel(df, left=5, right=5)['upper']
+        hi = an.trendline_channel(df, left=15, right=15)['upper']
+        ok = ens['upper'].notna() & lo.notna() & hi.notna()
+        mid = (ens['upper'] - (lo + hi) / 2.0).abs()[ok]
+        span = (hi - lo).abs()[ok]
+        self.assertTrue((mid <= span + 1e-9).all())
+
+    def test_ensemble_channel_rejects_empty_spans(self):
+        with self.assertRaises(ValueError):
+            an.trendline_channel_ensemble(zigzag(), spans=())
+
+    def test_channel_breakout_rejects_bad_confirm(self):
+        with self.assertRaises(ValueError):
+            an.channel_breakout(zigzag(), confirm=0)
 
 
 class ValueSanity(unittest.TestCase):

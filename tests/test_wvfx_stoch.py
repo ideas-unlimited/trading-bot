@@ -123,6 +123,19 @@ class SignalTests(unittest.TestCase):
         self.assertFalse(bool(p["green_event"].iloc[81]))
         self.assertFalse(bool(p["green_event"].iloc[79]))
 
+    def test_green_mode_any_matches_the_literal_rule(self):
+        p = build("wvfx_stoch", **dict(SAFE, green_mode="any")).prepare(make_frame())
+        self.assertTrue((p["green_flash"].astype(bool) == p["green"].astype(bool)).all())
+
+    def test_green_mode_first_is_the_default(self):
+        p = build("wvfx_stoch", **SAFE).prepare(make_frame())
+        self.assertTrue(
+            (p["green_flash"].astype(bool) == p["green_event"].astype(bool)).all())
+
+    def test_green_mode_validation(self):
+        with self.assertRaises(ValueError):
+            build("wvfx_stoch", green_mode="every")
+
     def test_no_entry_without_crash(self):
         self.assertEqual(self._signals(flat_frame()), [])
 
@@ -198,10 +211,43 @@ class SignalTests(unittest.TestCase):
         self.assertEqual(sig.action.value, "close")
         self.assertIn("time exit", sig.reason)
 
+    def test_rsi_flip_gate_blocks_entry(self):
+        strat = build("wvfx_stoch", **dict(SAFE, require_rsi_flip=True))
+        p = strat.prepare(make_frame())
+        i, col = 80, p.columns.get_loc
+        p.iloc[i, col("green_flash")] = True
+        p.iloc[i, col("oversold_flash")] = True
+        p.iloc[i, col("k_cross_up")] = True
+        p.iloc[i, col("k")] = 15.0
+        p.iloc[i, col("d")] = 10.0
+        p.iloc[i, col("atr")] = 1.0
+        p.iloc[i, col("close")] = 100.0
+        p.iloc[i, col("rsi_flip_up_recent")] = False
+        self.assertIsNone(strat.signal(i, p, 0.0))
+        p.iloc[i, col("rsi_flip_up_recent")] = True
+        self.assertIsNotNone(strat.signal(i, p, 0.0))
+
+    def test_rsi_overbought_flip_exits(self):
+        strat = build("wvfx_stoch", **dict(SAFE, exit_rsi_overbought=True))
+        p = strat.prepare(make_frame())
+        self.assertIsNone(strat.signal(80, p, 1.0))  # remembers entry
+        p.iloc[81, p.columns.get_loc("rsi_flip_down")] = True
+        sig = strat.signal(81, p, 1.0)
+        self.assertIsNotNone(sig)
+        self.assertEqual(sig.action.value, "close")
+        self.assertIn("RSI", sig.reason)
+
+    def test_stochastic_14_3_5_is_configurable(self):
+        p = build("wvfx_stoch", **dict(SAFE, smooth_k=3, smooth_d=5)).prepare(make_frame())
+        self.assertTrue(p["k"].dropna().between(0, 100).all())
+        self.assertTrue(p["d"].dropna().between(0, 100).all())
+
     def test_param_validation(self):
         for bad in (dict(oversold_window=0), dict(entry_window=0),
                     dict(trigger="bad"), dict(regime_days=-1),
-                    dict(oversold=200)):
+                    dict(oversold=200), dict(rsi_window=1),
+                    dict(rsi_flip_window=0), dict(rsi_oversold=80,
+                                                    rsi_overbought=70)):
             with self.assertRaises(ValueError):
                 build("wvfx_stoch", **bad)
         with self.assertRaises(TypeError):
@@ -214,8 +260,9 @@ class CausalityTests(unittest.TestCase):
         strat = WilliamVixFixStoch(**SAFE)
         full = strat.prepare(df)
         cut = strat.prepare(df.iloc[:100].reset_index(drop=True))
-        cols = ["wvf", "wvf_green", "k", "d", "atr", "green_event",
-                "green_flash", "oversold_flash", "k_cross_up"]
+        cols = ["wvf", "wvf_green", "k", "d", "atr", "rsi",
+                "rsi_flip_up", "rsi_flip_down", "rsi_flip_up_recent",
+                "green_event", "green_flash", "oversold_flash", "k_cross_up"]
         for c in cols:
             a = full[c].iloc[:100].reset_index(drop=True)
             b = cut[c]

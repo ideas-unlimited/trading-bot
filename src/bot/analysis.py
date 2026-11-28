@@ -27,6 +27,8 @@ Existing "simple" indicators (sma/ema/rsi/atr/bollinger) stay in
 
 from __future__ import annotations
 
+from collections import deque
+
 import numpy as np
 import pandas as pd
 
@@ -60,6 +62,14 @@ __all__ = [
     "schaff_trend_cycle",
     "williams_vix_fix",
     "stochastic",
+    "trendline_channel",
+    "trendline_channel_ensemble",
+    "channel_breakout",
+    "measured_move",
+    "optimized_trend_tracker",
+    "volume_profile",
+    "supply_demand_zones",
+    "supply_demand_features",
 ]
 
 
@@ -251,6 +261,145 @@ def level_touches(
     tl = near_l.rolling(lookback, min_periods=lookback).sum()
     return pd.DataFrame({"touch_high": th, "touch_low": tl})
 
+
+# --------------------------------------------------------------------------
+# Chart structure: trendline channels and pattern breakouts
+# --------------------------------------------------------------------------
+# Ported from the TradingView indicator 'Auto Pattern Detector Targets
+# [Ultra]' (pasted by the user 2026-11-27), which draws 20+ chart patterns
+# but computes all of them from the same three primitives: a trendline
+# through the last two swing pivots, a breakout test against that line
+# (ATR margin + optional close/body/volume confirmation), and a measured
+# move target equal to the pattern height.  The patterns themselves are
+# just named combinations of those primitives, so the primitives are what
+# is worth reusing - a strategy can pick them without adopting a chart
+# taxonomy.
+
+
+def trendline_channel(
+    df: pd.DataFrame, left: int = 10, right: int = 10
+) -> pd.DataFrame:
+    '''Upper and lower channel rails from the last two confirmed pivots.
+
+    A swing high/low becomes usable only at its confirmation bar (the
+    ``swing_pivots`` lag of ``right`` bars), so the rail at bar *i* is drawn
+    with information available at *i*.  Returns ``upper``/``lower`` (price
+    on the rail at this bar), ``upper_slope``/``lower_slope`` (price per
+    bar, NaN until both rails exist) and ``height`` (upper - lower).
+
+    A converging pair of slopes is a triangle/wedge, parallel is a channel
+    or rectangle, diverging is a megaphone - the shapes the source
+    indicator names, without the names.
+    '''
+    if left < 1 or right < 1:
+        raise ValueError('left and right must be >= 1')
+    high = df['high'].to_numpy(dtype=float)
+    low = df['low'].to_numpy(dtype=float)
+    piv = swing_pivots(df['high'], df['low'], left=left, right=right)
+    is_h = piv['pivot_high'].to_numpy(dtype=bool)
+    is_l = piv['pivot_low'].to_numpy(dtype=bool)
+    n = len(df)
+    upper = np.full(n, np.nan)
+    lower = np.full(n, np.nan)
+    uslope = np.full(n, np.nan)
+    lslope = np.full(n, np.nan)
+    hist_h: list[tuple[int, float]] = []
+    hist_l: list[tuple[int, float]] = []
+    for i in range(n):
+        # a flag at i means the pivot itself sits at i - right
+        if is_h[i]:
+            k = i - right
+            if k >= 0:
+                hist_h.append((k, float(high[k])))
+        if is_l[i]:
+            k = i - right
+            if k >= 0:
+                hist_l.append((k, float(low[k])))
+        if len(hist_h) >= 2 and len(hist_l) >= 2:
+            (hx1, hy1), (hx2, hy2) = hist_h[-2], hist_h[-1]
+            (lx1, ly1), (lx2, ly2) = hist_l[-2], hist_l[-1]
+            us = (hy2 - hy1) / (hx2 - hx1) if hx2 > hx1 else 0.0
+            ls = (ly2 - ly1) / (lx2 - lx1) if lx2 > lx1 else 0.0
+            upper[i] = hy2 + us * (i - hx2)
+            lower[i] = ly2 + ls * (i - lx2)
+            uslope[i] = us
+            lslope[i] = ls
+    return pd.DataFrame({
+        'upper': upper, 'lower': lower,
+        'upper_slope': uslope, 'lower_slope': lslope,
+        'height': upper - lower,
+    }, index=df.index)
+
+
+def trendline_channel_ensemble(
+    df: pd.DataFrame, spans: tuple[int, ...] = (10, 15, 20)
+) -> pd.DataFrame:
+    '''Median channel across several pivot spans.
+
+    The single-span channel is unstable: moving the span by three bars moves
+    the rails by percent, so a gate tuned to one span is fitting noise.  The
+    bar-wise median across spans keeps the shape but drops the span as a
+    free parameter - there is one number to tune instead of two.  Causal.
+    '''
+    if not spans:
+        raise ValueError('spans must not be empty')
+    chans = [trendline_channel(df, left=s, right=s) for s in spans]
+    cols = ('upper', 'lower', 'upper_slope', 'lower_slope', 'height')
+    out = {c: pd.concat([ch[c] for ch in chans], axis=1).median(axis=1)
+           for c in cols}
+    return pd.DataFrame(out, index=df.index)
+
+def channel_breakout(
+    df: pd.DataFrame,
+    channel: pd.DataFrame | None = None,
+    *,
+    atr_mult: float = 0.5,
+    confirm: int = 1,
+    atr_window: int = 14,
+    left: int = 10,
+    right: int = 10,
+) -> pd.DataFrame:
+    '''Long/short breakouts of the channel rails, ATR-margined.
+
+    ``break_up`` needs ``confirm`` consecutive closes above ``upper`` plus
+    ``atr_mult`` ATR (the source indicator's 'breakout threshold', default
+    0.3-1.0 ATR).  The bar that trips it is the *signal* bar: the engine
+    fills on the next open, as always.  Use ``confirm=2`` to demand a
+    second close outside and cut the false breaks.  Causal.
+    '''
+    if confirm < 1:
+        raise ValueError('confirm must be >= 1')
+    ch = channel if channel is not None else trendline_channel(df, left, right)
+    a = atr(df['high'], df['low'], df['close'], atr_window)
+    margin = atr_mult * a
+    up_hit = df['close'] > ch['upper'] + margin
+    dn_hit = df['close'] < ch['lower'] - margin
+    if confirm > 1:
+        up_hit = up_hit.rolling(confirm, min_periods=confirm).sum().eq(confirm)
+        dn_hit = dn_hit.rolling(confirm, min_periods=confirm).sum().eq(confirm)
+    return pd.DataFrame({
+        'break_up': up_hit.fillna(False),
+        'break_down': dn_hit.fillna(False),
+    })
+
+
+def measured_move(
+    df: pd.DataFrame, channel: pd.DataFrame | None = None, left: int = 10, right: int = 10
+) -> pd.DataFrame:
+    '''Pattern-height targets: the channel's own height added to its rail.
+
+    Every pattern in the source indicator projects the same way - take the
+    height of the shape and add it to the breakout side (triangles, flags,
+    rectangles, channels, cup-and-handle all share this).  ``target_up`` is
+    therefore the first objective for a long entry, not a prediction.
+    Causal.
+    '''
+    ch = channel if channel is not None else trendline_channel(df, left, right)
+    height = ch['height'].abs()
+    return pd.DataFrame({
+        'target_up': ch['upper'] + height,
+        'target_down': ch['lower'] - height,
+    })
 
 # --------------------------------------------------------------------------
 # Volume
@@ -616,3 +765,540 @@ def stochastic(
     k = raw_k.rolling(smooth_k, min_periods=smooth_k).mean()
     d = k.rolling(smooth_d, min_periods=smooth_d).mean()
     return pd.DataFrame({"k": k, "d": d}, index=df.index)
+
+
+# --------------------------------------------------------------------------
+# DreamLab: OTT + fixed-range volume profile + supply/demand zones
+# Ported 2026-11-28 from the TradingView script
+# 'SuperID=OTT+VPSupply/Demand+EMA' (KivancOzbilgic / Anil Ozeksi /
+# LonesomeTheBlue; MPL 2.0).  The EMA 20/50 block is already covered by
+# bot.indicators.ema and is intentionally not duplicated here.
+# --------------------------------------------------------------------------
+
+def _cross_up(a: pd.Series, b: pd.Series) -> pd.Series:
+    return (a > b) & (a.shift(1) <= b.shift(1))
+
+
+def _cross_down(a: pd.Series, b: pd.Series) -> pd.Series:
+    return (a < b) & (a.shift(1) >= b.shift(1))
+
+
+def _wma(series: pd.Series, window: int) -> pd.Series:
+    weights = np.arange(1, window + 1, dtype=float)
+    return series.rolling(window, min_periods=window).apply(
+        lambda x: float(np.dot(x, weights) / weights.sum()), raw=True
+    )
+
+
+def _tsf(series: pd.Series, window: int) -> pd.Series:
+    """Pine ta.linreg(src, window, 0) + its one-bar slope (TSF)."""
+    if window < 2:
+        return series.astype(float)
+    x = np.arange(window, dtype=float)
+    xbar = x.mean()
+    denom = float(((x - xbar) ** 2).sum())
+
+    def _forecast(y: np.ndarray) -> float:
+        ybar = y.mean()
+        slope = float(((x - xbar) * (y - ybar)).sum() / denom)
+        return float(ybar - slope * xbar + slope * window)
+
+    return series.rolling(window, min_periods=window).apply(_forecast, raw=True)
+
+
+def optimized_trend_tracker(
+    df: pd.DataFrame,
+    length: int = 2,
+    percent: float = 1.4,
+    ma_type: str = "VAR",
+    source: str = "close",
+) -> pd.DataFrame:
+    """OTT (Optimized Trend Tracker) trend, trailing stop and signals.
+
+    Ported from the OTT block (KivancOzbilgic, Anil Ozeksi).  ``ma`` is the
+    selected moving average, ``long_stop``/``short_stop`` are Pine's ratcheting
+    bands, ``trend`` is +1/-1, and ``ott`` is the line the original *plots*
+    (it deliberately lags the internal line by two bars, as ``OTT[2]``).
+    ``ott_raw`` is the undelayed internal line for research.
+
+    Defaults match the source: length 2, percent 1.4, VAR.  ``ma_type`` is one
+    of SMA/EMA/WMA/TMA/VAR/WWMA/ZLEMA/TSF (case-insensitive).  ``source`` is a
+    column name (default close).  Signals are crossovers of ``ma`` or close
+    against the *plotted* ``ott``; all are causal and actionable on the next
+    bar open.  NaN during warmup.
+    """
+    if length < 1:
+        raise ValueError("length must be >= 1")
+    if percent < 0:
+        raise ValueError("percent must be >= 0")
+    src = df[source].astype(float)
+    kind = ma_type.upper()
+    var = kind == "VAR"
+    if var:
+        delta = src.diff()
+        up = delta.clip(lower=0.0)
+        down = (-delta).clip(lower=0.0)
+        vud = up.rolling(9, min_periods=9).sum()
+        vdd = down.rolling(9, min_periods=9).sum()
+        denom = vud + vdd
+        cmo = ((vud - vdd) / denom.where(denom > 0)).fillna(0.0)
+        alpha = 2.0 / (length + 1.0)
+        vals = np.full(len(src), np.nan)
+        prev = 0.0
+        for i, (x, c) in enumerate(zip(src.to_numpy(float), cmo.to_numpy(float))):
+            if not np.isfinite(x) or not np.isfinite(c):
+                continue
+            a = alpha * abs(float(c))
+            prev = a * float(x) + (1.0 - a) * prev
+            vals[i] = prev
+        ma = pd.Series(vals, index=src.index)
+    elif kind == "WWMA":
+        alpha = 1.0 / length
+        vals = np.full(len(src), np.nan)
+        prev = 0.0
+        for i, x in enumerate(src.to_numpy(float)):
+            if not np.isfinite(x):
+                continue
+            prev = alpha * float(x) + (1.0 - alpha) * prev
+            vals[i] = prev
+        ma = pd.Series(vals, index=src.index)
+        ma.iloc[: length - 1] = np.nan
+    elif kind == "SMA":
+        ma = src.rolling(length, min_periods=length).mean()
+    elif kind == "EMA":
+        ma = ema(src, length)
+    elif kind == "WMA":
+        ma = _wma(src, length)
+    elif kind == "TMA":
+        slow = int(np.floor(length / 2.0)) + 1
+        fast = int(np.ceil(length / 2.0))
+        ma = src.rolling(fast, min_periods=fast).mean().rolling(
+            slow, min_periods=slow
+        ).mean()
+    elif kind == "ZLEMA":
+        lag = int(np.floor(length / 2.0))
+        z = src + (src - src.shift(lag)) if lag else src
+        ma = ema(z, length)
+    elif kind == "TSF":
+        ma = _tsf(src, length)
+    else:
+        raise ValueError(
+            f"unknown ma_type {ma_type!r}; use SMA/EMA/WMA/TMA/VAR/WWMA/ZLEMA/TSF"
+        )
+
+    ma_np = ma.to_numpy(float)
+    fark = ma_np * percent * 0.01
+    long_stop = np.full(len(df), np.nan)
+    short_stop = np.full(len(df), np.nan)
+    prev_long = prev_short = np.nan
+    for i in range(len(df)):
+        if not np.isfinite(ma_np[i]) or not np.isfinite(fark[i]):
+            continue
+        ls = ma_np[i] - fark[i]
+        ss = ma_np[i] + fark[i]
+        if np.isfinite(prev_long) and ma_np[i] > prev_long:
+            ls = max(ls, prev_long)
+        if np.isfinite(prev_short) and ma_np[i] < prev_short:
+            ss = min(ss, prev_short)
+        long_stop[i], short_stop[i] = ls, ss
+        prev_long, prev_short = ls, ss
+
+    trend = np.full(len(df), np.nan)
+    last_dir = 1.0
+    for i in range(len(df)):
+        if not np.isfinite(ma_np[i]):
+            continue
+        d = last_dir
+        lp = long_stop[i - 1] if i > 0 and np.isfinite(long_stop[i - 1]) else long_stop[i]
+        sp = short_stop[i - 1] if i > 0 and np.isfinite(short_stop[i - 1]) else short_stop[i]
+        if d == -1.0 and ma_np[i] > sp:
+            d = 1.0
+        elif d == 1.0 and ma_np[i] < lp:
+            d = -1.0
+        trend[i] = d
+        last_dir = d
+
+    mt = np.where(trend == 1.0, long_stop, short_stop)
+    ott_raw = np.where(
+        ma_np > mt,
+        mt * (200.0 + percent) / 200.0,
+        mt * (200.0 - percent) / 200.0,
+    )
+    idx = df.index
+    ott = pd.Series(ott_raw, index=idx).shift(2)
+    ma_s = pd.Series(ma_np, index=idx)
+    close = df["close"].astype(float)
+    return pd.DataFrame(
+        {
+            "ma": ma_s,
+            "long_stop": pd.Series(long_stop, index=idx),
+            "short_stop": pd.Series(short_stop, index=idx),
+            "trend": pd.Series(trend, index=idx),
+            "ott": ott,
+            "ott_raw": pd.Series(ott_raw, index=idx),
+            "support_cross_up": _cross_up(ma_s, ott),
+            "support_cross_down": _cross_down(ma_s, ott),
+            "price_cross_up": _cross_up(close, ott),
+            "price_cross_down": _cross_down(close, ott),
+            "color_up": ott > ott.shift(1),
+            "color_down": ott < ott.shift(1),
+        },
+        index=idx,
+    )
+
+
+def volume_profile(
+    df: pd.DataFrame,
+    window: int = 150,
+    rows: int = 24,
+    value_area: float = 0.70,
+) -> pd.DataFrame:
+    """Fixed-range volume profile: POC and value area, computed as-of each bar.
+
+    Ported from the Volume Profile / Fixed Range block (LonesomeTheBlue).  At
+    every bar it builds a profile over the prior ``window`` bars using Pine's
+    body/wick volume split: body volume goes to the bar's direction, each
+    wick's volume is split half to up and half to down, and volume is
+    distributed across price rows by overlap.  ``value_area`` is the fraction
+    of total volume (0-1) that the value area must cover.
+
+    Returns one row per input bar with ``poc``, ``vah``, ``val``,
+    ``in_value_area``, ``poc_volume``, ``value_area_volume``, ``total_volume``,
+    ``poc_buy_share`` and ``value_area_buy_share``.  A row is NaN until
+    ``window`` bars exist.  Causal: a row at bar *i* uses bars <= *i* only.
+    """
+    if window < 2:
+        raise ValueError("window must be >= 2")
+    if rows < 1:
+        raise ValueError("rows must be >= 1")
+    if not 0.0 < value_area <= 1.0:
+        raise ValueError("value_area must be in (0, 1]")
+    o = df["open"].to_numpy(float)
+    h = df["high"].to_numpy(float)
+    l = df["low"].to_numpy(float)
+    c = df["close"].to_numpy(float)
+    v = df["volume"].to_numpy(float)
+    n = len(df)
+    out = {
+        "poc": np.full(n, np.nan),
+        "vah": np.full(n, np.nan),
+        "val": np.full(n, np.nan),
+        "poc_volume": np.full(n, np.nan),
+        "value_area_volume": np.full(n, np.nan),
+        "total_volume": np.full(n, np.nan),
+        "poc_buy_share": np.full(n, np.nan),
+        "value_area_buy_share": np.full(n, np.nan),
+    }
+    in_va = np.zeros(n, dtype=bool)
+    for i in range(window - 1, n):
+        sl = slice(i - window + 1, i + 1)
+        oo, hh, ll, cc, vv = o[sl], h[sl], l[sl], c[sl], v[sl]
+        if not (np.isfinite(oo).all() and np.isfinite(hh).all()
+                and np.isfinite(ll).all() and np.isfinite(cc).all()
+                and np.isfinite(vv).all()):
+            continue
+        bot = float(ll.min())
+        top = float(hh.max())
+        if not top > bot:
+            continue
+        step = (top - bot) / rows
+        levels = bot + step * np.arange(rows + 1, dtype=float)
+        bin_lo = levels[:-1][None, :]
+        bin_hi = levels[1:][None, :]
+
+        body_top = np.maximum(oo, cc)
+        body_bot = np.minimum(oo, cc)
+        body = body_top - body_bot
+        top_wick = hh - body_top
+        bot_wick = body_bot - ll
+        denom = 2.0 * top_wick + 2.0 * bot_wick + body
+        body_vol = np.divide(
+            body * vv, denom, out=np.zeros_like(body), where=denom != 0
+        )
+        top_vol = np.divide(
+            2.0 * top_wick * vv, denom, out=np.zeros_like(body), where=denom != 0
+        )
+        bot_vol = np.divide(
+            2.0 * bot_wick * vv, denom, out=np.zeros_like(body), where=denom != 0
+        )
+
+        def _overlap(lo: np.ndarray, hi: np.ndarray) -> np.ndarray:
+            return np.clip(
+                np.minimum(hi[:, None], bin_hi) - np.maximum(lo[:, None], bin_lo),
+                0.0,
+                None,
+            )
+
+        body_frac = np.divide(
+            _overlap(body_bot, body_top), body[:, None],
+            out=np.zeros((len(body), rows)), where=body[:, None] != 0,
+        )
+        top_frac = np.divide(
+            _overlap(body_top, hh), top_wick[:, None],
+            out=np.zeros((len(body), rows)), where=top_wick[:, None] != 0,
+        )
+        bot_frac = np.divide(
+            _overlap(ll, body_bot), bot_wick[:, None],
+            out=np.zeros((len(body), rows)), where=bot_wick[:, None] != 0,
+        )
+        body_alloc = body_frac * body_vol[:, None]
+        wick_alloc = (top_frac * (top_vol / 2.0)[:, None]
+                      + bot_frac * (bot_vol / 2.0)[:, None])
+        green = cc >= oo
+        up = np.where(green[:, None], body_alloc, 0.0) + wick_alloc
+        down = np.where(green[:, None], 0.0, body_alloc) + wick_alloc
+        total = up.sum(axis=0) + down.sum(axis=0)
+        total_sum = float(total.sum())
+        if total_sum <= 0:
+            continue
+
+        poc_idx = int(np.argmax(total))
+        target = total_sum * value_area
+        va_total = float(total[poc_idx])
+        va_up = va_down = poc_idx
+        for _ in range(rows - 1):
+            if va_total >= target:
+                break
+            upper = float(total[va_up + 1]) if va_up + 1 < rows else 0.0
+            lower = float(total[va_down - 1]) if va_down > 0 else 0.0
+            if upper <= 0.0 and lower <= 0.0:
+                break
+            if upper >= lower:
+                va_total += upper
+                va_up += 1
+            else:
+                va_total += lower
+                va_down -= 1
+
+        vah = float(levels[va_up + 1])
+        val = float(levels[va_down])
+        poc = float((levels[poc_idx] + levels[poc_idx + 1]) / 2.0)
+        out["poc"][i] = poc
+        out["vah"][i] = vah
+        out["val"][i] = val
+        out["poc_volume"][i] = float(total[poc_idx])
+        out["value_area_volume"][i] = va_total
+        out["total_volume"][i] = total_sum
+        if total[poc_idx] > 0:
+            out["poc_buy_share"][i] = float(up[:, poc_idx].sum() / total[poc_idx])
+        va_slice = slice(va_down, va_up + 1)
+        va_sum = float(total[va_slice].sum())
+        if va_sum > 0:
+            out["value_area_buy_share"][i] = float(up[:, va_slice].sum() / va_sum)
+        in_va[i] = val <= c[i] <= vah
+
+    out["in_value_area"] = in_va
+    return pd.DataFrame(out, index=df.index)
+
+
+def _supply_demand_walk(
+    df: pd.DataFrame,
+    swing_length: int,
+    atr_window: int,
+    box_width: float,
+    history: int,
+    overlap_atr: float,
+):
+    n = len(df)
+    high = df["high"].astype(float)
+    low = df["low"].astype(float)
+    close = df["close"].astype(float)
+    close_np = close.to_numpy(float)
+    a = atr(high, low, close, atr_window).to_numpy(float)
+    piv = swing_pivots(high, low, swing_length, swing_length)
+    hp = piv["pivot_high"].to_numpy(bool)
+    lp = piv["pivot_low"].to_numpy(bool)
+    supply: deque[dict] = deque()
+    demand: deque[dict] = deque()
+    zones: list[dict] = []
+
+    def _try_zone(kind: str, pivot_value: float, pivot_pos: int,
+                  active: deque, i: int) -> None:
+        atr_value = a[i]
+        if not np.isfinite(atr_value) or atr_value <= 0:
+            return
+        buffer = atr_value * (box_width / 10.0)
+        if kind == "supply":
+            top = float(pivot_value)
+            bottom = top - buffer
+        else:
+            bottom = float(pivot_value)
+            top = bottom + buffer
+        poi = (top + bottom) / 2.0
+        if not top > bottom:
+            return
+        if any(abs(poi - z["poi"]) <= overlap_atr * atr_value for z in active):
+            return
+        if len(active) >= history:
+            old = active.pop()
+            old["removed_at"] = i
+            old["removed_reason"] = "history"
+        z = {
+            "kind": kind,
+            "top": top,
+            "bottom": bottom,
+            "poi": poi,
+            "pivot_at": pivot_pos,
+            "confirmed_at": i,
+            "broken_at": None,
+            "removed_at": None,
+            "removed_reason": None,
+        }
+        active.appendleft(z)
+        zones.append(z)
+
+    feat = {
+        "supply_top": np.full(n, np.nan),
+        "supply_bottom": np.full(n, np.nan),
+        "supply_poi": np.full(n, np.nan),
+        "supply_dist_atr": np.full(n, np.nan),
+        "supply_age": np.full(n, np.nan),
+        "demand_top": np.full(n, np.nan),
+        "demand_bottom": np.full(n, np.nan),
+        "demand_poi": np.full(n, np.nan),
+        "demand_dist_atr": np.full(n, np.nan),
+        "demand_age": np.full(n, np.nan),
+    }
+    for name in ("in_supply", "in_demand", "supply_break", "demand_break"):
+        feat[name] = np.zeros(n, dtype=bool)
+    for name in ("active_supply", "active_demand"):
+        feat[name] = np.zeros(n, dtype=int)
+
+    for i in range(n):
+        if i >= swing_length:
+            pivot_pos = i - swing_length
+            if hp[i]:
+                _try_zone("supply", high.iloc[pivot_pos], pivot_pos, supply, i)
+            elif lp[i]:
+                _try_zone("demand", low.iloc[pivot_pos], pivot_pos, demand, i)
+
+        for z in list(supply):
+            if close_np[i] >= z["top"]:
+                z["broken_at"] = i
+                z["removed_at"] = i
+                z["removed_reason"] = "broken"
+                feat["supply_break"][i] = True
+                supply.remove(z)
+        for z in list(demand):
+            if close_np[i] <= z["bottom"]:
+                z["broken_at"] = i
+                z["removed_at"] = i
+                z["removed_reason"] = "broken"
+                feat["demand_break"][i] = True
+                demand.remove(z)
+
+        def _nearest(active: deque):
+            if not active:
+                return None
+            return min(active, key=lambda z: abs(close_np[i] - z["poi"]))
+
+        sz = _nearest(supply)
+        dz = _nearest(demand)
+        atr_value = a[i]
+        if sz is not None:
+            feat["supply_top"][i] = sz["top"]
+            feat["supply_bottom"][i] = sz["bottom"]
+            feat["supply_poi"][i] = sz["poi"]
+            if np.isfinite(atr_value) and atr_value > 0:
+                feat["supply_dist_atr"][i] = abs(close_np[i] - sz["poi"]) / atr_value
+            feat["supply_age"][i] = i - sz["confirmed_at"]
+            feat["in_supply"][i] = sz["bottom"] <= close_np[i] <= sz["top"]
+        if dz is not None:
+            feat["demand_top"][i] = dz["top"]
+            feat["demand_bottom"][i] = dz["bottom"]
+            feat["demand_poi"][i] = dz["poi"]
+            if np.isfinite(atr_value) and atr_value > 0:
+                feat["demand_dist_atr"][i] = abs(close_np[i] - dz["poi"]) / atr_value
+            feat["demand_age"][i] = i - dz["confirmed_at"]
+            feat["in_demand"][i] = dz["bottom"] <= close_np[i] <= dz["top"]
+        feat["active_supply"][i] = len(supply)
+        feat["active_demand"][i] = len(demand)
+
+    if zones:
+        records = []
+        for z in zones:
+            end = z["removed_at"] if z["removed_at"] is not None else n - 1
+            records.append({
+                "kind": z["kind"],
+                "top": z["top"],
+                "bottom": z["bottom"],
+                "poi": z["poi"],
+                "pivot_at": df.index[z["pivot_at"]],
+                "confirmed_at": df.index[z["confirmed_at"]],
+                "broken_at": (df.index[z["broken_at"]]
+                               if z["broken_at"] is not None else pd.NaT),
+                "removed_at": (df.index[z["removed_at"]]
+                                if z["removed_at"] is not None else pd.NaT),
+                "removed_reason": z["removed_reason"],
+                "bars_active": end - z["confirmed_at"],
+            })
+        ledger = pd.DataFrame(records)
+    else:
+        ledger = pd.DataFrame(columns=[
+            "kind", "top", "bottom", "poi", "pivot_at", "confirmed_at",
+            "broken_at", "removed_at", "removed_reason", "bars_active",
+        ])
+    return ledger, pd.DataFrame(feat, index=df.index)
+
+
+def supply_demand_zones(
+    df: pd.DataFrame,
+    swing_length: int = 10,
+    atr_window: int = 50,
+    box_width: float = 2.5,
+    history: int = 20,
+    overlap_atr: float = 2.0,
+) -> pd.DataFrame:
+    """Supply/demand zone ledger built from confirmed swing pivots.
+
+    Ported from the Supply/Demand block: a swing high creates a supply zone
+    from the pivot high down by ``box_width/10 * ATR``; a swing low creates the
+    mirror demand zone.  Zones whose midpoints are within ``overlap_atr`` ATR
+    of an existing same-side zone are skipped.  A zone is removed when close
+    breaks its far edge (supply: close >= top; demand: close <= bottom), which
+    is the source's BOS event.  Only ``history`` zones per side are kept.
+
+    The pivot is confirmed ``swing_length`` bars after it forms; ``confirmed_at``
+    is the first bar at which the zone may be used.  Never use the zone before
+    that timestamp (this is the port's no-lookahead guarantee).  Returns a
+    ledger with kind/top/bottom/poi/pivot_at/confirmed_at/broken_at/removed_at/
+    removed_reason/bars_active.  See ``supply_demand_features`` for per-bar
+    values ready for a strategy.
+    """
+    if swing_length < 1:
+        raise ValueError("swing_length must be >= 1")
+    if history < 1:
+        raise ValueError("history must be >= 1")
+    if box_width <= 0:
+        raise ValueError("box_width must be > 0")
+    ledger, _ = _supply_demand_walk(
+        df, swing_length, atr_window, box_width, history, overlap_atr
+    )
+    return ledger
+
+
+def supply_demand_features(
+    df: pd.DataFrame,
+    swing_length: int = 10,
+    atr_window: int = 50,
+    box_width: float = 2.5,
+    history: int = 20,
+    overlap_atr: float = 2.0,
+) -> pd.DataFrame:
+    """Per-bar supply/demand state from confirmed zones (causal).
+
+    Returns the nearest active zone on each side plus distance to its POI in
+    ATR units, age in bars, whether close is inside the zone, BOS flags and
+    active-zone counts.  A zone first appears at its pivot confirmation bar,
+    so a strategy can act on it at the next open.  NaN/0 during warmup.
+    """
+    if swing_length < 1:
+        raise ValueError("swing_length must be >= 1")
+    if history < 1:
+        raise ValueError("history must be >= 1")
+    if box_width <= 0:
+        raise ValueError("box_width must be > 0")
+    _, features = _supply_demand_walk(
+        df, swing_length, atr_window, box_width, history, overlap_atr
+    )
+    return features

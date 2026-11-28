@@ -10,6 +10,10 @@ The setup, read literally:
 1. **WVF green bar** - ``wvf >= upper_band`` or ``wvf >= range_high``.  The
    first green bar of a cluster is the "flash": it is the bar where the
    panic reading first appears, not every bar while it stays green.
+   ``green_mode="any"`` takes every green bar instead (the literal reading);
+   measured 2026-11-28 it loses -49.5% over two years on five coins against
+   +20.4% for the first-bar reading, because the later bars of a panic
+   cluster are a falling knife.  It exists to be tested, not deployed.
 2. **Stochastic oversold** - %K below ``oversold`` (20) at some point in the
    last ``oversold_window`` bars.  The cross can happen after the low, so a
    short look-back is used rather than requiring %K < 20 on the entry bar.
@@ -34,6 +38,12 @@ but off by default - exiting on the first %K<%D cross shortened the average
 hold to ~3 bars and gave back most of the move.  Everything is causal: flags
 use rolling windows of past-and-present bars only and the engine fills at
 the next open.
+
+The user's later 14/3/5 stochastic smoothing and RSI oversold flip are
+supported through ``smooth_k``/``smooth_d`` and the optional
+``require_rsi_flip`` gate.  Both remain off by default: on the two-year 4h
+sample the extra smoothing cut the WVF setup from 118 to 33 events and the
+RSI gate left only a handful of entries.  See ``research/STOCH_RSI_WVF.md``.
 """
 
 from __future__ import annotations
@@ -61,12 +71,19 @@ class WilliamVixFixStoch(Strategy):
         "oversold",
         "oversold_window",
         "entry_window",
+        "green_mode",
         "trigger",
         "regime_days",
         "stop_atr",
         "rr",
         "max_hold",
         "exit_cross",
+        "rsi_window",
+        "rsi_oversold",
+        "rsi_overbought",
+        "rsi_flip_window",
+        "require_rsi_flip",
+        "exit_rsi_overbought",
     )
 
     def __init__(
@@ -82,12 +99,19 @@ class WilliamVixFixStoch(Strategy):
         oversold: float = 20.0,
         oversold_window: int = 5,
         entry_window: int = 1,
+        green_mode: str = "first",
         trigger: str = "cross",
         regime_days: float = 200.0,
         stop_atr: float = 2.0,
         rr: float = 2.0,
         max_hold: int = 40,
         exit_cross: bool = False,
+        rsi_window: int = 14,
+        rsi_oversold: float = 30.0,
+        rsi_overbought: float = 70.0,
+        rsi_flip_window: int = 5,
+        require_rsi_flip: bool = False,
+        exit_rsi_overbought: bool = False,
     ) -> None:
         if lookback_high < 2 or band_length < 2 or percentile_window < 2:
             raise ValueError("window lengths must be at least 2")
@@ -101,10 +125,16 @@ class WilliamVixFixStoch(Strategy):
             raise ValueError("oversold_window and entry_window must be >= 1")
         if trigger not in ("state", "cross"):
             raise ValueError("trigger must be 'state' or 'cross'")
+        if green_mode not in ("first", "any"):
+            raise ValueError("green_mode must be 'first' or 'any'")
         if regime_days < 0:
             raise ValueError("regime_days must be >= 0 (0 disables the filter)")
         if rr <= 0 or max_hold < 1 or stop_atr <= 0:
             raise ValueError("rr/max_hold/stop_atr must be positive")
+        if rsi_window < 2 or rsi_flip_window < 1:
+            raise ValueError("rsi_window >= 2 and rsi_flip_window >= 1 required")
+        if not 0 < rsi_oversold < rsi_overbought < 100:
+            raise ValueError("RSI thresholds must satisfy 0 < oversold < overbought < 100")
         super().__init__(
             lookback_high=lookback_high,
             band_length=band_length,
@@ -117,16 +147,26 @@ class WilliamVixFixStoch(Strategy):
             oversold=oversold,
             oversold_window=oversold_window,
             entry_window=entry_window,
+            green_mode=green_mode,
             trigger=trigger,
             regime_days=regime_days,
             stop_atr=stop_atr,
             rr=rr,
             max_hold=max_hold,
             exit_cross=exit_cross,
+            rsi_window=rsi_window,
+            rsi_oversold=rsi_oversold,
+            rsi_overbought=rsi_overbought,
+            rsi_flip_window=rsi_flip_window,
+            require_rsi_flip=require_rsi_flip,
+            exit_rsi_overbought=exit_rsi_overbought,
         )
         self._entry_i: int | None = None
+        rsi_warm = rsi_window if (require_rsi_flip or exit_rsi_overbought) else 0
         self._base_warmup = (
-            max(lookback_high, band_length, percentile_window, k_length) + smooth_d + 2
+            max(lookback_high, band_length, percentile_window, k_length, rsi_warm)
+            + smooth_d
+            + 2
         )
         self.warmup = self._base_warmup
 
@@ -159,11 +199,29 @@ class WilliamVixFixStoch(Strategy):
         out["k"] = st["k"]
         out["d"] = st["d"]
         out["atr"] = ind.atr(out["high"], out["low"], out["close"], 14)
+        out["rsi"] = ind.rsi(out["close"], self.rsi_window)
+        rsi_up = (
+            (out["rsi"].shift(1) <= self.rsi_oversold)
+            & (out["rsi"] > self.rsi_oversold)
+        ).fillna(False).astype(bool)
+        rsi_down = (
+            (out["rsi"].shift(1) >= self.rsi_overbought)
+            & (out["rsi"] < self.rsi_overbought)
+        ).fillna(False).astype(bool)
+        out["rsi_flip_up"] = rsi_up
+        out["rsi_flip_down"] = rsi_down
+        out["rsi_flip_up_recent"] = (
+            rsi_up.rolling(self.rsi_flip_window, min_periods=1).max().astype(bool)
+        )
 
         green = wvf["green"].fillna(False).astype(bool)
         out["green"] = green
         out["green_event"] = green & ~green.shift(1, fill_value=False)
-        if self.entry_window == 1:
+        if self.green_mode == "any":
+            # Literal reading: every bar that is green.  Loses money (see the
+            # module docstring); kept so the claim stays testable.
+            out["green_flash"] = green
+        elif self.entry_window == 1:
             # The first green bar of a cluster is the flash.
             out["green_flash"] = out["green_event"]
         else:
@@ -205,6 +263,11 @@ class WilliamVixFixStoch(Strategy):
                 self._entry_i = i
             if i - self._entry_i >= self.max_hold:
                 return Signal(action=Action.CLOSE, reason=f"time exit after {self.max_hold} bars")
+            if self.exit_rsi_overbought and bool(row["rsi_flip_down"]):
+                return Signal(
+                    action=Action.CLOSE,
+                    reason=f"RSI crossed back below {self.rsi_overbought:g}",
+                )
             if self.exit_cross and pd.notna(row["k"]) and pd.notna(row["d"]) and row["k"] < row["d"]:
                 return Signal(action=Action.CLOSE, reason="stochastic %K crossed below %D")
             return None
@@ -221,19 +284,22 @@ class WilliamVixFixStoch(Strategy):
                 return None
         elif not row["k"] >= row["d"]:
             return None
+        if self.require_rsi_flip and not bool(row["rsi_flip_up_recent"]):
+            return None
 
         close = float(row["close"])
         stop = float(close - self.stop_atr * float(row["atr"]))
         risk = close - stop
         if risk <= 0:
             return None
-        flashed = "first green" if self.entry_window == 1 else "green flash"
+        flashed = ("any green" if self.green_mode == "any"
+                   else "first green" if self.entry_window == 1 else "green flash")
         verb = "crossed above" if self.trigger == "cross" else "at/above"
         return Signal(
             action=Action.BUY,
             reason=(
                 f"WVF {flashed} + stoch oversold, %K {row['k']:.1f} "
-                f"{verb} %D {row['d']:.1f}"
+                f"{verb} %D {row['d']:.1f}; RSI {row['rsi']:.1f}"
             ),
             stop_loss=stop,
             take_profit=close + self.rr * risk,

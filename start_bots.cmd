@@ -2,13 +2,15 @@
 REM ============================================================
 REM  paper-bots launcher  (usage: start_bots.cmd [interval_seconds])
 REM
-REM  Runs the three research books as live paper wallets, each with
+REM  Runs the five research books as live paper wallets, each with
 REM  $1,000, on Binance 4h bars.  NOTHING IS ORDERED: the wallets are
 REM  simulated, and every number is reproducible from the cached bars.
 REM
 REM  - A  trend gated 3%   (SMA 30/50 + Damiani/STC, 3% risk)
 REM  - B  trend max 5%     (same signals at 5% risk)
 REM  - C  plain cross 3%   (no filters)
+REM  - D  room gate 3%     (plain cross + measured-move room, median channel)
+REM  - E  trail 1.5 ATR 3% (gated entries, Chandelier trail ends the trade)
 REM
 REM  Each cycle: delta-sync bars -> replay each book -> write
 REM  runsautobooksstatus.json + per-book trades.csv/equity.csv and
@@ -47,7 +49,7 @@ set LOGFILE=%~dp0logs\bots_%TS%.log
 
 powershell -NoProfile -Command "$f = Get-ChildItem '%~dp0logs' -Filter 'bots_*.log' | Sort-Object Name -Descending; if ($f.Count -gt 10) { $f | Select-Object -Skip 10 | Remove-Item -Force }" >nul 2>&1
 
-echo [start] paper books A/B/C, $1,000 each, 4h, binance
+echo [start] paper books A/B/C/D/E, $1,000 each, 4h, binance
 echo [start] every %INTERVAL%s  log: %LOGFILE%
 
 powershell -NoProfile -Command "Start-Process -FilePath '%PY%' -ArgumentList '-u','-m','bot','auto','--interval','%INTERVAL%' -WorkingDirectory '%~dp0' -WindowStyle Hidden -RedirectStandardOutput '%LOGFILE%' -RedirectStandardError '%LOGFILE%.err'"
