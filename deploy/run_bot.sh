@@ -13,6 +13,9 @@ set -a
 set +a
 
 cd /opt/trading-bot
+# Risk knobs default to BotConfig's own defaults, so a bot that sets nothing
+# behaves exactly as before.  A per-symbol sleeve sets them to the profile its
+# backtest used (see deploy/README.md, "Add a bot").
 exec /opt/trading-bot/.venv/bin/bot live \
   --symbol "${SYMBOL}" \
   --interval "${INTERVAL}" \
@@ -20,4 +23,7 @@ exec /opt/trading-bot/.venv/bin/bot live \
   --capital "${CAPITAL}" \
   --state "${STATE}" \
   --poll "${POLL:-60}" \
-  --heartbeat-url "${HEARTBEAT_URL:-}"
+  --heartbeat-url "${HEARTBEAT_URL:-}" \
+  --risk-per-trade "${RISK_PER_TRADE:-0.01}" \
+  --max-position-pct "${MAX_POSITION_PCT:-0.95}" \
+  --max-drawdown-stop "${MAX_DRAWDOWN_STOP:-0.10}"

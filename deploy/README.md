@@ -232,10 +232,37 @@ and never stops the record.
 | Follow logs | `journalctl -u 'tradingbot@*' -u tradingbot-web -f` |
 | One bot's state | `cat /var/lib/tradingbot/btc.json` |
 | Stop everything | `systemctl stop 'tradingbot@*' tradingbot-web` |
-| Add a bot | new `/etc/tradingbot/<name>.env`, then `systemctl enable --now tradingbot@<name>` |
+| Add a bot | new `/etc/tradingbot/<name>.env` (template below), then `systemctl enable --now tradingbot@<name>` |
 | Update | `sudo bash /opt/trading-bot/deploy/update.sh` |
 | Restore a dump | `for db in trading_common trading_paper trading_prod; do zcat /var/backups/tradingbot/$db-<date>.sql.gz | runuser -u postgres -- psql $db; done` |
 
+### Per-bot env file
+
+`/etc/tradingbot/<name>.env` is `root:trader` 0640 and never committed.  The
+live loop reads it through `deploy/run_bot.sh`; every value is quoted there, so
+keep one `NAME=value` per line with no spaces around `=`.
+
+```bash
+# /etc/tradingbot/near.env -- one symbol per bot (the demo account is shared)
+SYMBOL=NEAR/USDT
+INTERVAL=4h
+STRATEGY=swing_pullback_near
+CAPITAL=1000
+STATE=/var/lib/tradingbot/near.json
+POLL=60
+# The sleeve's backtest profile; the defaults are 0.01 / 0.95 / 0.10.
+RISK_PER_TRADE=0.03
+MAX_POSITION_PCT=0.95
+MAX_DRAWDOWN_STOP=0.99
+# HEARTBEAT_URL=https://hc-ping.com/<uuid>   # optional, see Heartbeat above
+```
+
+The risk knobs fall back to the bot config's own defaults, so a bot that omits
+them behaves exactly as before.  The per-symbol swing sleeves were measured at
+3% risk with the account drawdown switch off: left at the 10% default they
+would halt mid-year (NEAR's own history draws down 12.9% before recovering),
+which is why both the bot env files and `tradingbot-forward.service` carry that
+profile.  The ATR stop on each trade is the real risk control.
 Every bot gets its own wallet (`--capital`), its own state file and its own
 unit, but they share one demo account: two bots on the same symbol
 would fight over the position. One symbol per bot.

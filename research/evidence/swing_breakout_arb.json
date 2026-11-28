@@ -1,0 +1,17 @@
+{
+  "symbol": "ARB/USDT",
+  "timeframe": "4h",
+  "window": "2025-11-28 .. 2026-11-28",
+  "bars": 2191,
+  "window_days": 365,
+  "trades": 30,
+  "fee_bps": 10.0,
+  "slippage_bps": 5.0,
+  "return_pct": 0.6715,
+  "max_drawdown": -0.084,
+  "win_rate": 0.5667,
+  "profit_factor": 2.33,
+  "params_hash": "sha256:44136fa355b3678a",
+  "command": "python research/five_sleeves_promote.py  # swing_breakout_arb on ARB/USDT, 4h, 2025-11-28 .. 2026-11-28",
+  "note": "shipped sleeve re-run through Engine: next-open fills, stop-first intrabar, 3% risk, 10 bps fee + 5 bps slippage a side; window = last 365 days of a 455-day load"
+}

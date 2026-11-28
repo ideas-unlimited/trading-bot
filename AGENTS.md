@@ -117,8 +117,22 @@ when you hit a new environment quirk and solve it, add it here and commit.
   sleeve is logged and skipped, not fatal. `--strategy ... --symbol ...`
   replays one sleeve by hand and refuses outside `BOT_LAB` without an
   active manifest, and refuses a parameter set whose hash differs from the
-  promoted one. Use it to validate a target-bearing sleeve; `bot live`
-  still drops `take_profit`.
+  promoted one. Use it to validate a target-bearing sleeve. `bot live` now
+  manages **both** the stop and the fixed-R target locally (Binance spot has
+  no brackets), checked against each closed bar with the stop first, so a bar
+  that touches both is booked as a loss exactly like the engine. A live bot
+  therefore runs the same exit rule its backtest measured; before 2026-11-28
+  it silently ignored `take_profit` and only exited on the stop or a signal.
+
+- **One risk profile per runner, and it must be the one the sleeves were
+  measured at.** `tradingbot-forward.service` runs 3% risk, 95% max position
+  and the account drawdown switch **off** (`--max-drawdown-stop 0.99`), and
+  every `promotions/paper/` manifest was measured that way. Left at the old
+  5%/50%/10% defaults, ARB, RENDER and NEAR halted on their own 10-13%
+  historical drawdown within one replay and their forward history stopped
+  matching their evidence (NEAR read -9.6% instead of +86%). Per-bot env
+  files carry the same three knobs: `RISK_PER_TRADE`, `MAX_POSITION_PCT`,
+  `MAX_DRAWDOWN_STOP` (see `deploy/README.md`).
 - **Live fills alert; the forward replay is silent.** Every live
   `tradingbot@<name>` bot reads `/etc/tradingbot/alerts.env` (template
   `deploy/alerts.env.example`) and sends one email/Telegram/ntfy message per

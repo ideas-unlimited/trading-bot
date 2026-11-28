@@ -21,7 +21,12 @@ Environment=BOT_STATE_DIR=/var/lib/tradingbot
 EnvironmentFile=-/etc/tradingbot/forward.env
 # Alerts are deliberately absent here: forward is a shadow replay, not a
 # trade.  `bot forward --alerts` opts in manually; the service does not.
-ExecStart=/opt/trading-bot/.venv/bin/bot forward --all --poll 900
+# The sleeve profile, not the old book default: every manifest in
+# promotions/paper/ was measured at 3% risk, 95% max position and with the
+# account drawdown switch off (research convention - left at 10% it halts a
+# sleeve mid-year and the forward record stops being comparable to its own
+# evidence).  The per-trade ATR stop is the real risk control.
+ExecStart=/opt/trading-bot/.venv/bin/bot forward --all --poll 900 --risk-per-trade 0.03 --max-position-pct 0.95 --max-drawdown-stop 0.99
 Restart=always
 RestartSec=30
 NoNewPrivileges=yes

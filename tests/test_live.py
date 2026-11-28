@@ -241,10 +241,41 @@ class LiveTraderTests(unittest.TestCase):
             )
             trader.state["stops"]["BTC/USDT"] = 105.0
             # Latest bar low 105.0 <= stop -> close
-            trader._check_stop(_bars(_rows()),
+            trader._check_exits(_bars(_rows()),
                                       datetime(2024, 1, 5, tzinfo=timezone.utc))
             self.assertIn("BTC/USDT", client.closed)
             self.assertNotIn("BTC/USDT", trader.state["stops"])
+
+    def test_target_managed_locally(self) -> None:
+        """A fixed-R target must close the position, not wait for the stop."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            client = _FakeClient(_rows())
+            trader = LiveTrader(
+                client, build("rsi_meanrev"), BotConfig(), "BTC/USDT", "1d",
+                state_path=tmp / "state.json", stream=io.StringIO(), clock=lambda s: None,
+            )
+            trader.state["stops"]["BTC/USDT"] = 80.0
+            trader.state["tps"]["BTC/USDT"] = 108.0   # latest bar high is 110
+            trader._check_exits(_bars(_rows()), datetime(2024, 1, 5, tzinfo=timezone.utc))
+            self.assertIn("BTC/USDT", client.closed)
+            self.assertNotIn("BTC/USDT", trader.state["tps"])
+            self.assertNotIn("BTC/USDT", trader.state["stops"])
+
+    def test_stop_wins_when_both_are_touched(self) -> None:
+        """Same bar through stop and target is a loss, like the engine."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            client = _FakeClient(_rows())
+            trader = LiveTrader(
+                client, build("rsi_meanrev"), BotConfig(), "BTC/USDT", "1d",
+                state_path=tmp / "state.json", stream=io.StringIO(), clock=lambda s: None,
+            )
+            trader.state["stops"]["BTC/USDT"] = 106.0   # latest low is 105
+            trader.state["tps"]["BTC/USDT"] = 108.0     # latest high is 110
+            trader._check_exits(_bars(_rows()), datetime(2024, 1, 5, tzinfo=timezone.utc))
+            self.assertIn("BTC/USDT", client.closed)
+            self.assertNotIn("BTC/USDT", trader.state["tps"])
 
     def test_capital_caps_position_notional(self) -> None:
         """A $1,000 wallet on a $10k demo account must never size $10k."""

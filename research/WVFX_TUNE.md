@@ -117,3 +117,35 @@ the out-of-sample figure is an upper bound rather than a clean holdout. WVFX's
 - `research/wvfx_pooled.py` — pooled 4h exit map over five majors (`wvfx_pooled_4h.csv`)
 - `research/wvfx_xcheck.py` — one config, per symbol, IS/OOS/full (`wvfx_xcheck.csv`)
 - `research/wvfx_report.py` + `wvfx_report_template.html` — build `wvfx_report.html`
+## Trailing exits vs the hard target (added 2026-11-28)
+
+The house preference is to trail rather than cap: `README.md` records the
+Chandelier trail as the largest single improvement on the gated 4h book, and
+`momentum_swing` ships with no hard target at all. WVFX was tested against the
+same preference on the tuned entries, pooled over the five majors at 4h
+(`research/wvfx_trailfit.py`, `wvfx_trailfit.csv`):
+
+| variant | IS tr | IS /trade | OOS tr | OOS /trade | t | med full | coins + | avg hold |
+|---|---|---|---|---|---|---|---|---|
+| trail 7.0, no target | 21 | -0.29% | 31 | **+3.20%** | 2.50 | +16.6% | 5/5 | 4.9 d |
+| trail 5.0, no target | 21 | -0.29% | 31 | +1.92% | 2.25 | +12.3% | 5/5 | 4.4 d |
+| **2.5R target, no trail** | 21 | +1.33% | 34 | +1.63% | 2.36 | **+20.5%** | 4/5 | 2.8 d |
+| trail 3.5, no target | 22 | -0.35% | 33 | +1.19% | 1.60 | +4.1% | 3/5 | 3.1 d |
+| trail 3.5 + target | 22 | +0.66% | 34 | +0.98% | 1.49 | +15.6% | 3/5 | 2.3 d |
+| trail 1.5, no target | 23 | +0.22% | 36 | +0.39% | 1.13 | -1.2% | 2/5 | 1.1 d |
+| trail 2.5, no target | 23 | +0.08% | 34 | -0.03% | -0.07 | +1.2% | 3/5 | 1.8 d |
+
+Two different things are being measured. A **tight** trail (1.5-3.5 ATR) makes
+the bounce exit early and gives the edge back - that is the 48-variant result in
+the stage-4 table above, 2 of 48 positive out of sample. A **wide** trail with no
+target (5-7 ATR) is nearly inert as a trail and mostly just *uncaps* the winner:
+it raises the average out-of-sample trade (+3.20% vs +1.63%) and is positive on
+all five coins, but keeps the money in the market ~75% longer and finishes with a
+lower account return (+16.6% median vs +20.5%) and a negative in-sample half.
+Under the select-on-IS rule the fixed target wins; the uncapped variant is a
+genuine trade-off, not a free lunch.
+
+Verdict: keep the 2.5R target in the WVFX sleeve. The preference for trailing is
+right where it was measured - trend continuation (`momentum_swing`, the gated
+book) - and WVFX is mean reversion on a panic spike, which is the case where a
+target earns more than patience.

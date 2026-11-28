@@ -1,0 +1,61 @@
+{
+  "strategy": "capitulation_dip_jup",
+  "env": "paper",
+  "params_hash": "sha256:d2acc5a5e9bd6cab",
+  "symbols": [
+    "JUP/USDT"
+  ],
+  "timeframe": "4h",
+  "capital": 1000.0,
+  "promoted_at": "2026-11-28T08:15:11+00:00",
+  "promoted_by": "agent",
+  "override": false,
+  "override_reason": "",
+  "checks": [
+    {
+      "name": "backtest_bars",
+      "ok": true,
+      "detail": "bars=2191"
+    },
+    {
+      "name": "backtest_window",
+      "ok": true,
+      "detail": "window_days=365"
+    },
+    {
+      "name": "backtest_trades",
+      "ok": true,
+      "detail": "trades=32"
+    },
+    {
+      "name": "costs_modelled",
+      "ok": true,
+      "detail": "fee_bps=10.0, slippage_bps=5.0"
+    },
+    {
+      "name": "params_hash",
+      "ok": true,
+      "detail": "evidence=sha256:d2acc5a5e9bd6cab expected=sha256:d2acc5a5e9bd6cab"
+    }
+  ],
+  "evidence": {
+    "symbol": "JUP/USDT",
+    "timeframe": "4h",
+    "window": "2025-11-28 .. 2026-11-28",
+    "bars": 2191,
+    "window_days": 365,
+    "trades": 32,
+    "fee_bps": 10.0,
+    "slippage_bps": 5.0,
+    "return_pct": 0.5882,
+    "max_drawdown": -0.0786,
+    "win_rate": 0.625,
+    "profit_factor": 2.67,
+    "params_hash": "sha256:d2acc5a5e9bd6cab",
+    "command": "python research/five_sleeves_promote.py  # capitulation_dip_jup on JUP/USDT, 4h, 2025-11-28 .. 2026-11-28",
+    "note": "shipped sleeve re-run through Engine: next-open fills, stop-first intrabar, 3% risk, 10 bps fee + 5 bps slippage a side; window = last 365 days of a 455-day load"
+  },
+  "active": true,
+  "demoted_at": "",
+  "demote_reason": ""
+}

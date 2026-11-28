@@ -15,4 +15,6 @@ set can never be mistaken for a pooled rule.
 - `uni_final.py` - full/train/test/fold/risk/cost/trade/bootstrap tables
 - `uni_walkforward.py` - 180-config walk-forward grid
 - `uni_walkforward.csv` - grid output
+- `uni_trail.py` - fixed target vs trailing exit grid (62 configurations)
+- `uni_trail.csv` - trailing grid output
 - `make_uni_report.py` - builds `uni_report.html` from the grid and headline run

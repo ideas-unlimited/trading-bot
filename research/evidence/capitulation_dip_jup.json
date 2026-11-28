@@ -1,0 +1,17 @@
+{
+  "symbol": "JUP/USDT",
+  "timeframe": "4h",
+  "window": "2025-11-28 .. 2026-11-28",
+  "bars": 2191,
+  "window_days": 365,
+  "trades": 32,
+  "fee_bps": 10.0,
+  "slippage_bps": 5.0,
+  "return_pct": 0.5882,
+  "max_drawdown": -0.0786,
+  "win_rate": 0.625,
+  "profit_factor": 2.67,
+  "params_hash": "sha256:d2acc5a5e9bd6cab",
+  "command": "python research/five_sleeves_promote.py  # capitulation_dip_jup on JUP/USDT, 4h, 2025-11-28 .. 2026-11-28",
+  "note": "shipped sleeve re-run through Engine: next-open fills, stop-first intrabar, 3% risk, 10 bps fee + 5 bps slippage a side; window = last 365 days of a 455-day load"
+}

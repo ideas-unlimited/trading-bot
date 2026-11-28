@@ -178,9 +178,12 @@ def main() -> None:
             "sample; the config used here scores +25.3% / +6.3%, and four of "
             "the five majors prefer it with no parameter change. At ~7 trades a "
             "year a SOL-only cell is a coincidence, not an edge.",
-            "<b>Trailing stops are a trap here.</b> 48 trailing variants were "
-            "positive in-sample and 2 of 48 out of sample (median -5.3%). The "
-            "fixed 2.5R target is what pays.",
+            "<b>Trailing: tight loses, wide does not beat the target.</b> A 1.5-3.5 "
+            "ATR trail on top of the target was positive 48 times in-sample and 2 "
+            "times out of 48 out of sample. Dropping the target for a 5-7 ATR trail "
+            "lifts the average trade (+3.2% against +1.6% out of sample, 5/5 coins) "
+            "but not the account: +16.6% median against +20.5%, because the extra "
+            "days in the market give back more than the runners add.",
             "<b>Still thinner than it looks.</b> 34 out-of-sample trades across "
             "five coins is a small sample: ~+1.6% equity per trade, t = 2.3 "
             "pooled, and SOL's own 10 out-of-sample trades sit inside noise. "

@@ -41,6 +41,7 @@ folder is not allowed to be messy between studies.
 | --- | --- | --- |
 | `uni/` | UNI | capitulation-dip walk-forward, report in `uni_report.html` |
 | `sol/` | SOL | 4h/6h/1d sweep with IS/OOS split (`sol_lab.py` -> `sol_sweep.csv`, `sol_report.html`) |
+| `cake/` | CAKE | 15m/30m/1h swing sweep: 30m is the only positive chart and 99% of it is three trades (`cake_swing.py` -> `cake_swing_tf.csv`, `cake_report.html`, `CAKE_SWING.md`) |
 
 ### Per-symbol parameter work
 
@@ -76,6 +77,27 @@ Artifacts: `wvfx_stage1..4.csv`, `wvfx_pooled_4h.csv`, `wvfx_xcheck.csv`,
 | `structure_gates.py` | ported channel / breakout / measured-move gates |
 | `structure_tune.py` | fit the `room` gate on year 1, validate on year 2 (book D) |
 
+### All-coin sweep (one year, 30 coins, 26 configs)
+
+| file | question it answers |
+| --- | --- |
+| `allcoins_sweep.py` | every config on every coin at 4h and 1d -> `allcoins_stage1.csv` (1,534 cells) |
+| `allcoins_deep.py` | finalists on all five charts + parameter-neighbour check -> `allcoins_stage2*.csv` |
+| `rotation.py` | cross-sectional momentum (the "rank the coins" family) -> `rotation.csv` |
+| `grid_ladder.py` | long-only grid ladder, 920 runs -> `grid_ladder.csv` |
+| `gates.py` | BTC-trend / BTC-correlation / chop entry gates on the best sleeves -> `gates.csv` |
+| `allcoins_report.py` | builds `allcoins_report.html` from the CSVs |
+| `ALLCOINS.md` | verdict: top cells are coin-specific; only the 1d breakout family is broad (69-83% of coins positive) |
+
+### Five tuned sleeves (one per coin)
+
+| file | question it answers |
+| --- | --- |
+| `five_sleeves.py` | 952 cells across the five coin/rule pairs (grid x stats x bootstrap) -> `five_sleeves.csv`, `five_sleeves_picks.csv` |
+| `five_sleeves_book.py` | the five picks rerun as five $1,000 wallets, combined book + correlations -> `five_sleeves_book.json` |
+| `five_sleeves_report.py` | builds `five_sleeves.html` from the picks and the book JSON |
+| `five_sleeves_promote.py` | replays the four **shipped** sleeves and writes `evidence/<name>.json` for the paper manifests |
+| `FIVE_SLEEVES.md` | verdict: NEAR/RENDER/ARB hold up (+67 to +86%, -8 to -13% dd); PYTH and JUP sit on spikes (neighbour median +11% and +9%). Shipped as `swing_pullback_near`, `swing_breakout_render`, `swing_breakout_arb`, `capitulation_dip_jup`; **PYTH was dropped** by the owner and has no sleeve |
 ### Other
 
 | file | what it is |

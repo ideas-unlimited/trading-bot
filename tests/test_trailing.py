@@ -15,10 +15,16 @@ class OneShot(Strategy):
     """Buys on bar buy_at, then never signals again (the trail exits)."""
 
     name = "one_shot"
-    PARAMS = ("buy_at", "stop", "trail")
+    PARAMS = ("buy_at", "stop", "trail", "after")
 
-    def __init__(self, buy_at: int = 1, stop: float = 90.0, trail: float | None = 2.0):
-        super().__init__(buy_at=buy_at, stop=stop, trail=trail)
+    def __init__(
+        self,
+        buy_at: int = 1,
+        stop: float = 90.0,
+        trail: float | None = 2.0,
+        after: float = 0.0,
+    ):
+        super().__init__(buy_at=buy_at, stop=stop, trail=trail, after=after)
 
     def prepare(self, df: pd.DataFrame) -> pd.DataFrame:
         out = df.copy()
@@ -27,7 +33,13 @@ class OneShot(Strategy):
 
     def signal(self, i: int, df: pd.DataFrame, position: float) -> Signal | None:
         if position == 0 and i == self.buy_at:
-            return Signal(Action.BUY, 'test', stop_loss=self.stop, trail_atr=self.trail)
+            return Signal(
+                Action.BUY,
+                'test',
+                stop_loss=self.stop,
+                trail_atr=self.trail,
+                trail_after_r=self.after,
+            )
         return None
 
 
@@ -71,6 +83,18 @@ class TrailingTests(unittest.TestCase):
         trades = eng.broker.trades
         self.assertEqual(len(trades), 1)
         self.assertLessEqual(trades[0].exit_price, 90.5)
+
+    def test_trail_can_wait_for_the_configured_r_gain(self) -> None:
+        # Immediate trail: the 105.5 peak sets 101.5, so the 95 gap exits at
+        # 95.  Delayed trail with after=1R is not armed yet, so the 90 stop
+        # survives that shakeout and the later 115 high arms it above 110.
+        prices = [100, 100, 100, 105, 95, 115, 111]
+        immediate = run(bars(prices), OneShot(after=0.0))
+        delayed = run(bars(prices), OneShot(after=1.0))
+        self.assertEqual(len(immediate.broker.trades), 1)
+        self.assertEqual(len(delayed.broker.trades), 1)
+        self.assertLess(immediate.broker.trades[0].exit_price, 100.0)
+        self.assertGreater(delayed.broker.trades[0].exit_price, 110.0)
 
     def test_gap_through_fixed_stop_fills_at_open(self) -> None:
         prices = [100, 100, 100, 95, 85]

@@ -125,3 +125,20 @@ for trail, hold, after in ((2.5, 100000, 1.5), (2.5, 100000, 2.0),
     print(f"noTP/trail{trail:g}{arm}/h{hold if hold < 100000 else 'none'}: "
           f"n={len(rets)} avg={sum(rets)/len(rets):.2f}% best={max(rets):.2f}% "
           f"worst={min(rets):.2f}% exits={reasons}")
+
+print('\n-- six-month folds (return / max DD / trades) --')
+cases = (
+    ('fixed 1.5R / 18', 1.5, None, 18, 0.0),
+    ('no TP / 18', None, None, 18, 0.0),
+    ('no TP / trail2.5 / none', None, 2.5, 100000, 0.0),
+    ('no TP / trail3 / 18', None, 3.0, 18, 0.0),
+    ('no TP / trail2.5 @1R / none', None, 2.5, 100000, 1.0),
+)
+for name, rr, trail, hold, after in cases:
+    cells = []
+    for k in range(4):
+        a = START + pd.Timedelta(days=182 * k)
+        b = START + pd.Timedelta(days=182 * (k + 1)) if k < 3 else BARS[-1].ts + pd.Timedelta(hours=4)
+        x = m(run([bar for bar in BARS if a <= bar.ts < b], rr, trail, hold, after))
+        cells.append(f"{x['ret']:+.1f}%/{x['dd']:.1f}%/{x['trades']}")
+    print(f"{name:30} " + '  '.join(cells))

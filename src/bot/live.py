@@ -188,7 +188,7 @@ class LiveTrader:
         if closed:
             self._save_state()
 
-        self._check_stop(bars, now)
+        self._check_exits(bars, now)
         position = self._position_qty()
         self._view(position, bars)
         self._status(bars, equity, position)
@@ -476,16 +476,29 @@ class LiveTrader:
             self._emit(f"[live] {bar.ts:%Y-%m-%d %H:%M} signal {signal.action.value} ignored (position {position})")
         self.state["last_ts"] = bar.ts.isoformat()
 
-    def _check_stop(self, bars: list[Bar], now: datetime) -> None:
-        """Spot stops are managed locally: Binance spot has no brackets."""
-        stop = self.state.get("stops", {}).get(self.symbol)
-        if stop is None or not bars:
+    def _check_exits(self, bars: list[Bar], now: datetime) -> None:
+        """Spot stops and targets are local: Binance spot has no brackets.
+
+        The stop is checked before the target, exactly like the engine: a bar
+        that touches both is booked as a loss, never as a win.  A target only
+        exists while the entry that set it is still open.
+        """
+        if not bars:
             return
         latest = bars[-1]
-        if latest.low <= stop and latest.ts + self.duration <= now:
-            qty = self._position_qty()
+        if latest.ts + self.duration > now:
+            return
+        stop = self.state.get("stops", {}).get(self.symbol)
+        target = self.state.get("tps", {}).get(self.symbol)
+        qty = self._position_qty()
+        if stop is not None and latest.low <= stop:
             self._exit(qty, stop, "stop", latest.ts, equity=self._last_equity)
             self._emit(f"[live] {latest.ts:%Y-%m-%d %H:%M} STOP hit ({stop:.2f} <= low {latest.low:.2f}) -> closed {self.symbol}")
+            return
+        if target is not None and latest.high >= target:
+            # Fill at the target level, the same convention the backtest uses.
+            self._exit(qty, target, "target", latest.ts, equity=self._last_equity)
+            self._emit(f"[live] {latest.ts:%Y-%m-%d %H:%M} TARGET hit ({target:.2f} <= high {latest.high:.2f}) -> closed {self.symbol}")
 
     def _status(self, bars: list[Bar], equity: float, position: float) -> None:
         if bars:

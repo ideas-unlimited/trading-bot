@@ -1,0 +1,61 @@
+{
+  "strategy": "swing_pullback_near",
+  "env": "paper",
+  "params_hash": "sha256:44136fa355b3678a",
+  "symbols": [
+    "NEAR/USDT"
+  ],
+  "timeframe": "4h",
+  "capital": 1000.0,
+  "promoted_at": "2026-11-28T08:14:47+00:00",
+  "promoted_by": "agent",
+  "override": false,
+  "override_reason": "",
+  "checks": [
+    {
+      "name": "backtest_bars",
+      "ok": true,
+      "detail": "bars=2191"
+    },
+    {
+      "name": "backtest_window",
+      "ok": true,
+      "detail": "window_days=365"
+    },
+    {
+      "name": "backtest_trades",
+      "ok": true,
+      "detail": "trades=61"
+    },
+    {
+      "name": "costs_modelled",
+      "ok": true,
+      "detail": "fee_bps=10.0, slippage_bps=5.0"
+    },
+    {
+      "name": "params_hash",
+      "ok": true,
+      "detail": "evidence=sha256:44136fa355b3678a expected=sha256:44136fa355b3678a"
+    }
+  ],
+  "evidence": {
+    "symbol": "NEAR/USDT",
+    "timeframe": "4h",
+    "window": "2025-11-28 .. 2026-11-28",
+    "bars": 2191,
+    "window_days": 365,
+    "trades": 61,
+    "fee_bps": 10.0,
+    "slippage_bps": 5.0,
+    "return_pct": 0.8601,
+    "max_drawdown": -0.1286,
+    "win_rate": 0.4918,
+    "profit_factor": 1.73,
+    "params_hash": "sha256:44136fa355b3678a",
+    "command": "python research/five_sleeves_promote.py  # swing_pullback_near on NEAR/USDT, 4h, 2025-11-28 .. 2026-11-28",
+    "note": "shipped sleeve re-run through Engine: next-open fills, stop-first intrabar, 3% risk, 10 bps fee + 5 bps slippage a side; window = last 365 days of a 455-day load"
+  },
+  "active": true,
+  "demoted_at": "",
+  "demote_reason": ""
+}

@@ -183,3 +183,27 @@ reads *no heartbeat* even if its status still says running - the database
 does not get to pretend a dead process is alive. `bot live` records equity
 and heartbeat every poll (opt-in via `record=True`, so tests never touch a
 database), and bookkeeping failures never stop trading.
+
+## D17 - Trailing is a preference for trend sleeves, not a rule (2026-11-28)
+
+The owner prefers a trailing exit over a fixed profit target, so a winner is not
+capped before a trend has a chance to run. That is a preference, not a
+condition: it is applied where it has been measured to pay, and an exit is
+otherwise chosen per strategy by measurement.
+
+Where it pays: the gated 4h book (+65.3% / -13.8% with a 1.5 ATR Chandelier
+trail against +50.0% / -23.4% with the fixed stop, same entries) and
+`momentum_swing`, which ships with no hard target and a 3.5 ATR trail.
+
+Where it does not: `wvfx_stoch`. A tight trail (1.5-3.5 ATR, 48 variants)
+survived out of sample 2 times; a wide trail with no target (5-7 ATR) raised the
+average out-of-sample trade (+3.2% vs +1.6%, positive on 5 of 5 majors) but
+lowered the account return (+16.6% median vs +20.5%) by holding ~75% longer.
+Mean reversion on a panic spike is the case where a target beats patience. See
+`research/WVFX_TUNE.md` and `research/wvfx_trailfit.py`.
+
+What it commits us to: keeps the 2.5R target as the `wvfx_stoch` default, keeps
+the trail in `BookConfig.trail_atr` and `momentum_swing`, and forbids applying
+either exit style to a new strategy without measuring it on that strategy. A
+genuine conflict is resolved by the holdout, not by the preference - but with
+the evidence level, the preference is the tie-breaker.
