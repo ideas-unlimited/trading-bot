@@ -3,10 +3,14 @@
 #
 #   1. the forward sleeve - tradingbot-forward picks the manifest up on its
 #      next cycle automatically (measurement, no orders);
-#   2. the live bot unit  - tradingbot@<name>, demo orders, Bots page.
+#   2. the live bot unit  - tradingbot@<strategy>-paper, demo orders, Bots page.
 #
 # Usage (on the box):
-#   sudo bash deploy/release_paper.sh <bot-name> <strategy-name>
+#   sudo bash deploy/release_paper.sh <strategy-name>
+#
+# Naming convention: bots are named <strategy>-<env> (capitulation_dip_uni-paper).
+# One symbol may carry several strategies and one box hosts both worlds, so a
+# short symbol name or a bare strategy name is never enough to be unambiguous.
 #
 # The env file is generated from the manifest, including the three risk knobs
 # (RISK_PER_TRADE / MAX_POSITION_PCT / MAX_DRAWDOWN_STOP) read from the
@@ -18,8 +22,8 @@
 # Idempotent: re-running a released bot verifies it instead of clobbering.
 set -euo pipefail
 
-name=${1:?usage: release_paper.sh <bot-name> <strategy-name>}
-strategy=${2:?usage: release_paper.sh <bot-name> <strategy-name>}
+strategy=${1:?usage: release_paper.sh <strategy-name>}
+name=${strategy}-paper
 
 [[ $EUID -eq 0 ]] || { echo "refused: run with sudo (writes /etc/tradingbot)" >&2; exit 1; }
 repo=/opt/trading-bot
@@ -142,4 +146,4 @@ sys.exit(0 if ok else 1)
 else
   echo "warn       bot active but not yet on /api/bots with a heartbeat; re-check in a minute" >&2
 fi
-echo "done       $name released: forward sleeve + live bot"
+echo "done       $name ($strategy) released: forward sleeve + live bot"

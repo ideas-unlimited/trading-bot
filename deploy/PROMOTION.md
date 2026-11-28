@@ -80,26 +80,35 @@ empty:
 - **`tradingbot-forward.service`** (already running) picks the new manifest
   up on its next cycle and replays the sleeve as a simulated wallet. This is
   the measurement harness - no orders, never on the Bots page.
-- **`tradingbot@<name>`** is the actual bot. Until it is started, the owner's
-  question "where is my bot?" has the honest answer "nowhere".
+- **`tradingbot@<strategy>-paper`** is the actual bot. Until it is started,
+  the owner's question "where is my bot?" has the honest answer "nowhere".
+
+**Naming convention: every bot is `<strategy>-<env>`.**
+`/etc/tradingbot/capitulation_dip_uni-paper.env`, systemd instance
+`tradingbot@capitulation_dip_uni-paper`, state
+`/var/lib/tradingbot/paper/capitulation_dip_uni-paper.json`. Never a bare
+symbol or a bare strategy name: one symbol may carry several strategies,
+and this one box hosts both paper and prod, so only `<strategy>-<env>` is
+unambiguous (the same strategy may run in both worlds at different capital).
 
 **The standard: a paper promotion is complete only when BOTH halves are
-live** - the forward sleeve replaying and the `tradingbot@<name>` unit
-running. A forward-only sleeve is a deliberate exception (e.g. two sleeves
-on one symbol) and must say so in its manifest evidence.
+live** - the forward sleeve replaying and the `tradingbot@<strategy>-paper`
+unit running. A forward-only sleeve is a deliberate exception (e.g. two
+sleeves on one symbol) and must say so in its manifest evidence.
 
 Release is one command on the box, after commit -> push -> `sudo bash
 /opt/trading-bot/deploy/update.sh`:
 
-    sudo bash /opt/trading-bot/deploy/release_paper.sh <bot-name> <strategy-name>
+    sudo bash /opt/trading-bot/deploy/release_paper.sh <strategy-name>
 
-It reads the manifest (symbol, timeframe, capital and the three measured
-risk knobs from `evidence`), writes `/etc/tradingbot/<name>.env`, starts
-`tradingbot@<name>`, verifies the demo-account journal line, the Bots-page
-registration and the heartbeat, and refuses any manifest whose evidence
-does not carry `risk_per_trade`, `max_position_pct` and `max_drawdown_stop`.
-It never clobbers an existing env file and is idempotent - re-running a
-released bot just verifies it.
+It derives the bot name as `<strategy>-paper`, reads the manifest (symbol,
+timeframe, capital and the three measured risk knobs from `evidence`),
+writes `/etc/tradingbot/<strategy>-paper.env`, starts
+`tradingbot@<strategy>-paper`, verifies the demo-account journal line, the
+Bots-page registration and the heartbeat, and refuses any manifest whose
+evidence does not carry `risk_per_trade`, `max_position_pct` and
+`max_drawdown_stop`. It never clobbers an existing env file and is
+idempotent - re-running a released bot just verifies it.
 
 After releasing (and any time the question "where is my bot?" comes up):
 
@@ -113,15 +122,15 @@ unavailable:
 1. **Manifest landed.** `journalctl -u tradingbot-forward -n 20` shows the
    new sleeve under `active runner(s)`, and
    `/var/lib/tradingbot/paper/<strategy>/forward/status.json` exists.
-2. **Start the bot itself.** Create `/etc/tradingbot/<name>.env`
-   (name is a short bot name: `uni`, `jup`, ...):
+2. **Start the bot itself.** Create `/etc/tradingbot/<strategy>-paper.env`
+   (naming convention: `<strategy>-<env>`, never a short symbol name):
 
    ```
    SYMBOL=UNI/USDT
    INTERVAL=4h
    STRATEGY=capitulation_dip_uni
    CAPITAL=1000
-   STATE=/var/lib/tradingbot/paper/uni.json
+   STATE=/var/lib/tradingbot/paper/capitulation_dip_uni-paper.json
    POLL=60
    BOT_ENV=paper
    RISK_PER_TRADE=0.05
@@ -131,7 +140,7 @@ unavailable:
 
    plus `HEARTBEAT_URL=` copied from `/etc/tradingbot/forward.env` (copy it
    on the box; never paste it into chat). `chmod 640 root:trader` the file.
-   Then `sudo systemctl enable --now tradingbot@<name>`.
+   Then `sudo systemctl enable --now tradingbot@<strategy>-paper`.
 
    **The three risk knobs are not optional.** `run_bot.sh` defaults them to
    1% / 95% / a 10% brake, which is nobody's measured profile. They must
@@ -145,7 +154,7 @@ unavailable:
    a sleeve measured at a different profile is only mirrored exactly by its
    own `bot live` process.
 3. **Verify the bot is really alive**, all four:
-   - `journalctl -u tradingbot@<name>` shows "paper trading <SYMBOL> @ <tf>
+   - `journalctl -u tradingbot@<strategy>-paper` shows "paper trading <SYMBOL> @ <tf>
      on Binance DEMO account" and the first poll line (anchored to now,
      skipping historical bars). **A fresh bot is flat until the next bar
      close** - "position=flat" on a 4h bot at 08:30 is correct, not a fault.
@@ -156,14 +165,14 @@ unavailable:
      raised `TypeError: Object of type Decimal is not JSON serializable`
      (NUMERIC columns) and the Bots page showed no bots at all while every
      unit and heartbeat was healthy.
-   - `/var/lib/tradingbot/paper/<name>.json` holds `last_ts`, and once the
+   - `/var/lib/tradingbot/paper/<strategy>-paper.json` holds `last_ts`, and once the
      bot is in a trade it holds **both** `stops` and `tps` for the symbol.
      A stop without a target means the bot will hold past its fixed-R exit:
      `bot live` checked only the stop until 2026-11-28, so a sleeve measured
      with a target ran a different rule live than in its backtest.
    - the Bots page shows it running with the position, stop and target.
 4. **Trade alerts are shared, not per-bot.** Every live
-   `tradingbot@<name>` reads `/etc/tradingbot/alerts.env`; there is no
+   `tradingbot@<strategy>-paper` reads `/etc/tradingbot/alerts.env`; there is no
    per-bot alert setting. Configure it once (README, "Trade alerts"), then
    confirm this bot's startup log says `[live] trade alerts: ntfy` (or
    `telegram` / `email`). If it says `trade alerts off`, fix the shared
