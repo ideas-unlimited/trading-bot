@@ -36,7 +36,7 @@
   .view { display: none; padding: 20px 22px 60px; max-width: 1240px; }
   .view.on { display: block; }
   .grid { display: grid; gap: 12px; }
-  .cols-2 { grid-template-columns: 360px 1fr; align-items: start; }
+  .cols-2 { grid-template-columns: 440px 1fr; align-items: start; }
   @media (max-width: 980px) { .cols-2 { grid-template-columns: 1fr; } }
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
   .card h2 { display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -79,7 +79,8 @@
   .badge.demo { color: #f0b90b; border-color: #4a3a12; background: #221c0b; }
   .badge.live { color: var(--good); border-color: #17402c; background: #0c1f16; }
   .badge.muted { color: var(--muted); }
-  .alloc { height: 4px; background: #1d2530; border-radius: 2px; overflow: hidden; min-width: 60px; }
+  .alloc { height: 4px; background: #1d2530; border-radius: 2px; overflow: hidden; width: 100%; }
+  th.alloch, td.alloch { width: 104px; padding-right: 2px; }
   .alloc i { display: block; height: 100%; background: var(--accent); }
   .empty { text-align: center; color: var(--muted); padding: 22px 10px; font-size: 12px; }
   svg#chart, svg#eqChart { width: 100%; height: 250px; display: block; }
@@ -578,13 +579,13 @@ async function loadDashboard(){
     ["unrealized p&l", pnlTxt, "marked to market", cls(upnl)],
   ].map(([k,v,d,c]) => `<div class="metric"><div class="k">${k}</div><div class="v ${c}">${v}</div><div class="d">${esc(d)}</div></div>`).join("");
 
-  assets.innerHTML = `<tr><th>asset</th><th>qty</th><th>price</th><th>value</th><th>allocation</th></tr>` +
+  assets.innerHTML = `<tr><th>asset</th><th>qty</th><th>price</th><th>value</th><th class="alloch">allocation</th></tr>` +
     a.assets.map(x => {
       const share = Math.min(100, Math.max(0, Number(x.share||0)*100));
       return `<tr><td><b>${esc(x.asset)}</b></td><td>${qtyFmt(x.total)}</td>
-        <td>${x.price == null ? "—" : money(x.price, x.price >= 100 ? 2 : 4)}</td>
+        <td>${x.price == null ? "—" : money(x.price, x.price >= 1 ? 2 : x.price >= 0.01 ? 4 : 6)}</td>
         <td>${x.value == null ? "—" : money(x.value)}</td>
-        <td><div class="alloc"><i style="width:${share.toFixed(1)}%"></i></div></td></tr>`;
+        <td class="alloch"><div class="alloc"><i style="width:${share.toFixed(1)}%"></i></div></td></tr>`;
     }).join("");
   hint.textContent = `priced in USDT · ${a.assets.length} asset${a.assets.length===1?"":"s"}` + (a.as_of ? ` · ${dt(a.as_of)}` : "");
 
