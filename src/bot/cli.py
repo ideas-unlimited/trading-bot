@@ -18,12 +18,18 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .exchange.live_client import BinanceLiveClient, interval_for, split_symbol
+# Live lookback floor in days (see cmd_live): fetch at least this much of the
+# bot's own timeframe every poll, regardless of what a fixed bar count would
+# shrink to on a faster chart.
+LIVE_LOOKBACK_DAYS = 100
+
+from .exchange.live_client import BinanceLiveClient, duration_for, interval_for, split_symbol
 from .alerts import AlertServer, MirrorAccount, random_token
 from .backtest import run_backtest
 from .book import (
@@ -351,9 +357,16 @@ def cmd_live(args: argparse.Namespace) -> int:
             return 2
 
     strategy = build(args.strategy, **_parse_params(args.param))
+    # Day-based lookback floor: a fixed bar count shrinks with the timeframe
+    # (400 bars is ~66 days on 4h but ~4 days on 15m), which starves any
+    # strategy carrying higher-timeframe context.  Always fetch at least
+    # LIVE_LOOKBACK_DAYS of the bot's own timeframe plus its indicator
+    # warmup, so a 15m bot and a 4h bot both see a century of context.
+    bars_100d = math.ceil(timedelta(days=LIVE_LOOKBACK_DAYS) / duration_for(args.interval))
+    lookback = max(strategy.warmup + 2, bars_100d, args.lookback)
     notifier = Notifier.from_env()
     client = BinanceLiveClient()
-    bars = client.fetch_bars(args.symbol, args.interval, limit=max(strategy.warmup + 2, 300))
+    bars = client.fetch_bars(args.symbol, args.interval, limit=lookback)
     config = _config(args, bars)
     LiveTrader(
         client,
@@ -363,7 +376,7 @@ def cmd_live(args: argparse.Namespace) -> int:
         args.interval,
         state_path=args.state,
         poll=args.poll,
-        lookback=max(strategy.warmup + 2, args.lookback),
+        lookback=lookback,
         capital=args.capital,
         heartbeat_url=args.heartbeat_url,
         heartbeat_every=args.heartbeat_every,

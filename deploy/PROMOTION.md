@@ -158,6 +158,12 @@ unavailable:
      on Binance DEMO account" and the first poll line (anchored to now,
      skipping historical bars). **A fresh bot is flat until the next bar
      close** - "position=flat" on a 4h bot at 08:30 is correct, not a fault.
+     Every poll re-fetches at least **100 days of the bot's own timeframe**
+     plus its indicator warmup from the venue (`LIVE_LOOKBACK_DAYS` in
+     `src/bot/cli.py`) - a day-based floor, because a fixed bar count
+     shrinks with the timeframe (400 bars is ~66 days on 4h but ~4 days on
+     15m). Restarts carry no warmup penalty: indicators are recomputed on
+     the full fetched window every poll.
    - the monitor really answers:
      `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:9000/api/bots`
      must print `200`, and the body must list the bot. A 500 or an empty
