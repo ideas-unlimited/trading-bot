@@ -695,7 +695,8 @@ def cmd_forward(args: argparse.Namespace) -> int:
     from .notify import Notifier
 
     env = envcfg.env_name()
-    notifier = Notifier.from_env()
+    # Forward is a shadow replay, not a trade: silent unless explicitly asked.
+    notifier = Notifier.from_env() if args.alerts else None
     # Resolve after env_name(): that call loads .env, so the heartbeat URL may
     # live in the repo dotfile, a systemd EnvironmentFile, or the shell.
     heartbeat_url = args.heartbeat_url or os.environ.get("HEARTBEAT_URL", "")
@@ -721,7 +722,7 @@ def cmd_forward(args: argparse.Namespace) -> int:
                   f"  ${spec['capital']:,.0f}")
         print(f"risk       {args.risk_per_trade:.1%}/trade   cap {args.max_position_pct:.0%}"
               f"   fees {args.fee_bps:g}/{args.slippage_bps:g} bps")
-        print(f"alerts     {notifier.describe() or 'off'}")
+        print(f"alerts     {(notifier.describe() if notifier else None) or 'off (forward replay)'}")
         print()
         if args.once:
             if not specs:
@@ -799,7 +800,7 @@ def cmd_forward(args: argparse.Namespace) -> int:
     print(f"wallet     ${args.initial_cash:,.0f}   risk {args.risk_per_trade:.1%}/trade"
           f"   cap {args.max_position_pct:.0%}")
     print(f"data       {args.source} {args.interval}  window {args.days}d")
-    print(f"alerts     {notifier.describe() or 'off'}")
+    print(f"alerts     {notifier.describe() if notifier else 'off (forward replay)'}")
     print()
     if args.once:
         payload = run_cycle(notifier=notifier, **kwargs)
@@ -1203,6 +1204,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_fwd.add_argument("--heartbeat-every", type=float, default=1800.0,
                        help="seconds between pings")
     p_fwd.add_argument("--once", action="store_true", help="one cycle then exit (Task Scheduler)")
+    p_fwd.add_argument("--alerts", action="store_true",
+                       help="also send trade alerts from this replay (off by default)")
     p_fwd.add_argument("--outdir", default=None,
                        help="single-sleeve override; defaults to runs/<env>/<strategy>/forward")
     p_fwd.set_defaults(func=cmd_forward)
@@ -1210,7 +1213,7 @@ def build_parser() -> argparse.ArgumentParser:
         "notify-test", help="send a test message through the configured alert channels"
     )
     p_notify.add_argument("--env-file", default=None,
-                         help="read alert settings from this file (e.g. forward.env)")
+                         help="read alert settings from this file (e.g. alerts.env)")
     p_notify.set_defaults(func=cmd_notify_test)
     p_pool = sub.add_parser("pool", help="show or edit per-symbol parameters")
     p_pool.add_argument("--file", default=None, help="defaults to config/target_symbols.json")

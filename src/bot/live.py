@@ -351,6 +351,7 @@ class LiveTrader:
                 "timeframe": self.timeframe,
                 "env": (os.environ.get("BOT_ENV") or "paper").strip().lower() or "paper",
                 "ts": ts,
+                "entry": entry_price if entry_price is not None else (price if side == "buy" else None),
                 "price": price,
                 "qty": qty,
                 "notional": float(qty) * float(price),
@@ -373,6 +374,8 @@ class LiveTrader:
         """Close the position and record the sell with its realized P&L."""
         entry = self.state.get("entries", {}).get(self.symbol) or {}
         entry_price = float(entry.get("price") or 0.0)
+        stop = self.state.get("stops", {}).get(self.symbol)
+        take_profit = self.state.get("tps", {}).get(self.symbol)
         entry_ts = None
         if entry.get("ts"):
             try:
@@ -391,7 +394,8 @@ class LiveTrader:
         # State is saved before the (possibly slow) alert, so a crash during
         # delivery cannot make the loop close the same position twice.
         self._alert_fill(
-            "sell", qty, price, why=why, realized=realized,
+            "sell", qty, price, why=why, stop=stop,
+            take_profit=take_profit, realized=realized,
             entry_price=entry_price, entry_ts=entry_ts, ts=ts, equity=equity,
         )
 

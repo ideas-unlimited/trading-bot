@@ -53,11 +53,16 @@ class TestFormat(unittest.TestCase):
             "side": "buy", "strategy": "capitulation_dip_uni",
             "symbol": "UNI/USDT", "timeframe": "4h", "env": "paper",
             "ts": T0, "price": 4.8123, "qty": 12.5, "notional": 60.15,
-            "stop": 4.7, "take_profit": 5.1, "reason": "capitulation",
+            "entry": 4.8123, "stop": 4.7, "take_profit": 5.1,
+            "reason": "capitulation",
             "wallet": 1_000.0, "deploy_equity": 1_000.0,
         })
-        self.assertEqual(subject, "[paper] BUY UNI/USDT - capitulation_dip_uni")
+        self.assertEqual(
+            subject,
+            "capitulation_dip_uni:buy:4.8123: 4.8123/4.7000/5.1000",
+        )
         self.assertIn("TRADE OPENED", body)
+        self.assertIn("entry     4.8123", body)
         self.assertIn("price     4.8123", body)
         self.assertIn("stop      4.7000", body)
         self.assertIn("target    5.1000", body)
@@ -69,11 +74,16 @@ class TestFormat(unittest.TestCase):
             "side": "sell", "strategy": "capitulation_dip_uni",
             "symbol": "UNI/USDT", "timeframe": "4h", "env": "paper",
             "ts": T0, "price": 5.0, "qty": 12.5, "notional": 62.5,
+            "entry": 4.8123, "stop": 4.7, "take_profit": 5.1,
             "pnl": 12.34, "return_pct": 0.042, "held_hours": 72.5,
             "reason": "take profit (5.1000)", "wallet": 1_012.34,
         })
-        self.assertIn("+$12.34", subject)
+        self.assertEqual(
+            subject,
+            "capitulation_dip_uni:sell:5.0000: 4.8123/4.7000/5.1000",
+        )
         self.assertIn("TRADE CLOSED", body)
+        self.assertIn("entry     4.8123", body)
         self.assertIn("pnl       +$12.34  (+4.20%)", body)
         self.assertIn("held      72.5h", body)
         self.assertIn("take profit (5.1000)", body)

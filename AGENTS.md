@@ -119,14 +119,14 @@ when you hit a new environment quirk and solve it, add it here and commit.
   active manifest, and refuses a parameter set whose hash differs from the
   promoted one. Use it to validate a target-bearing sleeve; `bot live`
   still drops `take_profit`.
-- **Forward fills can alert, but only after the pin.** One optional message per
-  new entry/exit (email, Telegram or ntfy) is wired into the forward replay;
-  `status.json` stores a fill-key cursor, so history is never replayed as a
-  burst and a restart does not duplicate a fill. A failed send keeps the
-  cursor and retries next cycle. The forward runner and every live
-  `tradingbot@<name>` bot share `/etc/tradingbot/alerts.env` (template
-  `deploy/alerts.env.example`); verify with `bot notify-test --env-file ...`;
-  alerts off by default, and an alert failure is logged, never fatal.
+- **Live fills alert; the forward replay is silent.** Every live
+  `tradingbot@<name>` bot reads `/etc/tradingbot/alerts.env` (template
+  `deploy/alerts.env.example`) and sends one email/Telegram/ntfy message per
+  entry and exit, subject `strategy:side:price: entry/sl/tp`. Forward is a
+  shadow replay, so its unit does not read that file; `bot forward --alerts`
+  opts in manually, and its fill-key cursor then prevents history replay.
+  Verify with `bot notify-test --env-file ...`; alerts off by default, and an
+  alert failure is logged, never fatal.
 - **The pin is per window.** If the replay window's start moves by more than
   two days (history cap changed, a coin delisted, backfill), the pin is
   re-taken at the current equity and `repinned_at` records the old deploy

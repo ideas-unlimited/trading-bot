@@ -4,7 +4,7 @@ These are trade notifications, not a trading path.  A missing SMTP password
 or an expired Telegram token must never stop the forward runner, so every
 channel is best-effort and Notifier never raises.  Channels are configured
 from the process environment (on the server the systemd EnvironmentFile at
-/etc/tradingbot/forward.env), never from git: an SMTP password and a bot
+/etc/tradingbot/alerts.env), never from git: an SMTP password and a bot
 token are secrets.
 
 Email uses the standard library (SMTP with STARTTLS by default); Telegram
@@ -81,7 +81,6 @@ def format_trade(event: Mapping[str, Any]) -> tuple[str, str]:
     action = "BUY" if is_buy else "SELL"
     symbol = str(event.get("symbol") or "?")
     strategy = str(event.get("strategy") or "?")
-    env = str(event.get("env") or "paper")
     timeframe = str(event.get("timeframe") or "")
     ts = event.get("ts")
     price = event.get("price", 0.0)
@@ -89,6 +88,9 @@ def format_trade(event: Mapping[str, Any]) -> tuple[str, str]:
     notional = event.get("notional")
     stop = event.get("stop")
     take_profit = event.get("take_profit")
+    entry = event.get("entry")
+    if entry is None and is_buy:
+        entry = price
     pnl = event.get("pnl")
     return_pct = event.get("return_pct")
     held_hours = event.get("held_hours")
@@ -96,9 +98,13 @@ def format_trade(event: Mapping[str, Any]) -> tuple[str, str]:
     wallet = event.get("wallet")
     deploy_equity = event.get("deploy_equity")
 
-    subject = f"[{env}] {action} {symbol} - {strategy}"
-    if not is_buy and pnl is not None:
-        subject += f"  {_signed_money(pnl)}"
+    def level(value: Any) -> str:
+        return _price(value) if value is not None else "?"
+
+    subject = (
+        f"{strategy}:{side}:{_price(price)}: "
+        f"{level(entry)}/{level(stop)}/{level(take_profit)}"
+    )
 
     lines = [
         "TRADE OPENED" if is_buy else "TRADE CLOSED",
@@ -107,6 +113,8 @@ def format_trade(event: Mapping[str, Any]) -> tuple[str, str]:
     ]
     if ts is not None:
         lines.append(f"filled    {_utc(ts)}")
+    if entry is not None:
+        lines.append(f"entry     {_price(entry)}")
     lines.append(f"price     {_price(price)}")
     lines.append(f"qty       {_qty(qty)}")
     if notional is not None:

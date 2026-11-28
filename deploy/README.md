@@ -160,27 +160,29 @@ a position.
 
 ## Trade alerts (email, Telegram, ntfy)
 
-The forward runner can send one message when it books a fill: **TRADE
-OPENED** at the next-open entry and **TRADE CLOSED** with the realised P&L
-and exit reason.  The cursor lives in each sleeve's `status.json`; the first
-cycle after the feature is installed only anchors it, so the historical
-replay is never sent as a burst of old trades.  A fill is sent once.  If
-every channel fails, the cursor stays put and the next cycle retries it.
+The live `tradingbot@<name>` bots send one message when they book a fill:
+**TRADE OPENED** at entry and **TRADE CLOSED** with the realised P&L and
+exit reason.  The subject is compact, e.g.
+`capitulation_dip_uni:buy:4.8123: 4.8123/4.7000/5.1000` —
+`strategy:side:price: entry/sl/tp` — and the body carries the details.
 
-Alerts are off until at least one channel is configured.  Both the forward
-runner and every live `tradingbot@<name>` bot read one shared file,
-`/etc/tradingbot/alerts.env` (template: `deploy/alerts.env.example`).  Each
-says `trade alerts: ...` (or `off`) at startup.  `EnvironmentFile=-` means a
-missing file or an empty value is not an error; the live bot and the forward
-replay use the same channels.
+The forward runner is deliberately **silent by default**: it is a shadow
+replay, not a trade, so it would duplicate the live message.  `bot forward
+--alerts` opts in for a manual check; the systemd unit does not pass it, and
+its cursor still prevents replaying history.
 
-Edit the shared file, then restart the loop(s) and verify:
+Alerts are off until at least one channel is configured.  Every live
+`tradingbot@<name>` bot reads `/etc/tradingbot/alerts.env` (template:
+`deploy/alerts.env.example`).  Each says `trade alerts: ...` (or `off`) at
+startup.  `EnvironmentFile=-` means a missing file or an empty value is not
+an error.
+
+Edit the shared file, then restart the live bot(s) and verify:
 
 ```bash
 sudo vi /etc/tradingbot/alerts.env
 sudo -u trader /opt/trading-bot/.venv/bin/bot notify-test \
   --env-file /etc/tradingbot/alerts.env
-sudo systemctl restart tradingbot-forward
 sudo systemctl restart 'tradingbot@uni'   # repeat for each live bot you run
 ```
 

@@ -203,6 +203,7 @@ def _notify_fills(
             "timeframe": timeframe,
             "env": env,
             "ts": fill.ts,
+            "entry": trade.entry_price if trade is not None else fill.price,
             "price": fill.price,
             "qty": fill.qty,
             "notional": fill.notional,

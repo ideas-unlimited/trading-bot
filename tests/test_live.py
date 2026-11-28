@@ -305,6 +305,7 @@ class LiveAlertTests(unittest.TestCase):
             self.assertEqual(len(capture.calls), 1)
             event = capture.calls[0]
             self.assertEqual(event["side"], "buy")
+            self.assertEqual(event["entry"], bars[-1].close)
             self.assertEqual(event["stop"], 90.0)
             self.assertEqual(event["take_profit"], 120.0)
             self.assertEqual(event["ts"], bars[-1].ts)
@@ -320,6 +321,7 @@ class LiveAlertTests(unittest.TestCase):
                 "qty": 2.0, "price": 100.0, "ts": opened.isoformat(),
             }
             trader.state["stops"]["BTC/USDT"] = 90.0
+            trader.state["tps"]["BTC/USDT"] = 120.0
             trader._exit(
                 2.0, 110.0, "take profit", opened + timedelta(days=1),
                 equity=1_020.0,
@@ -329,6 +331,9 @@ class LiveAlertTests(unittest.TestCase):
             self.assertEqual(len(capture.calls), 1)
             event = capture.calls[0]
             self.assertEqual(event["side"], "sell")
+            self.assertEqual(event["entry"], 100.0)
+            self.assertEqual(event["stop"], 90.0)
+            self.assertEqual(event["take_profit"], 120.0)
             self.assertEqual(event["pnl"], 20.0)
             self.assertAlmostEqual(event["return_pct"], 0.10)
             self.assertEqual(event["held_hours"], 24.0)

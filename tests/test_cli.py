@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from bot.cli import main
+from bot.cli import build_parser, main
 
 
 def run_cli(*argv):
@@ -16,6 +16,11 @@ def run_cli(*argv):
 
 
 class TestCli(unittest.TestCase):
+    def test_forward_alerts_are_opt_in(self):
+        parser = build_parser()
+        self.assertFalse(parser.parse_args(["forward", "--all"]).alerts)
+        self.assertTrue(parser.parse_args(["forward", "--all", "--alerts"]).alerts)
+
     def test_strategies_lists_registered_names(self):
         code, out = run_cli("strategies")
         self.assertEqual(code, 0)
