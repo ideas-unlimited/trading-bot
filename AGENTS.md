@@ -204,6 +204,11 @@ when you hit a new environment quirk and solve it, add it here and commit.
 
 ## Bots page (monitor + kill switch)
 
+- **Forward sleeves are not bots.** They have no `bots` row, heartbeat or
+  kill switch; one process replays every active manifest and writes
+  `<state>/<strategy>/forward/status.json`. The Dashboard's **Forward paper
+  sleeves** card reads `/api/forward` and is the place to see them. The Bots
+  page stays empty unless a real `bot live` loop is registered.
 - Bots are **created and promoted from lab**; paper and prod do not have a
   create form. The Bots page is a monitor: per loop it shows state, equity,
   run rate, the position (entry, mark, unrealized P&L), the **local stop and
@@ -300,6 +305,12 @@ when you hit a new environment quirk and solve it, add it here and commit.
   `BookSpec.symbol_params` carries a coin's overrides through the replay, and
   `bot auto --pool config/target_symbols.json` runs one $1,000 wallet per coin
   (all "book defaults" until a coin ships its sleeve).
+- **Stage your own hunks, not your own files.** `web.py`,
+  `web/index.html`, `strategy/__init__.py` and this file are edited by several
+  agents at once, so one of them can hold someone else's uncommitted work.
+  `git add <file>` then sweeps it in (happened 2026-11-28: a peer's finished
+  forward-card work rode along in a favicon commit). Read `git diff <file>`
+  first, stage with `git add -p`, and never `git add -A` or `git commit -a`.
 - `src/bot/strategy/__init__.py` is a **shared file** (strategy registry) —
   always re-read it immediately before editing; another agent may have added
   a strategy while you worked.
