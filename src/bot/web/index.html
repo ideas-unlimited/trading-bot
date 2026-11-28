@@ -85,8 +85,7 @@
   .alloc i { display: block; height: 100%; background: var(--accent); }
   .empty { text-align: center; color: var(--muted); padding: 22px 10px; font-size: 12px;
            white-space: normal; line-height: 1.6; }
-  svg#chart, svg#eqChart { width: 100%; height: 250px; display: block; }
-  .error { background: #241316; border: 1px solid #5c2731; color: #f3b0ab;
+    .error { background: #241316; border: 1px solid #5c2731; color: #f3b0ab;
            border-radius: 8px; padding: 9px 13px; margin: 10px 0; }
   .scroll { max-height: 320px; overflow: auto; }
   .hidden { display: none !important; }
@@ -115,10 +114,7 @@
   <a data-view="dashboard" class="on">Dashboard</a>
   <a data-view="bots">Bots</a>
   <a data-view="strategies">Strategies</a>
-  <a data-view="backtest">Backtest</a>
-  <a data-view="scan">Scan</a>
-  <a data-view="trades">Trades &amp; P&L</a>
-  <a data-view="data">Data</a>
+  <a data-view="trades">P&amp;L</a>
   <div class="foot">{{ENV_FOOT}}</div>
 </nav>
 <main>
@@ -147,10 +143,6 @@
       <h2>Live bots <span id="botsCount" class="badge muted">0 running</span></h2>
       <table id="dashBots"></table>
     </div>
-    <div class="card" style="margin-top:12px">
-      <h2>Recent runs</h2>
-      <table id="dashRuns"></table>
-    </div>
   </div>
 
   <!-- ================= BOTS ================= -->
@@ -159,11 +151,7 @@
       <div class="card">
         <h2>Create bot</h2>
         <label>Bot name</label>
-        <input type="text" id="botName" placeholder="e.g. BTC hourly SMA">
-        <label>Market</label>
-        <div class="chips" id="marketChips">
-          <span class="chip on" data-mkt="crypto">Crypto</span>
-        </div>
+        <input type="text" id="botName" placeholder="e.g. UNI dip 4h">
         <label>Ticker</label>
         <select id="botSymbol"></select>
         <div class="hint" id="botFeedHint"></div>
@@ -171,11 +159,6 @@
         <div class="chips" id="botTf"></div>
         <label>Strategy</label>
         <select id="botStrategy"></select>
-        <label>My presets</label>
-        <div class="row">
-          <select id="botPreset"><option value="">— none —</option></select>
-          <button class="small ghost" id="btnReloadPresets" style="flex:0 0 auto">↻</button>
-        </div>
         <div id="botParams"></div>
         <details style="margin-top:8px">
           <summary style="cursor:pointer;font-size:11.5px;color:var(--muted)">Risk &amp; costs</summary>
@@ -185,130 +168,30 @@
           </div>
           <div class="row">
             <div><label>Fee bps</label><input type="number" id="botFee" value="10"></div>
+            <div><label>Slippage bps</label><input type="number" id="botSlip" value="5"></div>
+          </div>
+          <div class="row">
+            <div><label>Max position %</label><input type="number" id="botMaxPos" value="95"></div>
             <div><label>Max DD %</label><input type="number" id="botMaxDD" value="25"></div>
           </div>
         </details>
         <button class="primary" id="btnCreateBot">Create bot</button>
-        <button class="ghost" id="btnSavePreset">Save current settings as strategy preset</button>
       </div>
       <div>
         <div class="card" style="margin-bottom:14px">
           <h2>Bots</h2>
           <table id="botsTable"></table>
         </div>
-        <div class="card">
-          <h2>Run history</h2>
-          <div class="scroll"><table id="runsTable"></table></div>
-        </div>
       </div>
-    </div>
-    <div class="card hidden" id="botRunCard" style="margin-top:14px">
-      <h2 id="botRunTitle">Run</h2>
-      <div class="metrics" id="botRunMetrics"></div>
-      <svg id="botCandles"></svg>
-      <svg id="eqChart" style="height:180px"></svg>
-      <div class="scroll" style="margin-top:10px"><table id="botRunTrades"></table></div>
     </div>
   </div>
 
   <!-- ================= STRATEGIES ================= -->
   <div class="view" id="view-strategies">
-    <div class="grid cols-2">
-      <div class="card">
-        <h2 id="builtinTitle">Strategies</h2>
-        <div id="builtinList"></div>
-        <div class="hint" id="builtinHint"></div>
-      </div>
-      <div class="card">
-        <h2>My strategy presets</h2>
-        <div class="row"><div><label>Preset name</label><input type="text" id="sgName" placeholder="e.g. SMA fast 10/30"></div></div>
-        <label>Strategy</label>
-        <select id="sgKind"></select>
-        <div id="sgParams"></div>
-        <button class="primary" id="btnSavePreset2">Save preset</button>
-        <div class="hint">Saving with an existing name updates that preset.</div>
-        <table id="presetsTable" style="margin-top:12px"></table>
-      </div>
-    </div>
-  </div>
-
-  <!-- ================= BACKTEST ================= -->
-  <div class="view" id="view-backtest">
-    <div class="grid cols-2">
-      <div class="card">
-        <h2>Backtest</h2>
-        <label>Market</label>
-        <div class="chips" id="btMarketChips">
-          <span class="chip on" data-mkt="crypto">Crypto</span>
-        </div>
-        <label>Data feed</label>
-        <div class="chips" id="btFeedChips">
-          <span class="chip on" data-feed="binance">Binance</span>
-          <span class="chip" data-feed="tv">TradingView</span>
-        </div>
-        <label>Ticker</label>
-        <select id="btSymbol"></select>
-        <label>Timeframe</label>
-        <div class="chips" id="btTf"></div>
-        <label>Strategy</label>
-        <select id="btStrategy"></select>
-        <div id="btParams"></div>
-        <label>Lookback (days)</label>
-        <input type="number" id="btDays" value="365" min="30" max="3000">
-        <details style="margin-top:8px">
-          <summary style="cursor:pointer;font-size:11.5px;color:var(--muted)">Costs &amp; risk</summary>
-          <div class="row">
-            <div><label>Initial $</label><input type="number" id="btInitialCash" value="10000"></div>
-            <div><label>Risk/trade %</label><input type="number" id="btRisk" value="1" step="0.1"></div>
-          </div>
-          <div class="row">
-            <div><label>Fee bps</label><input type="number" id="btFee" value="10"></div>
-            <div><label>Slippage bps</label><input type="number" id="btSlip" value="5"></div>
-          </div>
-          <div class="row">
-            <div><label>Max pos %</label><input type="number" id="btMaxPos" value="95"></div>
-            <div><label>Max DD %</label><input type="number" id="btMaxDD" value="25"></div>
-          </div>
-        </details>
-        <button class="primary" id="btnBacktest">Run backtest</button>
-      </div>
-      <div class="card" id="btResult">
-        <h2 id="btTitle">Results</h2>
-        <div class="metrics" id="btMetrics"></div>
-        <svg id="candles"></svg>
-        <svg id="chart" style="height:180px"></svg>
-        <div class="hint" style="text-align:right">top: price candles with trade markers · bottom: equity (strategy vs buy &amp; hold)</div>
-        <h2 style="margin-top:14px">Trades (last 50)</h2>
-        <div class="scroll"><table id="btTrades"></table></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ================= SCAN ================= -->
-  <div class="view" id="view-scan">
-    <div class="grid cols-2">
-      <div class="card">
-        <h2>Scan timeframes × strategies</h2>
-        <label>Symbols (comma separated)</label>
-        <input type="text" id="scSymbols" value="BTC/USDT">
-        <label>Data feed</label>
-        <div class="chips" id="scFeedChips">
-          <span class="chip on" data-feed="binance">Binance</span>
-          <span class="chip" data-feed="tv">TradingView</span>
-        </div>
-        <label>Timeframes</label>
-        <div class="chips" id="scTf"></div>
-        <label>Strategies</label>
-        <div class="chips" id="scStrategies"></div>
-        <label>Lookback (days)</label>
-        <input type="number" id="scDays" value="365" min="30" max="3000">
-        <button class="primary" id="btnScan">Run scan</button>
-        <div class="hint">Compares every (symbol × timeframe × strategy) backtest on the same costs. Ranked by Sharpe. Watch the buy &amp; hold column and the trade count — small samples lie.</div>
-      </div>
-      <div class="card">
-        <h2>Results</h2>
-        <table id="scanTable"></table>
-      </div>
+    <div class="card">
+      <h2 id="builtinTitle">Promoted strategies</h2>
+      <table id="strategyTable"></table>
+      <div class="hint">Only a promotion manifest makes a strategy tradeable here. Tune on lab, promote the package, then deploy.</div>
     </div>
   </div>
 
@@ -327,35 +210,6 @@
     </div>
   </div>
 
-  <!-- ================= DATA ================= -->
-  <div class="view" id="view-data">
-    <div class="grid cols-2">
-      <div class="card">
-        <h2>Ingest market data → Postgres</h2>
-        <label>Market</label>
-        <div class="chips" id="ingMarketChips">
-          <span class="chip on" data-mkt="crypto">Crypto</span>
-        </div>
-        <label>Data feed</label>
-        <div class="chips" id="ingFeedChips">
-          <span class="chip on" data-feed="binance">Binance</span>
-          <span class="chip" data-feed="tv">TradingView</span>
-        </div>
-        <label>Ticker</label>
-        <select id="ingSymbol"></select>
-        <label>Timeframes</label>
-        <div class="chips" id="ingTf"></div>
-        <label>Lookback (days)</label>
-        <input type="number" id="ingDays" value="365" min="7" max="2000">
-        <button class="primary" id="btnIngest">Ingest bars</button>
-        <div class="hint">Cached bars make backtests instant. Backtests run from the cache when it covers the range, otherwise they fetch from Binance and cache automatically.</div>
-      </div>
-      <div class="card">
-        <h2>Cached bars</h2>
-        <table id="barsTable"></table>
-      </div>
-    </div>
-  </div>
 </main>
 
 <script>
@@ -364,7 +218,7 @@ const ENV = {{ENV_JSON}};
 const LAB = {{LAB_JSON}};
 if (ENV === "prod"){
   /* Read-only world: tune on paper, then promote the package. */
-  ["btnCreateBot","btnSavePreset","btnSavePreset2"].forEach(id => {
+  ["btnCreateBot"].forEach(id => {
     const b = $(id); if (!b) return;
     b.disabled = true;
     b.title = "read-only on prod — create and tune on paper, then promote";
@@ -374,10 +228,7 @@ const fmt = (x, dp=2, suffix="") => (x==null || x!==x) ? "–" : (x>=0?"+":"") +
 const cls = (x) => (x==null || x!==x) ? "" : (x>=0 ? "pos" : "neg");
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-let S = { strategies: {}, presets: [], symbols: {}, symbolMeta: {},
-          market: {bots:"crypto", bt:"crypto", ing:"crypto"},
-          feed: {bt:"binance", sc:"binance", ing:"binance"},
-          botTf: "1h", btTf: "4h", scTf: ["1h","4h","6h","1d"], ingTf: ["1d"], scStrategies: [] };
+let S = { strategies: {}, symbols: {}, symbolMeta: {} };
 
 function fail(m){ $("err").textContent = m; $("err").classList.remove("hidden"); }
 function ok(){ $("err").classList.add("hidden"); }
@@ -392,6 +243,26 @@ async function api(path, body, method){
 const busy = (btn, on, label) => { btn.disabled = on; btn.innerHTML = on ? '<span class="spin"></span> running…' : label; };
 const dt = (iso) => iso ? new Date(iso).toLocaleString([], {month:"short",day:"numeric",year:"2-digit",hour:"2-digit",minute:"2-digit"}) : "–";
 
+/* ================= strategies ================= */
+function renderStrategies(){
+  const names = Object.keys(S.strategies);
+  // One row per active promotion manifest: what may trade in this world, on
+  // which symbol and timeframe, and the parameters it was measured with.
+  $("strategyTable").innerHTML = names.length
+    ? `<tr><th>strategy</th><th>symbol</th><th>tf</th><th>capital</th><th>params</th><th>promoted</th></tr>` +
+      names.map(n => {
+        const m = S.strategies[n];
+        const params = (m.params || []).map(p => `${p}=${m.defaults?.[p] ?? "—"}`).join("  ·  ");
+        return `<tr><td><b>${esc(n)}</b><div class="dim">${esc(m.doc || "")}</div></td>` +
+          `<td>${esc((m.symbols || []).join(", ") || "lab only")}</td>` +
+          `<td>${esc(m.timeframe || "—")}</td>` +
+          `<td>${m.capital == null ? "—" : money(m.capital, 0)}</td>` +
+          `<td class="dim" style="white-space:normal;text-align:left">${esc(params)}</td>` +
+          `<td class="dim">${m.promoted_at ? dt(m.promoted_at) : "—"}</td></tr>`;
+      }).join("")
+    : `<tr><td class="dim">nothing promoted to this world yet</td></tr>`;
+}
+
 /* ================= nav ================= */
 document.querySelectorAll("nav a").forEach(a => a.onclick = () => {
   document.querySelectorAll("nav a").forEach(x=>x.classList.remove("on"));
@@ -400,10 +271,9 @@ document.querySelectorAll("nav a").forEach(a => a.onclick = () => {
   $("view-"+a.dataset.view).classList.add("on");
   $("viewTitle").textContent = a.textContent.trim().replace(/^[^\w$]+/,"");
   if (a.dataset.view==="dashboard") loadDashboard();
-  if (a.dataset.view==="bots") { loadBots(); loadRuns(); loadPresets(); }
+  if (a.dataset.view==="bots") loadBots();
   if (a.dataset.view==="strategies") renderStrategies();
   if (a.dataset.view==="trades") syncTrades();
-  if (a.dataset.view==="data") loadBars();
 });
 
 /* ================= shared controls ================= */
@@ -411,43 +281,43 @@ async function loadStrategies(){
   S.strategies = await api("/api/strategies");
   const names = Object.keys(S.strategies);
   const none = names.length === 0;
-  ["botStrategy","btStrategy"].forEach(id => {
-    $(id).innerHTML = none
-      ? `<option value="">— none promoted —</option>`
-      : names.map(n=>`<option value="${n}">${n}</option>`).join("");
-    $(id).disabled = none;
-    $(id).onchange = () => renderParams(id);
-  });
-  renderParams("botStrategy"); renderParams("btStrategy");
-  const sc = $("scStrategies");
-  sc.innerHTML = names.map((n,i) =>
-    `<span class="chip${i===0?" on":""}" data-s="${n}">${n}</span>`).join("");
-  [...sc.children].forEach(c => c.onclick = () => {
-    c.classList.toggle("on");
-    let on = [...sc.children].filter(x=>x.classList.contains("on"));
-    if (!on.length){ c.classList.add("on"); on=[c]; }
-    S.scStrategies = on.map(x=>x.dataset.s);
-  });
-  S.scStrategies = [...sc.children].filter(x=>x.classList.contains("on")).map(x=>x.dataset.s);
+  $("botStrategy").innerHTML = none
+    ? `<option value="">— none promoted —</option>`
+    : names.map(n=>`<option value="${n}">${n}</option>`).join("");
+  $("botStrategy").disabled = none;
+  $("botStrategy").onchange = () => renderParams("botStrategy");
+  renderParams("botStrategy");
   if (none){
-    ["btnCreateBot","btnBacktest","btnScan","btnSavePreset","btnSavePreset2"].forEach(id => {
+    ["btnCreateBot"].forEach(id => {
       const b = $(id); if (!b) return;
       b.disabled = true; b.title = "nothing is promoted to this world yet";
     });
-    $("sgKind").innerHTML = `<option value="">— none promoted —</option>`;
-    $("sgKind").disabled = true;
   }
 }
-const paramDefaults = { fast:20, slow:50, atr_mult:2.5, rsi_window:14, entry:30, exit_level:55, trend_window:200 };
 function renderParams(selId){
-  const kind = $(selId).value;
-  const names = S.strategies[kind]?.params || [];
-  const prefix = selId.slice(0,2);
-  const box = $( (selId === "botStrategy" ? "bot" : "bt") + "Params" );
-  if (!box) return;
-  box.innerHTML = names.map(p =>
-    `<div class="row"><div><label>${p}</label>
-     <input type="number" step="any" data-param="${prefix}:${p}" value="${paramDefaults[p] ?? ""}"></div></div>`).join("");
+  const meta = S.strategies[$(selId).value] || {};
+  const defaults = meta.defaults || {};
+  // Defaults come from the strategy class itself, so the form never shows an
+  // empty box for a sleeve whose tunables have no generic fallback.
+  const names = meta.params || [];
+  let html = "";
+  for (let i = 0; i < names.length; i += 2) {
+    const cell = (p) => p === undefined ? "<div></div>" : `<div><label>${p}</label>
+      <input type="number" step="any" data-param="bo:${p}" value="${defaults[p] ?? ""}"></div>`;
+    html += `<div class="row">${cell(names[i])}${cell(names[i+1])}</div>`;
+  }
+  $("botParams").innerHTML = html;
+  // A promotion manifest names the symbol and timeframe the strategy was
+  // measured on; the form follows it instead of offering a free choice.
+  if ((meta.symbols || []).length === 1 && [...$("botSymbol").options].some(o => o.value === meta.symbols[0]))
+    $("botSymbol").value = meta.symbols[0];
+  [...$("botTf").children].forEach(c => {
+    const allowed = !meta.timeframe || c.textContent === meta.timeframe;
+    c.classList.toggle("on", allowed);
+    c.style.opacity = allowed ? "" : ".35";
+    c.style.pointerEvents = allowed ? "" : "none";
+    c.title = allowed ? "" : `this strategy was measured on ${meta.timeframe}`;
+  });
 }
 function collectParams(prefix){
   const p = {};
@@ -473,57 +343,14 @@ function timeframes(containerId, initial, multi){
   });
 }
 const selTf = (id, multi) => [...$(id).children].filter(x=>x.classList.contains("on")).map(x=>x.textContent).join(",") || (multi?[]:"1h");
-function marketChips(containerId, key, onSelect){
-  [...$(containerId).children].forEach(c => c.onclick = () => {
-    [...$(containerId).children].forEach(x=>x.classList.remove("on")); c.classList.add("on");
-    S.market[key] = c.dataset.mkt; fillSymbolDropdown(key + "Symbol", c.dataset.mkt);
-    if (onSelect) onSelect(c.dataset.mkt);
-  });
-}
-function feedChips(containerId, key){
-  const box = $(containerId); if (!box) return;
-  [...box.children].forEach(c => c.onclick = () => {
-    [...box.children].forEach(x=>x.classList.remove("on")); c.classList.add("on");
-    S.feed[key] = c.dataset.feed;
-  });
-}
-function binancePair(symbol){
-  /* Binance spot pairs: catalog crypto entries, or a custom "BASE/QUOTE". */
-  if (!symbol) return false;
-  if ((S.symbols.crypto || []).some(e => e.symbol === symbol)) return true;
-  return !symbol.includes(":") && symbol.includes("/");
-}
-function autoFeed(key, symbol){
-  /* Commodities and indices are research feeds only: no Binance pair. */
-  if (S.feed[key] === "binance" && !binancePair(symbol)){
-    S.feed[key] = "tv";
-    const map = {bt:"btFeedChips", ing:"ingFeedChips"};
-    if (map[key]) [...$(map[key]).children].forEach(c =>
-      c.classList.toggle("on", c.dataset.feed === "tv"));
-    return "no Binance pair — using TradingView data (backtest only)";
-  }
-  return null;
-}
-function currentSymbol(dropdownId){
-  const sel = $(dropdownId);
-  if (sel.value !== "__custom__") return sel.value;
-  const custom = prompt("Symbol (EXCHANGE:TICKER for TradingView, or a Binance pair):\ne.g. BINANCE:BNBUSDT  or  BTC/USDT");
-  if (!custom){ sel.selectedIndex = 0; return currentSymbol(dropdownId); }
-  S.symbolMeta[custom] = {symbol: custom};
-  const opt = document.createElement("option"); opt.value = custom; opt.textContent = custom;
-  sel.insertBefore(opt, sel.options[sel.options.length-1]); sel.value = custom;
-  return custom;
-}
 function fillSymbolDropdown(dropdownId, market){
   const sel = $(dropdownId); if (!sel) return;
   const entries = S.symbols[market] || [];
   const prev = sel.value;
   sel.innerHTML = entries.map(e => {
-    const isPair = (S.symbols.crypto || []).some(x => x.symbol === e.symbol);
-    const tags = [isPair ? "B" : null, e.tv ? "TV" : null].filter(Boolean).join("+");
     const label = e.label ? `${e.symbol} · ${e.label}` : e.symbol;
-    return `<option value="${esc(e.symbol)}">${esc(label)}  [${tags}]</option>`;
-  }).join("") + `<option value="__custom__">✎ custom…</option>`;
+    return `<option value="${esc(e.symbol)}">${esc(label)}</option>`;
+  }).join("");
   if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
 }
 function costPayload(prefix){
@@ -633,18 +460,6 @@ async function loadDashboard(){
     $("botsCount").textContent = "—";
     $("dashBots").innerHTML = `<tr><td class="empty" colspan="8">${esc(e.message)}</td></tr>`;
   }
-  try {
-    const { runs } = await api("/api/runs");
-    $("dashRuns").innerHTML = runs.length
-      ? `<tr><th>when</th><th>symbol</th><th>tf</th><th>strategy</th><th>return</th><th>sharpe</th></tr>` +
-        runs.slice(0,10).map(r =>
-          `<tr><td>${dt(r.started_at)}</td><td>${esc(r.symbol)}</td><td>${esc(r.timeframe)}</td><td>${esc(r.strategy)}</td>
-           <td class="${cls(r.metrics?.total_return)}">${fmt((r.metrics?.total_return||0)*100,1,"%")}</td>
-           <td>${fmt(r.metrics?.sharpe)}</td></tr>`).join("")
-      : `<tr><td class="empty" colspan="6">no runs yet — create a bot or run a backtest</td></tr>`;
-  } catch(e){
-    $("dashRuns").innerHTML = `<tr><td class="empty" colspan="6">${esc(e.message)}</td></tr>`;
-  }
 }
 
 /* ================= bots ================= */
@@ -657,29 +472,13 @@ async function loadBots(){
   try {
     const { bots } = await api("/api/bots");
     $("botsTable").innerHTML = bots.length
-      ? `<tr><th>name</th><th>symbol</th><th>tf</th><th>strategy</th><th>last return</th><th></th></tr>` +
+      ? `<tr><th>name</th><th>symbol</th><th>tf</th><th>strategy</th><th></th></tr>` +
         bots.map(b => `<tr><td>${esc(b.name)}</td><td>${esc(b.symbol)}</td><td>${esc(b.timeframe)}</td>
           <td>${esc(b.kind)}</td>
-          <td class="${cls(b.last_metrics?.total_return)}">${fmt((b.last_metrics?.total_return||0)*100,1,"%")}</td>
-          <td><button class="small" onclick="runBot(${b.id})">▶ backtest</button>
-              <button class="small danger" onclick="delBot(${b.id})">✕</button></td></tr>`).join("")
-      : `<tr><td colspan="6" class="dim">no bots yet — create one on the left</td></tr>`;
+          <td><button class="small danger" onclick="delBot(${b.id})">✕</button></td></tr>`).join("")
+      : `<tr><td colspan="5" class="dim">no bots yet — create one on the left</td></tr>`;
   } catch(e){ $("botsTable").innerHTML = `<tr><td class="dim">${esc(e.message)}</td></tr>`; }
 }
-window.runBot = async (id) => {
-  ok(); const btn = event.target; busy(btn, true, "…");
-  try {
-    const r = await api(`/api/bots/${id}/run`, {}, "GET");
-    $("botRunCard").classList.remove("hidden");
-    $("botRunTitle").textContent = `${r.run.symbol} @ ${r.run.timeframe} · ${r.run.strategy} · ${r.run.bars} bars`;
-    metricsInto($("botRunMetrics"), r.run.metrics);
-    drawCandles($("botCandles"), r.ohlc, r.trades);
-    drawChart($("eqChart"), r.equity_curve, r.buy_and_hold_curve);
-    tradesInto($("botRunTrades"), r.trades);
-    loadBots(); loadRuns();
-  } catch(e){ fail(e.message); }
-  finally { busy(btn, false, "▶ backtest"); }
-};
 window.delBot = async (id) => {
   if (!confirm("Delete this bot and its run history?")) return;
   try { await api(`/api/bots/${id}`, {}, "DELETE"); loadBots(); }
@@ -691,86 +490,6 @@ $("btnCreateBot").onclick = async () => {
   catch(e){ fail(e.message); }
   finally { busy($("btnCreateBot"), false, "Create bot"); }
 };
-async function loadRuns(){
-  try {
-    const { runs } = await api("/api/runs");
-    $("runsTable").innerHTML = runs.length
-      ? `<tr><th>when</th><th>bot</th><th>symbol</th><th>tf</th><th>strategy</th><th>return</th><th>sharpe</th><th>trades</th></tr>` +
-        runs.map(r => `<tr><td>${dt(r.started_at)}</td><td>${r.bot_id?("#"+r.bot_id):"—"}</td>
-          <td>${esc(r.symbol)}</td><td>${esc(r.timeframe)}</td><td>${esc(r.strategy)}</td>
-          <td class="${cls(r.metrics?.total_return)}">${fmt((r.metrics?.total_return||0)*100,1,"%")}</td>
-          <td>${fmt(r.metrics?.sharpe)}</td><td>${r.metrics?.trades ?? "–"}</td></tr>`).join("")
-      : `<tr><td colspan="8" class="dim">no runs yet</td></tr>`;
-  } catch(e){ $("runsTable").innerHTML = `<tr><td class="dim">${esc(e.message)}</td></tr>`; }
-}
-async function loadPresets(){
-  try {
-    const { presets } = await api("/api/presets");
-    S.presets = presets;
-    $("botPreset").innerHTML = `<option value="">— none —</option>` +
-      presets.map(p => `<option value="${p.id}">${esc(p.name)} (${esc(p.kind)})</option>`).join("");
-  } catch(e){ $("botPreset").innerHTML = `<option value="">— (presets need DB) —</option>`; }
-}
-$("botPreset").onchange = () => {
-  const p = S.presets.find(x => x.id == $("botPreset").value);
-  if (!p) return;
-  $("botStrategy").value = p.kind; renderParams("botStrategy");
-  Object.entries(p.params||{}).forEach(([k,v]) => {
-    const inp = document.querySelector(`[data-param="bo:${k}"]`);
-    if (inp) inp.value = v;
-  });
-};
-$("btnReloadPresets").onclick = loadPresets;
-$("btnSavePreset").onclick = async () => {
-  ok();
-  const name = prompt("Preset name:");
-  if (!name) return;
-  try {
-    await api("/api/presets", { name, kind: $("botStrategy").value, params: collectParams("bo") });
-    loadPresets();
-  } catch(e){ fail(e.message); }
-};
-
-/* ================= backtest ================= */
-$("btnBacktest").onclick = async () => {
-  ok(); busy($("btnBacktest"), true, "Run backtest");
-  try {
-    const r = await api("/api/backtest", {
-      source: S.feed.bt, symbol: currentSymbol("btSymbol"), interval: selTf("btTf"),
-      strategy: $("btStrategy").value, params: collectParams("bt"),
-      days: Number($("btDays").value), ...costPayload("bt"),
-    });
-    $("btTitle").textContent = `${r.symbol} @ ${r.interval} · ${r.strategy} · ${r.bars} bars`;
-    metricsInto($("btMetrics"), r.metrics);
-    drawCandles($("candles"), r.ohlc, r.trades);
-    drawChart($("chart"), r.equity_curve, r.buy_and_hold_curve);
-    tradesInto($("btTrades"), r.trades);
-  } catch(e){ fail(e.message); }
-  finally { busy($("btnBacktest"), false, "Run backtest"); }
-};
-
-/* ================= scan ================= */
-$("btnScan").onclick = async () => {
-  ok(); busy($("btnScan"), true, "Run scan");
-  try {
-    const tfs = String(selTf("scTf", true)).split(",").filter(Boolean);
-    const body = { source: S.feed.sc,
-      symbols: $("scSymbols").value.split(",").map(s=>s.trim()).filter(Boolean),
-      timeframes: tfs, strategies: S.scStrategies, days: Number($("scDays").value) };
-    const { rows } = await api("/api/scan", body);
-    $("scanTable").innerHTML = `<tr><th>symbol</th><th>tf</th><th>strategy</th><th>return</th><th>b&h</th>
-      <th>sharpe</th><th>maxdd</th><th>trades</th><th>win%</th><th>PF</th></tr>` +
-      rows.map(r => r.error
-        ? `<tr><td>${esc(r.symbol)}</td><td>${esc(r.timeframe)}</td><td colspan="8" class="dim">${esc(r.error)}</td></tr>`
-        : `<tr><td>${esc(r.symbol)}</td><td>${esc(r.timeframe)}</td><td>${esc(r.strategy)}${r.halted?" ⛔":""}</td>
-           <td class="${cls(r.total_return)}">${fmt(r.total_return*100,2,"%")}</td>
-           <td class="${cls(r.buy_and_hold)}">${fmt(r.buy_and_hold*100,2,"%")}</td>
-           <td>${fmt(r.sharpe)}</td><td class="neg">${fmt(r.max_drawdown*100,2,"%")}</td>
-           <td>${r.trades}</td><td>${fmt(r.win_rate*100,1,"%")}</td><td>${fmt(r.profit_factor)}</td></tr>`).join("");
-  } catch(e){ fail(e.message); }
-  finally { busy($("btnScan"), false, "Run scan"); }
-};
-
 /* ================= trades ================= */
 async function syncTrades(){
   try {
@@ -785,7 +504,7 @@ async function syncTrades(){
       ? `<tr><th>symbol</th><th>realized p&l</th><th>open qty</th></tr>` + summary.map(s =>
         `<tr><td>${esc(s.symbol)}</td><td class="${cls(s.realized_pnl)}">$${(s.realized_pnl||0).toFixed(2)}</td>
          <td>${s.open_qty}</td></tr>`).join("")
-      : `<tr><td colspan="3" class="dim">no paper fills yet — run a bot live or trade manually in TradingView paper</td></tr>`;
+      : `<tr><td colspan="3" class="dim">no fills yet — nothing has traded in this world</td></tr>`;
     $("tradesTable").innerHTML = trades.length
       ? `<tr><th>time</th><th>symbol</th><th>side</th><th>qty</th><th>price</th><th>notional</th></tr>` +
         trades.map(t => `<tr><td>${dt(t.filled_at)}</td><td>${esc(t.symbol)}</td>
@@ -796,201 +515,23 @@ async function syncTrades(){
 }
 $("btnSyncTrades").onclick = syncTrades;
 
-/* ================= data ================= */
-$("btnIngest").onclick = async () => {
-  ok(); busy($("btnIngest"), true, "Ingest bars");
-  try {
-    const tfs = String(selTf("ingTf", true)).split(",").filter(Boolean);
-    const r = await api("/api/ingest", { source: S.feed.ing, symbol: currentSymbol("ingSymbol"), timeframes: tfs, days: Number($("ingDays").value) });
-    ok("ingested: " + r.ingested.map(i=>`${i.timeframe}=${i.bars}`).join(", "));
-    renderBars(r.counts);
-  } catch(e){ fail(e.message); }
-  finally { busy($("btnIngest"), false, "Ingest bars"); }
-};
-async function loadBars(){
-  try { renderBars((await api("/api/bars")).counts); }
-  catch(e){ $("barsTable").innerHTML = `<tr><td class="dim">${esc(e.message)}</td></tr>`; }
-}
-function renderBars(counts){
-  $("barsTable").innerHTML = counts.length
-    ? `<tr><th>symbol</th><th>tf</th><th>bars</th><th>from</th><th>to</th></tr>` + counts.map(c =>
-      `<tr><td>${esc(c.symbol)}</td><td>${esc(c.timeframe)}</td><td>${c.n}</td>
-       <td>${c.first_ts.slice(0,10)}</td><td>${c.last_ts.slice(0,10)}</td></tr>`).join("")
-    : `<tr><td colspan="5" class="dim">cache empty — ingest a ticker</td></tr>`;
-}
-
-/* ================= charts & tables ================= */
-function metricsInto(el, m){
-  m = m || {};
-  const items = [
-    ["Total return", fmt((m.total_return||0)*100,2,"%"), cls(m.total_return)],
-    ["Buy & hold", fmt((m.buy_and_hold||0)*100,2,"%"), cls(m.buy_and_hold)],
-    ["CAGR", fmt((m.cagr||0)*100,2,"%"), cls(m.cagr)],
-    ["Sharpe", fmt(m.sharpe), ""], ["Sortino", fmt(m.sortino), ""],
-    ["Max DD", fmt((m.max_drawdown||0)*100,2,"%"), "neg"],
-    ["Trades", m.trades ?? "–", ""], ["Win rate", fmt((m.win_rate||0)*100,1,"%"), ""],
-    ["Profit factor", fmt(m.profit_factor), ""],
-  ];
-  el.innerHTML = items.map(([k,v,c]) =>
-    `<div class="metric"><div class="k">${k}</div><div class="v ${c}">${v}</div></div>`).join("");
-}
-function drawCandles(svg, ohlc, trades){
-  const W = svg.clientWidth || 720, H = 280, P = 44;
-  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  if (!ohlc || !ohlc.length){ svg.innerHTML = ""; return; }
-  let min = Math.min(...ohlc.map(r=>r[3])), max = Math.max(...ohlc.map(r=>r[2]));
-  const pad = (max-min)*0.05 || 1; min -= pad; max += pad;
-  const t0 = new Date(ohlc[0][0]).getTime(), t1 = new Date(ohlc[ohlc.length-1][0]).getTime();
-  const X = t => t0===t1 ? P : P + (W-2*P)*(new Date(t).getTime()-t0)/(t1-t0);
-  const Y = v => H-P - (H-2*P)*(v-min)/(max-min);
-  const n = ohlc.length, cw = Math.max(1.5, (W-2*P)/n*0.66);
-  let s = `<line x1="${P}" y1="${H-P}" x2="${W-P/2}" y2="${H-P}" stroke="var(--border)"/>
-    <line x1="${P}" y1="${P/2}" x2="${P}" y2="${H-P}" stroke="var(--border)"/>
-    <text x="${P-5}" y="${Y(max)+4}" text-anchor="end" font-size="10" fill="var(--muted)">${max.toFixed(0)}</text>
-    <text x="${P-5}" y="${Y(min)+4}" text-anchor="end" font-size="10" fill="var(--muted)">${min.toFixed(0)}</text>
-    <text x="${W/2}" y="${H-7}" text-anchor="middle" font-size="10" fill="var(--muted)">
-      ${new Date(ohlc[0][0]).toLocaleDateString()} → ${new Date(ohlc[ohlc.length-1][0]).toLocaleDateString()}</text>`;
-  ohlc.forEach(r => {
-    const x = X(r[0]), col = r[4]>=r[1] ? "var(--good)" : "var(--bad)";
-    s += `<line x1="${x}" y1="${Y(r[2])}" x2="${x}" y2="${Y(r[3])}" stroke="${col}" stroke-width="1"/>` +
-         `<rect x="${(x-cw/2).toFixed(1)}" y="${Y(Math.max(r[1],r[4])).toFixed(1)}" width="${cw.toFixed(1)}" height="${Math.max(1, Math.abs(Y(r[1])-Y(r[4]))).toFixed(1)}" fill="${col}"/>`;
-  });
-  (trades||[]).forEach(t => {
-    const win = t.return_pct >= 0, mc = win ? "var(--good)" : "var(--bad)";
-    s += `<path d="M${X(t.entry_ts).toFixed(1)},${(Y(t.entry_price)+8).toFixed(1)} l5,-9 l-10,0 z" fill="${mc}" opacity=".95"/>`;
-    s += `<path d="M${X(t.exit_ts).toFixed(1)},${(Y(t.exit_price)-8).toFixed(1)} l5,9 l-10,0 z" fill="${mc}" opacity=".95"/>`;
-  });
-  s += `<text x="${W-P}" y="${P/2}" text-anchor="end" font-size="10" fill="var(--muted)">▲ entry · ▼ exit · green = winning trade</text>`;
-  svg.innerHTML = s;
-}
-
-async function renderStrategies(){
-  const list = $("builtinList");
-  const names = Object.keys(S.strategies);
-  $("builtinTitle").textContent = LAB ? "Built-in strategies · lab" : `Active strategies · ${ENV.toUpperCase()}`;
-  $("builtinHint").textContent = LAB
-    ? "The lab lists every strategy in code; none of it is deployed. Promote one to paper to make it appear on the paper dashboard."
-    : `Only strategies with an active promotion manifest (promotions/${ENV}/) appear here. Everything else stays in lab until promoted.`;
-  list.innerHTML = names.length ? names.map(n => {
-    const v = S.strategies[n];
-    const where = v.timeframe
-      ? `<div class="dim">promoted: ${esc(v.symbols.join(", "))} @ ${esc(v.timeframe)} · $${Number(v.capital).toLocaleString()}${v.override?" · override":""}</div>`
-      : "";
-    return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
-       <b>${esc(n)}</b> <span class="dim">· params: ${esc(v.params.join(", ")||"none")}</span>
-       ${where}
-       <div class="hint">${esc(v.doc)}</div>
-     </div>`;
-  }).join("") : `<div class="hint">No strategy is promoted to ${ENV.toUpperCase()} yet. Promote one from lab (<code>bot promote …</code>), commit the manifest, deploy.</div>`;
-  const sel = $("sgKind");
-  sel.innerHTML = Object.keys(S.strategies).map(n=>`<option>${esc(n)}</option>`).join("");
-  sel.onchange = renderSgParams;
-  renderSgParams();
-  await refreshPresets();
-}
-function renderSgParams(){
-  const names = S.strategies[$("sgKind").value]?.params || [];
-  $("sgParams").innerHTML = names.map(p =>
-    `<div class="row"><div><label>${esc(p)}</label>
-     <input type="number" step="any" data-param="sg:${esc(p)}" value="${paramDefaults[p] ?? ""}"></div></div>`).join("");
-}
-async function refreshPresets(){
-  try {
-    const { presets } = await api("/api/presets");
-    S.presets = presets;
-    $("presetsTable").innerHTML = presets.length
-      ? `<tr><th>name</th><th>kind</th><th>params</th><th></th></tr>` + presets.map(p =>
-        `<tr><td>${esc(p.name)}</td><td>${esc(p.kind)}</td>
-         <td style="text-align:left" class="dim">${esc(Object.entries(p.params||{}).map(([k,v])=>k+"="+v).join(", "))}</td>
-         <td><button class="small" onclick='editPreset(${JSON.stringify(JSON.stringify(p))})'>✎ edit</button>
-             <button class="small danger" onclick="delPreset(${p.id})">✕</button></td></tr>`).join("")
-      : `<tr><td colspan="4" class="dim">no presets yet — tune parameters and save one</td></tr>`;
-  } catch(e){ $("presetsTable").innerHTML = `<tr><td class="dim">${esc(e.message)}</td></tr>`; }
-}
-window.editPreset = (json) => {
-  const p = JSON.parse(json);
-  $("sgName").value = p.name; $("sgKind").value = p.kind; renderSgParams();
-  Object.entries(p.params||{}).forEach(([k,v]) => {
-    const inp = document.querySelector(`[data-param="sg:${k}"]`); if (inp) inp.value = v;
-  });
-  $("sgName").scrollIntoView({block:"center"});
-};
-window.delPreset = async (id) => {
-  if (!confirm("Delete this preset?")) return;
-  try { await api(`/api/presets/${id}`, {}, "DELETE"); refreshPresets(); }
-  catch(e){ fail(e.message); }
-};
-$("btnSavePreset2").onclick = async () => {
-  ok(); busy($("btnSavePreset2"), true, "Save preset");
-  try {
-    await api("/api/presets", { name: $("sgName").value.trim(), kind: $("sgKind").value,
-      params: collectParams("sg") });
-    await refreshPresets();
-  } catch(e){ fail(e.message); }
-  finally { busy($("btnSavePreset2"), false, "Save preset"); }
-};
-
-function drawChart(svg, eq, bh){
-  const W = svg.clientWidth || 720, H = 250, P = 36;
-  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  if (!eq || !eq.length){ svg.innerHTML = ""; return; }
-  const scale = bh && bh.length ? eq[0][1]/bh[0][1] : 1;
-  const bhS = (bh||[]).map(p=>[p[0], p[1]*scale]);
-  const all = eq.map(p=>p[1]).concat(bhS.map(p=>p[1]));
-  let min = Math.min(...all), max = Math.max(...all);
-  const pad = (max-min)*0.06 || 1; min -= pad; max += pad;
-  const t0 = new Date(eq[0][0]).getTime(), t1 = new Date(eq[eq.length-1][0]).getTime();
-  const X = t => t0===t1 ? 0 : P + (W-2*P)*(new Date(t).getTime()-t0)/(t1-t0);
-  const Y = v => H-P - (H-2*P)*(v-min)/(max-min);
-  const path = pts => pts.map((p,i)=>`${i?"L":"M"}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" ");
-  svg.innerHTML = `
-    <line x1="${P}" y1="${H-P}" x2="${W-P/2}" y2="${H-P}" stroke="var(--border)"/>
-    <line x1="${P}" y1="${P/2}" x2="${P}" y2="${H-P}" stroke="var(--border)"/>
-    <text x="${P-5}" y="${Y(max)+4}" text-anchor="end" font-size="10" fill="var(--muted)">${max.toFixed(0)}</text>
-    <text x="${P-5}" y="${Y(min)+4}" text-anchor="end" font-size="10" fill="var(--muted)">${min.toFixed(0)}</text>
-    <text x="${W/2}" y="${H-7}" text-anchor="middle" font-size="10" fill="var(--muted)">
-      ${new Date(eq[0][0]).toLocaleDateString()} → ${new Date(eq[eq.length-1][0]).toLocaleDateString()}</text>
-    <path d="${path(eq)}" fill="none" stroke="var(--accent)" stroke-width="1.8"/>
-    ${bhS.length?`<path d="${path(bhS)}" fill="none" stroke="var(--muted)" stroke-width="1.1" stroke-dasharray="4 3"/>`:""}
-    <text x="${W-P}" y="${P/2}" text-anchor="end" font-size="10" fill="var(--accent)">strategy</text>
-    <text x="${W-P}" y="${P/2+13}" text-anchor="end" font-size="10" fill="var(--muted)">buy &amp; hold</text>`;
-}
-function tradesInto(el, trades){
-  el.innerHTML = trades.length
-    ? `<tr><th>entry</th><th>exit</th><th>qty</th><th>entry px</th><th>exit px</th><th>return</th><th>exit reason</th></tr>` +
-      trades.map(x => `<tr><td>${dt(x.entry_ts)}</td><td>${dt(x.exit_ts)}</td>
-        <td>${Number(x.qty).toFixed(3)}</td><td>${Number(x.entry_price).toFixed(2)}</td>
-        <td>${Number(x.exit_price).toFixed(2)}</td>
-        <td class="${cls(x.return_pct)}">${fmt(x.return_pct*100,2,"%")}</td>
-        <td>${esc((x.reason_close||x.reason_open||"").slice(0,40))}</td></tr>`).join("")
-    : `<tr><td colspan="7" class="dim">no trades</td></tr>`;
-}
-
 /* ================= boot ================= */
-["bo","bt"].forEach(prefix => {
-  const conf = { bo: ["botTf","botTf",false], bt: ["btTf","btTf",false] };
-});
-timeframes("botTf", "1h"); timeframes("btTf", "4h");
-timeframes("scTf", ["1h","4h","6h","1d"], true); timeframes("ingTf", ["1d"], true);
-["bots","bt","ing"].forEach(key => {
-  const chips = $("ingMarketChips");
-});
-marketChips("marketChips", "bots"); marketChips("btMarketChips", "bt"); marketChips("ingMarketChips", "ing");
-feedChips("btFeedChips", "bt"); feedChips("scFeedChips", "sc"); feedChips("ingFeedChips", "ing");
+timeframes("botTf", "1h");
 $("botSymbol").addEventListener("change", () => {
   const sym = $("botSymbol").value;
   $("botFeedHint").textContent = binancePair(sym)
-    ? "" : "no Binance pair for this symbol — backtest only (TradingView data)";
+    ? "" : "no Binance pair for this symbol — this world trades crypto spot only";
 });
-$("btSymbol").addEventListener("change", () => autoFeed("bt", $("btSymbol").value));
-$("ingSymbol").addEventListener("change", () => autoFeed("ing", $("ingSymbol").value));
 
 (async function boot(){
   try { S.symbols = await api("/api/symbols"); } catch(e){ S.symbols = {}; }
   S.symbolMeta = {};
   Object.values(S.symbols).forEach(entries => (entries||[]).forEach(e => { S.symbolMeta[e.symbol] = e; }));
-  fillSymbolDropdown("botSymbol", "crypto"); fillSymbolDropdown("btSymbol", "crypto"); fillSymbolDropdown("ingSymbol", "crypto");
-  await loadStrategies();
+  fillSymbolDropdown("botSymbol", "crypto");
+  // The dashboard describes this installation, not the venue, so it must
+  // paint even when the strategy registry cannot be read. One failed call
+  // used to leave every card empty.
+  try { await loadStrategies(); } catch(e){ fail("strategies: " + e.message); }
   loadAccount(); loadDashboard();
 })();
 </script>

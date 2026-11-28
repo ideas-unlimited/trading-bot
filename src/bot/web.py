@@ -11,6 +11,7 @@ reach a live broker.
 
 from __future__ import annotations
 
+import inspect
 import json
 import math
 from datetime import datetime, timedelta, timezone
@@ -138,8 +139,14 @@ def api_strategies(base: Any = None) -> dict[str, Any]:
     for name, cls in sorted(REGISTRY.items()):
         if manifests is not None and name not in manifests:
             continue
+        sig = inspect.signature(cls.__init__)
+        defaults = {
+            p: (None if (v := sig.parameters[p].default) is inspect.Parameter.empty else v)
+            for p in cls.PARAMS if p in sig.parameters
+        }
         entry: dict[str, Any] = {
             "params": list(cls.PARAMS),
+            "defaults": defaults,
             "doc": (cls.__doc__ or "").strip().splitlines()[0],
         }
         if manifests is not None:
@@ -811,6 +818,7 @@ class WebHandler(BaseHTTPRequestHandler):
         data = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -830,6 +838,9 @@ class WebHandler(BaseHTTPRequestHandler):
             html = render_index()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            # The page is rendered per world and changes with every deploy.
+            # A cached copy shows another world's banner or a retired view.
+            self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(html)))
             self.end_headers()
             self.wfile.write(html)
