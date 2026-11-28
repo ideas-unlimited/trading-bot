@@ -173,6 +173,23 @@ when you hit a new environment quirk and solve it, add it here and commit.
   PowerShell `Start-Process -FilePath ... -WindowStyle Hidden` so the
   process survives the parent session.
 
+## Bots page (monitor + kill switch)
+
+- Bots are **created and promoted from lab**; paper and prod do not have a
+  create form. The Bots page is a monitor: per loop it shows state, equity,
+  run rate, the position (entry, mark, unrealized P&L), the **local stop and
+  target**, any resting venue orders (normally none — entries and exits are
+  market orders) and the fills it booked.
+- Each fill is written to `bot_trades` (fee from `fee_bps`, realized P&L on the
+  sell); the loop also persists its view — position, entry, stop, target, last
+  bar — to `bots.state` every poll, so the page needs no venue call to answer
+  "in a trade? where is the stop?".
+- **The kill switch** is `bots.halted`, written by `POST /api/bots/<id>/halt`.
+  The loop reads it every poll, closes any open position at market and skips
+  new entries while halted; it keeps heartbeating, so a killed bot reads
+  `halted`, not `dead`. Halting is deliberately allowed in prod: stopping
+  trading must never wait for a promotion.
+
 ## Analysis toolkit (bot.analysis)
 
 - `src/bot/analysis.py` is the shared "beyond simple tools" layer —
