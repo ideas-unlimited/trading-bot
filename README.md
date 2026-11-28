@@ -287,10 +287,11 @@ src/bot/
   analysis.py      shared indicators, structure, regime and volume primitives
   promotions.py    activation manifests + promotion gate checks
   symbolcfg.py     per-coin parameter validation for research and replay
+  forward.py       per-sleeve forward replay, deploy pin and status file
   scanlib.py       bars cache + incremental Binance sync under the 2-year cap
   web.py           dashboard and JSON API (env-branded, promotion-aware)
   db.py            Postgres schema: bots, trades, equity, events, promotions
-tests/             323 unittest cases, no network
+tests/             331 unittest cases, no network
 ```
 
 `research/` is the lab (`research/README.md` is the map), `config/` holds the
