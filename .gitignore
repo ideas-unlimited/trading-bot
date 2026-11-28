@@ -9,6 +9,8 @@ data/crypto/*_15m.csv
 .pytest_cache/
 .mypy_cache/
 .env
+.env.*
+!.env.example
 logs/
 start_trader.log
 probe_state.json
