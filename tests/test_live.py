@@ -112,6 +112,24 @@ class _TrackingClient(_FakeClient):
         return {"qty": self.qty} if self.qty else None
 
 
+class _DustClient(_FakeClient):
+    """Fake venue that reports an unsellable leftover as a balance."""
+
+    def __init__(self, rows: list[dict], qty: float):
+        super().__init__(rows)
+        self.qty = qty
+
+    def get_position(self, symbol):
+        return {"qty": self.qty} if self.qty else None
+
+    def filters(self, symbol):
+        from bot.exchange import SymbolFilters
+
+        return SymbolFilters(
+            symbol="JUPUSDT", step_size=0.1, tick_size=0.00001, min_qty=0.1
+        )
+
+
 class TrailBuy(Strategy):
     """Enters once, then lets the trail be the only exit."""
 
@@ -247,6 +265,31 @@ class LiveTraderTests(unittest.TestCase):
             clock=lambda s: None,
         )
         return trader, client
+
+    def test_a_leftover_below_the_lot_step_reads_as_flat(self) -> None:
+        """Dust must not count as a position: nothing could ever sell it."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            client = _DustClient(_rows(), 0.0949)
+            trader = LiveTrader(
+                client,
+                build("sma_cross"),
+                BotConfig(initial_cash=10_000.0),
+                "JUP/USDT",
+                "1d",
+                state_path=tmp / "state.json",
+                poll=60,
+                lookback=300,
+                stream=io.StringIO(),
+                clock=lambda s: None,
+            )
+            self.assertEqual(trader._position_qty(), 0.0)
+            self.assertIn("below the lot step", trader.stream.getvalue())
+            # Logged once, not once a minute for the life of the bot.
+            trader._position_qty()
+            self.assertEqual(trader.stream.getvalue().count("below the lot step"), 1)
+            client.qty = 1.5
+            self.assertEqual(trader._position_qty(), 1.5)
 
     def test_drawdown_brake_blocks_entries_and_survives_restart(self) -> None:
         with tempfile.TemporaryDirectory() as td:

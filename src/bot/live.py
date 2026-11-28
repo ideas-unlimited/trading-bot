@@ -34,6 +34,12 @@ from .risk import RiskManager
 from .strategy.base import Action, Signal, Strategy
 
 
+#: Base-asset residue below this USDT value is dust, not a position.  A
+#: previous sleeve can leave a few cents behind (rounding/fees); counting it
+#: as a position would block the next sleeve on the same symbol forever.
+MIN_POSITION_NOTIONAL = 1.0
+
+
 def compute_entry_qty(
     equity: float,
     price: float,
@@ -133,6 +139,8 @@ class LiveTrader:
         # deploy/run_bot.sh turns it on for service bots.
         self.startup_replay = bool(startup_replay)
         self._last_equity = 0.0
+        self._mark_price = 0.0
+        self._dust_warned = False
         self._alert_warned = False
         # D8: signals, order rejects and errors reach the events table so the
         # UI can show why a bot did nothing at 3am.  Never spam: only real
@@ -726,7 +734,35 @@ class LiveTrader:
 
     def _position_qty(self) -> float:
         pos = self.client.get_position(self.symbol)
-        return float(pos["qty"]) if pos else 0.0
+        qty = float(pos["qty"]) if pos else 0.0
+        # A balance the venue cannot sell is dust, not a position.  Leftovers
+        # below the lot step (JUP 0.0949 against a step of 0.1) used to count as
+        # long: the loop would arm a stop on two cents and then fail the floor
+        # on every exit attempt - "quantity 0.0949 floors to 0.0" once a minute,
+        # forever, on a bot with nothing left to trade.
+        if qty > 0:
+            floor = getattr(self.client, "filters", None)
+            if callable(floor):
+                try:
+                    rules = floor(self.symbol)
+                except Exception:  # noqa: BLE001 - never let a lookup stop the loop
+                    rules = None
+                if rules is not None:
+                    try:
+                        sellable = rules.floor_qty(qty)
+                    except Exception:  # noqa: BLE001
+                        sellable = qty
+                    if sellable <= 0 or (rules.min_qty and sellable < rules.min_qty):
+                        if not self.state.get("dust_logged"):
+                            self.state["dust_logged"] = True
+                            self._save_state()
+                            self._emit(
+                                f"[live] {qty:g} {self.symbol.split('/')[0]} left on the "
+                                f"venue is below the lot step ({rules.step_size}); "
+                                f"treating the book as flat"
+                            )
+                        return 0.0
+        return qty
 
     def _bar_index(self, prepared: Any, bar: Bar) -> int | None:
         """Positional row for a closed bar in the prepared frame."""
