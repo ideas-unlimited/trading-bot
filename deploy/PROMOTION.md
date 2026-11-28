@@ -62,6 +62,60 @@ deploy mark is pinned on the first cycle and re-pinned (old date kept as
 systemd unit runs it: `tradingbot-forward.service`, state under
 `/var/lib/tradingbot/paper/<strategy>/forward/`.
 
+### Release steps on the box (the step that was missed for UNI)
+
+A promotion only **authorizes** a strategy. Nothing runs until two different
+things are live on the box, and confusing them is how UNI sat flat for hours
+on 2026-11-28 while its forward sleeve replayed and the Bots page stayed
+empty:
+
+- **`tradingbot-forward.service`** (already running) picks the new manifest
+  up on its next cycle and replays the sleeve as a simulated wallet. This is
+  the measurement harness - no orders, never on the Bots page.
+- **`tradingbot@<name>`** is the actual bot. Until it is started, the owner's
+  question "where is my bot?" has the honest answer "nowhere".
+
+Full release, in order, after commit -> push -> `sudo bash
+/opt/trading-bot/deploy/update.sh`:
+
+1. **Manifest landed.** `journalctl -u tradingbot-forward -n 20` shows the
+   new sleeve under `active runner(s)`, and
+   `/var/lib/tradingbot/paper/<strategy>/forward/status.json` exists.
+2. **Start the bot itself.** Create `/etc/tradingbot/<name>.env`
+   (name is a short bot name: `uni`, `jup`, ...):
+
+   ```
+   SYMBOL=UNI/USDT
+   INTERVAL=4h
+   STRATEGY=capitulation_dip_uni
+   CAPITAL=1000
+   STATE=/var/lib/tradingbot/paper/uni.json
+   POLL=60
+   BOT_ENV=paper
+   ```
+
+   plus `HEARTBEAT_URL=` copied from `/etc/tradingbot/forward.env` (copy it
+   on the box; never paste it into chat). `chmod 640 root:trader` the file.
+   Then `sudo systemctl enable --now tradingbot@<name>`.
+3. **Verify the bot is really alive**, all three:
+   - `journalctl -u tradingbot@<name>` shows "paper trading <SYMBOL> @ <tf>
+     on Binance DEMO account" and the first poll line (anchored to now,
+     skipping historical bars);
+   - `curl -s http://127.0.0.1:9000/api/bots` lists the bot with a fresh
+     `last_heartbeat_at`;
+   - the Bots page shows it running.
+4. **Box checks:** `/etc/tradingbot/` must be `root:trader 750` - the
+   `trader` user has to traverse it to read its own env file (this silently
+   broke every bot on 2026-11-28). One bot per symbol (they share one demo
+   account). `STATE` lives under `/var/lib/tradingbot/`. A sub-4h strategy
+   keeps the 1-year evidence cap everywhere, including here.
+5. **Secrets:** any credential touched during release goes into
+   `C:\Git\tradingbot-secrets-2026-11-28.txt` (the master record) in the same
+   edit that puts it anywhere else.
+
+Demotion and halting need none of this: `bot demote` and the Bots-page kill
+switch work on running units without restarting anything.
+
 ## 2. paper -> prod
 
 Add `promotions/prod/<name>.json`. **No code changes** -- the code has been in
