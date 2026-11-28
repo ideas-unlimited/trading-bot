@@ -168,3 +168,17 @@ Rails, in order of severity:
 
 What it commits us to: adding live trading means new code and a new
 review, and the demo rail stays in place regardless.
+
+## D16 - Run rate is measured over a window, never extrapolated from two points (2026-11-28)
+
+The dashboard shows each live bot's equity, return since start, heartbeat age
+and a run rate. Run rate is defined as P&L per day over the last seven days
+of `equity_snapshots`, reported with its window and sample count, plus the
+monthly equivalent at that rate.
+
+Rules: fewer than two snapshots or under ~70 minutes of history shows an
+em dash, not a number. A row whose heartbeat is older than five minutes
+reads *no heartbeat* even if its status still says running - the database
+does not get to pretend a dead process is alive. `bot live` records equity
+and heartbeat every poll (opt-in via `record=True`, so tests never touch a
+database), and bookkeeping failures never stop trading.

@@ -63,13 +63,22 @@ Re-running is safe; it never overwrites `.env`.
 
 ## 4. Add the Binance demo keys
 
+Credentials are **per world**: the app loads `.env.<env>` first, then `.env`.
+The demo pair belongs in `.env.paper` only.
+
 ```bash
-sudo vi /opt/trading-bot/.env     # BINANCE_DEMO_KEY / BINANCE_DEMO_SECRET
+sudo install -m 600 -o trader -g trader /dev/null /opt/trading-bot/.env.paper
+sudo vi /opt/trading-bot/.env.paper   # BINANCE_DEMO_KEY / BINANCE_DEMO_SECRET
 sudo systemctl enable --now tradingbot@btc tradingbot@eth tradingbot@sol
 ```
 
 Until the placeholders are replaced the bots stay disabled on purpose; the
 web terminal runs regardless.
+
+**Prod refuses demo credentials** (`BinanceLiveClient` raises before reading
+a key), so the 9001 dashboard shows *live venue not configured* rather than
+a virtual balance. There is no live order path; adding one is a deliberate
+code change with review, not a config flip or a copied key.
 
 ## 5. Updates are git pulls
 

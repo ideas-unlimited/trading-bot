@@ -91,24 +91,34 @@ when you hit a new environment quirk and solve it, add it here and commit.
   to 20 collapses the trail book to +8% with a -49% drawdown because the
   score ranking buys the strongest recent mover. Do not widen the universe
   without re-measuring that ranking.
-- **Per-symbol tuning does not survive a holdout (measured 2026-11-28).**
-  Fit each coin separately on year 1 (fast/slow x trail grid, Calmar-ranked,
-  >=8 trades and <=-30% dd floor) and score on year 2: the fitted config lost
-  to the pooled 30/50 + trail 1.5 on **5 of 5 coins**. Narrowing to a single
-  per-symbol knob (trail only) still only wins **2 of 5** - a coin flip - and
-  the picked values scatter (2.5, 1.0, 2.5, fixed, 1.5) with no regime logic.
-  Cause: at 4h over two years one coin supplies 9-16 trades a year, so a
-  three-knob fit has fewer than four decisions per parameter. Report every
-  symbol's own year1/year2 table, but keep the *parameters* pooled until a
-  symbol's trade count can support them - the honest way to earn that is more
-  entries per coin (more patterns gated together), not more knobs.
-  See `research/per_symbol.py` and `research/per_symbol_knob.py`.
+- **Per-symbol tuning is the policy; naive fitting is the failure mode.**
+  `docs/TARGETS.md` is authoritative: one strategy per symbol, "tune on the
+  earlier slice, validate on the later slice". This bullet explains why the
+  second half of that rule exists, and is not a licence to pool parameters.
+  Measured 2026-11-28: fit each coin separately on year 1 (fast/slow x trail
+  grid, Calmar-ranked, >=8 trades, <=-30% dd floor) and the fitted config lost
+  to a shared baseline on **5 of 5 coins** in year 2; with a single per-symbol
+  knob (trail only) it won **2 of 5** - a coin flip - picks scattered
+  (2.5, 1.0, 2.5, fixed, 1.5). Cause: at 4h one coin supplies 9-16 trades a
+  year, so a three-knob fit has under four decisions per parameter. The fix
+  is more decisions per symbol (several sleeves/patterns per coin, or a
+  longer-holding variant), not a bigger grid on one symbol. Never select the
+  per-symbol parameter set on the slice that reports the result: tune on the
+  earlier part, report the later part, and publish the symbol's own year1 /
+  year2 table. See `research/per_symbol.py`, `research/per_symbol_knob.py`
+  and `research/PER_SYMBOL.md` (peer analysis, same conclusion).
 - **The pin is per window.** If the replay window's start moves by more than
   two days (history cap changed, a coin delisted, backfill), the pin is
   re-taken at the current equity and `repinned_at` records the old deploy
   date. Without that, a 3y-to-2y cap change showed every wallet at -78%
   "since deploy" while its history was +50% - a phantom loss from comparing
   two different books.
+- **The live loop writes to the database.** `bot live` registers itself once
+  (name `<SYMBOL>-<strategy>`) and records equity plus a heartbeat every poll,
+  so the dashboard can answer "what is running and at what rate" from
+  `bots`/`equity_snapshots` rather than from the log. Failures are logged
+  once and never stop trading. Run rate = P&L/day over the last 7 days, with
+  its window shown; under ~70 minutes it is blank, not extrapolated.
 - `simulate_book` force-closes open positions at the last bar by default (the
   backtest convention); live books pass `close_at_end=False`. Keep that flag
   when touching the engine or the live books will look permanently flat.
