@@ -224,10 +224,14 @@ when you hit a new environment quirk and solve it, add it here and commit.
   `src/bot/strategy/`; the symbol's research notes and scripts live in
   `research/<symbol>/`. The suffix is mandatory because a parameter set fitted
   on one coin must never be mistaken for a pooled rule or reused on another.
-  The plumbing already exists: `bot.symbolcfg` reads/writes the pool,
+  **The sleeve is the package**: a static module with its tuned defaults
+  baked in, a docstring with the window/numbers that produced them, a registry
+  entry and its own test. Do not add a per-symbol JSON parameter shelf - a
+  sleeve ships as code, and git history is its audit trail. The plumbing exists
+  for research and replay only: `bot.symbolcfg` reads/writes pool configs,
   `BookSpec.symbol_params` carries a coin's overrides through the replay, and
-  `bot auto --pool config/target_symbols.json` runs one $1,000 wallet per
-  coin (all "book defaults" until a coin is tuned).
+  `bot auto --pool config/target_symbols.json` runs one $1,000 wallet per coin
+  (all "book defaults" until a coin ships its sleeve).
 - `src/bot/strategy/__init__.py` is a **shared file** (strategy registry) —
   always re-read it immediately before editing; another agent may have added
   a strategy while you worked.

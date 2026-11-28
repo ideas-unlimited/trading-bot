@@ -57,11 +57,16 @@ audit. They are not targets and must not be tuned or traded.
 
 - **One strategy per symbol.** Tune its parameters on that symbol; do not
   assume a parameter set that works on BTC works on SUI or HYPE.
-- Prefer one registered implementation per signal family with a per-symbol
-  config block over 18 forked strategy files. When a registration's parameters
-  are fitted to one symbol, name it with the symbol suffix
-  (`capitulation_dip_uni`) and keep its research in `research/<symbol>/`;
-  fork the code only when the signal logic genuinely differs.
+- A finished assignment ships as a **static sleeve module**
+  `src/bot/strategy/<strategy>_<symbol>.py`: the rule with its tuned defaults
+  baked in, a docstring carrying the window, timeframe and numbers, a registry
+  entry and its own test. Reuse a family's signal logic by subclassing it or
+  by passing params into the shared class; fork the code only when the signal
+  logic genuinely differs. The sleeve is the artifact - there is no separate
+  runtime parameter file to drift, and git history plus the docstring are the
+  audit trail. Research may sweep per-coin configs (`bot.symbolcfg`,
+  `bot auto --pool`), but that plumbing is a measurement harness, never the
+  deployment path.
 - Tune on the earlier slice, validate on the later slice. Report the symbol,
   timeframe, venue and both windows with every result; never select
   parameters on the out-of-sample slice.
@@ -76,5 +81,6 @@ audit. They are not targets and must not be tuned or traded.
 ## Current assignments
 
 All 18 symbols are unassigned. `strategy`, `timeframe` and `params` in the JSON
-are placeholders; a completed assignment must name a registered strategy, its
-exact parameters, its timeframe and its in-sample / out-of-sample dates.
+are placeholders; a completed assignment names the sleeve module that ships
+(`<strategy>_<symbol>`), its timeframe, and its in-sample / out-of-sample
+dates. The numbers live in that module, not in this file.
