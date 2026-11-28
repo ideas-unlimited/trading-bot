@@ -30,7 +30,11 @@ fi
 
 .venv/bin/pip install -q -e ".[web]"
 chown -R trader:trader runs logs 2>/dev/null || true
-systemctl restart tradingbot-web
+for web_unit in tradingbot-web tradingbot-web-prod; do
+  if systemctl cat "$web_unit" >/dev/null 2>&1; then
+    systemctl restart "$web_unit"
+  fi
+done
 
 for unit in $(systemctl list-units --type=service --state=running 'tradingbot@*' --no-legend --plain | awk '{print $1}'); do
   systemctl restart "$unit"
