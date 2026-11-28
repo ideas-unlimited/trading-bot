@@ -293,6 +293,27 @@ class BinanceLiveClient:
             "raw": order.raw,
         }
 
+    def open_orders(self, symbol: str) -> list[dict[str, Any]]:
+        """Resting orders on the venue.  This desk sends market orders only,
+        so normally empty; a manual order on the same pair would show here."""
+        _, _, pair = split_symbol(symbol)
+        out: list[dict[str, Any]] = []
+        for o in self.broker.open_orders(pair):
+            out.append({
+                "id": str(o.get("orderId") or ""),
+                "side": str(o.get("side") or "").lower(),
+                "type": o.get("type"),
+                "qty": float(o.get("origQty") or 0),
+                "filled": float(o.get("executedQty") or 0),
+                "price": float(o.get("price") or 0),
+                "stop_price": float(o.get("stopPrice") or 0),
+                "status": o.get("status"),
+                "created_at": datetime.fromtimestamp(
+                    int(o.get("time") or 0) / 1000.0, tz=timezone.utc
+                ).isoformat(),
+            })
+        return out
+
     def close_position(self, symbol: str) -> dict[str, Any] | None:
         base, _, pair = split_symbol(symbol)
         order = self.broker.close_position(pair, base)

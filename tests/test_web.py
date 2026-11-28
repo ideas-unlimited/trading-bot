@@ -12,6 +12,7 @@ from bot.web import (
     SYMBOLS,
     _jsonify,
     api_backtest,
+    api_bot_halt,
     api_bots_create,
     api_bots_delete,
     api_presets_create,
@@ -73,6 +74,14 @@ class ApiBasicsTests(unittest.TestCase):
         self.assertIn("rows", result)
         self.assertEqual(len(result["rows"]), 2)
         self.assertIn("sharpe", result["rows"][0])
+
+
+class KillSwitchApiTests(unittest.TestCase):
+    """The kill switch must reject a malformed request before touching the DB."""
+
+    def test_halt_needs_an_explicit_boolean(self) -> None:
+        self.assertIn("error", api_bot_halt(7, {}))
+        self.assertIn("error", api_bot_halt(7, {"reason": "because"}))
 
 
 class StrategyCatalogueTests(unittest.TestCase):

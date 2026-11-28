@@ -14,6 +14,7 @@ from bot.exchange.live_client import duration_for, interval_for, split_symbol
 from bot.heartbeat import Heartbeat
 from bot.live import LiveTrader, compute_entry_qty
 from bot.strategy import build
+from bot.strategy.base import Action, Signal
 
 
 def _rows() -> list[dict]:
@@ -356,6 +357,93 @@ class HeartbeatWiringTests(unittest.TestCase):
             self.assertFalse(trader.heartbeat.enabled)
             trader.poll(now=datetime(2024, 1, 5, tzinfo=timezone.utc))
             self.assertEqual(trader.heartbeat.sent, 0)
+
+class _BuyEveryBar:
+    """Stub strategy: a buy on every bar, with a wide protective stop."""
+
+    name = "test_always_buy"
+    warmup = 1
+    params: dict = {}
+
+    def prepare(self, df):
+        return df
+
+    def signal(self, i, prepared, position):
+        close = float(prepared["close"].iloc[i])
+        return Signal(
+            Action.BUY, reason="test", stop_loss=close * 0.5, take_profit=close * 1.5
+        )
+
+
+class KillSwitchAndHistoryTests(unittest.TestCase):
+    """The bot page answers "in a trade? where is the stop? what filled?"
+    from the loop, so these book-keeping paths must be tested like orders."""
+
+    def _trader(self, tmp: Path, strategy=None, **kwargs) -> tuple[LiveTrader, _FakeClient]:
+        client = _FakeClient(_rows())
+        trader = LiveTrader(
+            client, strategy or build("sma_cross"), BotConfig(), "BTC/USDT", "1d",
+            state_path=tmp / "state.json", stream=io.StringIO(),
+            clock=lambda s: None, lookback=300, **kwargs,
+        )
+        return trader, client
+
+    def test_buy_books_a_fill_and_its_protective_levels(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            (tmp / "state.json").write_text(
+                json.dumps({"last_ts": _bars(_rows())[0].ts.isoformat(), "stops": {}})
+            )
+            trader, client = self._trader(tmp, _BuyEveryBar(), max_catchup=100)
+            fills: list[tuple] = []
+            trader._book_fill = lambda side, qty, price, **kw: fills.append((side, qty, price, kw))
+            trader.poll(now=datetime(2024, 1, 8, tzinfo=timezone.utc))
+            self.assertEqual(fills[0][0], "buy")
+            self.assertGreater(fills[0][1], 0)
+            entry = trader.state["entries"]["BTC/USDT"]
+            self.assertAlmostEqual(entry["price"], fills[0][2])
+            # The stop lives in the state file; the target is remembered too,
+            # otherwise the page cannot show what the trade is aiming at.
+            self.assertIn("BTC/USDT", trader.state["stops"])
+            self.assertIn("BTC/USDT", trader.state["tps"])
+
+    def test_kill_switch_flattens_and_blocks_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            trader, client = self._trader(tmp, _BuyEveryBar())
+            client.orders.append({"symbol": "BTC/USDT", "side": "buy", "qty": 0.5})
+            trader.state["entries"]["BTC/USDT"] = {
+                "qty": 0.5, "price": 100.0, "ts": "2024-01-03T00:00:00+00:00",
+            }
+            trader.state["stops"]["BTC/USDT"] = 95.0
+            trader._halted = lambda: True  # the dashboard pressed kill
+            fills: list[tuple] = []
+            trader._book_fill = lambda side, qty, price, **kw: fills.append((side, qty, price, kw))
+            n = trader.poll(now=datetime(2024, 1, 8, tzinfo=timezone.utc))
+            self.assertEqual(n, 0)
+            self.assertIn("BTC/USDT", client.closed)
+            # No new entries while halted, and no stale stop left behind.
+            self.assertEqual(len([o for o in client.orders if o["side"] == "buy"]), 1)
+            self.assertNotIn("BTC/USDT", trader.state["stops"])
+            self.assertEqual(fills[0][0], "sell")
+            self.assertEqual(fills[0][3].get("closed_by"), "halt")
+            self.assertAlmostEqual(fills[0][3]["realized"], (109.0 - 100.0) * 0.5)
+            self.assertIn("HALTED", trader.stream.getvalue())
+
+    def test_view_exposes_position_stop_and_target(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            trader, _ = self._trader(Path(td))
+            trader.state["entries"]["BTC/USDT"] = {"qty": 0.5, "price": 100.0, "ts": "x"}
+            trader.state["stops"]["BTC/USDT"] = 95.0
+            trader.state["tps"]["BTC/USDT"] = 120.0
+            trader._view(0.5, _bars(_rows()))
+            view = trader._last_view
+            self.assertEqual(view["position_qty"], 0.5)
+            self.assertEqual(view["entry_price"], 100.0)
+            self.assertEqual(view["stop"], 95.0)
+            self.assertEqual(view["take_profit"], 120.0)
+            self.assertEqual(view["mark_price"], 109.0)
+
 
 
 if __name__ == "__main__":

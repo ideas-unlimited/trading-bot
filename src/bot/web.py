@@ -492,22 +492,84 @@ def api_running() -> dict[str, Any]:
     conn = _db_conn()
     try:
         now = datetime.now(timezone.utc)
-        bots = store.bot_lifecycle(conn, limit=50)
-        for b in bots:
-            b["capital"] = float(b["capital"] or 0.0)
-            b["equity"] = float(b["equity"]) if b.get("equity") is not None else None
-            b["realized"] = float(b["realized"] or 0.0)
-            age = None
-            if b.get("last_heartbeat_at"):
-                age = (now - b["last_heartbeat_at"]).total_seconds()
-                b["heartbeat_age_s"] = int(age)
-            b["alive"] = bool(age is not None and age < 300 and b.get("status") == "running")
-            b["return_pct"] = (
-                (b["equity"] / b["capital"] - 1.0) * 100.0
-                if (b["equity"] is not None and b["capital"] > 0) else None
-            )
-            b["run_rate"] = _run_rate(conn, int(b["id"]), b["capital"])
+        bots = [_decorate_bot(conn, b, now) for b in store.bot_lifecycle(conn, limit=50)]
         return _jsonify({"bots": bots, "as_of": now.isoformat(timespec="seconds")})
+    finally:
+        conn.close()
+
+
+def _decorate_bot(conn: Any, b: dict[str, Any], now: datetime) -> dict[str, Any]:
+    """Liveness, return and run rate for one lifecycle row."""
+    b["capital"] = float(b["capital"] or 0.0)
+    b["equity"] = float(b["equity"]) if b.get("equity") is not None else None
+    b["realized"] = float(b["realized"] or 0.0)
+    b["halted"] = bool(b.get("halted"))
+    b["state"] = b.get("state") or {}
+    b["config"] = b.get("config") or {}
+    age = None
+    if b.get("last_heartbeat_at"):
+        age = (now - b["last_heartbeat_at"]).total_seconds()
+        b["heartbeat_age_s"] = int(age)
+    b["alive"] = bool(age is not None and age < 300 and b.get("status") == "running")
+    b["return_pct"] = (
+        (b["equity"] / b["capital"] - 1.0) * 100.0
+        if (b["equity"] is not None and b["capital"] > 0) else None
+    )
+    b["run_rate"] = _run_rate(conn, int(b["id"]), b["capital"])
+    return b
+
+
+def _venue_orders(symbol: str) -> tuple[list[dict[str, Any]], str | None]:
+    """Resting orders on the venue, or why they cannot be read."""
+    try:
+        from .exchange.live_client import BinanceLiveClient
+
+        return BinanceLiveClient().open_orders(symbol), None
+    except Exception as exc:  # noqa: BLE001 - the page explains, never raises
+        return [], str(exc)
+
+
+def api_bot_detail(bot_id: int) -> dict[str, Any]:
+    """Everything the dashboard shows for one bot, in one call."""
+    conn = _db_conn()
+    try:
+        rows = store.bot_lifecycle(conn, limit=1, bot_id=int(bot_id))
+        now = datetime.now(timezone.utc)
+        bot = _decorate_bot(conn, rows[0], now) if rows else None
+        trades = store.list_bot_trades(conn, int(bot_id), limit=50) if bot else []
+    finally:
+        conn.close()
+    if bot is None:
+        return {"error": f"no bot {bot_id} in this world"}
+    orders: list[dict[str, Any]] = []
+    orders_error: str | None = None
+    # Prod has no venue, so this must degrade, not throw: the levels the loop
+    # holds locally are still the answer to "where is my stop".
+    orders, orders_error = _venue_orders(bot["symbol"])
+    return _jsonify({
+        "bot": bot, "trades": trades, "open_orders": orders,
+        "orders_error": orders_error, "as_of": now.isoformat(timespec="seconds"),
+    })
+
+
+def api_bot_halt(bot_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    """Kill switch.  Deliberately allowed in prod: stopping trading must
+    never wait for a promotion."""
+    if payload.get("halted") is None:
+        return {"error": "halted (true or false) is required"}
+    halted = bool(payload.get("halted"))
+    reason = str(payload.get("reason") or "")[:200]
+    conn = _db_conn()
+    try:
+        if not store.set_bot_halted(conn, int(bot_id), halted, reason):
+            return {"error": f"no bot {bot_id} in this world"}
+        store.log_event(
+            conn, int(bot_id), "info",
+            f"kill switch {'engaged' if halted else 'released'}",
+            payload={"halted": halted, "reason": reason, "actor": "dashboard"},
+        )
+        conn.commit()
+        return {"bot_id": int(bot_id), "halted": halted, "reason": reason}
     finally:
         conn.close()
 
@@ -867,6 +929,13 @@ class WebHandler(BaseHTTPRequestHandler):
         elif self.path.startswith("/api/bots/") and self.path.endswith("/run"):
             bot_id = int(self.path.split("/")[3])
             self._send_json(200, api_bot_run(bot_id))
+        elif self.path.startswith("/api/bots/"):
+            try:
+                bot_id = int(self.path.rsplit("/", 1)[1])
+            except ValueError:
+                self._send_json(404, {"error": "not found"})
+                return
+            self._send_json(200, api_bot_detail(bot_id))
         elif self.path.startswith("/api/runs/"):
             self._send_json(200, api_run_get(int(self.path.rsplit("/", 1)[1])))
         else:
@@ -891,6 +960,13 @@ class WebHandler(BaseHTTPRequestHandler):
             self._send_json(200, api_bots_create(body))
         elif self.path == "/api/presets":
             self._send_json(200, api_presets_create(body))
+        elif self.path.startswith("/api/bots/") and self.path.endswith("/halt"):
+            try:
+                bot_id = int(self.path.split("/")[3])
+            except ValueError:
+                self._send_json(404, {"error": "not found"})
+                return
+            self._send_json(200, api_bot_halt(bot_id, body))
         elif self.path == "/api/ingest":
             self._send_json(200, api_ingest(body))
         else:

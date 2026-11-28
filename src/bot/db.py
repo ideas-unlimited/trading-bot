@@ -108,6 +108,12 @@ ALTER TABLE bots ADD COLUMN IF NOT EXISTS capital numeric;
 ALTER TABLE bots ADD COLUMN IF NOT EXISTS strategy_name text NOT NULL DEFAULT '';
 ALTER TABLE bots ADD COLUMN IF NOT EXISTS params_hash text NOT NULL DEFAULT '';
 ALTER TABLE bots ADD COLUMN IF NOT EXISTS git_tag text NOT NULL DEFAULT '';
+-- Kill switch: halted bots keep heartbeating but stop opening and flatten.
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS halted boolean NOT NULL DEFAULT false;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS halted_at timestamptz;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS halted_reason text NOT NULL DEFAULT '';
+-- What the loop last knew: position, protective levels, last bar seen.
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS state jsonb NOT NULL DEFAULT '{}';
 CREATE TABLE IF NOT EXISTS bot_trades (
     id              bigserial PRIMARY KEY,
     bot_id          int REFERENCES bots(id) ON DELETE CASCADE,
@@ -583,6 +589,69 @@ def stop_bot(conn: "psycopg.Connection", bot_id: int, status: str = "stopped") -
     )
 
 
+def set_bot_halted(
+    conn: "psycopg.Connection",
+    bot_id: int,
+    halted: bool,
+    reason: str = "",
+) -> bool:
+    """Flip a bot's kill switch; returns whether a row was updated.
+
+    The loop reads this flag every poll, so a halt lands within one cycle
+    even when the process holds a position.  Halting is allowed in prod too:
+    stopping trading must never need a promotion.
+    """
+    row = conn.execute(
+        """
+        UPDATE bots
+           SET halted = %s,
+               halted_at = CASE WHEN %s THEN now() ELSE NULL END,
+               halted_reason = CASE WHEN %s THEN %s ELSE '' END
+         WHERE id = %s
+        RETURNING id
+        """,
+        (bool(halted), bool(halted), bool(halted), reason, int(bot_id)),
+    ).fetchone()
+    return row is not None
+
+
+def bot_halted(conn: "psycopg.Connection", bot_id: int) -> bool:
+    row = conn.execute("SELECT halted FROM bots WHERE id = %s", (int(bot_id),)).fetchone()
+    return bool(row and row["halted"])
+
+
+def set_bot_state(conn: "psycopg.Connection", bot_id: int, state: dict[str, Any]) -> None:
+    """Persist the loop's view of the book so the dashboard needs no venue."""
+    conn.execute(
+        "UPDATE bots SET state = %s WHERE id = %s",
+        (json.dumps(_clean(state), default=str), int(bot_id)),
+    )
+
+
+def list_bot_trades(
+    conn: "psycopg.Connection", bot_id: int, limit: int = 100
+) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT id, symbol, side, qty, price, fee, realized_pnl, opened_at, closed_at,
+               closed_by, order_id
+          FROM bot_trades WHERE bot_id = %s ORDER BY id DESC LIMIT %s
+        """,
+        (int(bot_id), int(limit)),
+    ).fetchall()
+    out = []
+    for r in rows:
+        row = dict(r)
+        for key in ("qty", "price", "fee", "realized_pnl"):
+            if row.get(key) is not None:
+                row[key] = float(row[key])
+        for key in ("opened_at", "closed_at"):
+            if row.get(key) is not None:
+                row[key] = row[key].isoformat()
+        out.append(row)
+    return out
+
+
 def record_trade(
     conn: "psycopg.Connection",
     bot_id: int,
@@ -647,17 +716,22 @@ def log_event(
     )
 
 
-def bot_lifecycle(conn: "psycopg.Connection", limit: int = 100) -> list[dict]:
+def bot_lifecycle(
+    conn: "psycopg.Connection", limit: int = 100, bot_id: int | None = None
+) -> list[dict]:
+    where = "WHERE id = %s" if bot_id is not None else ""
+    args: tuple = (int(bot_id), limit) if bot_id is not None else (limit,)
     rows = conn.execute(
-        """
+        f"""
         SELECT id, name, symbol, timeframe, strategy_name, env, status, capital,
                started_at, stopped_at, last_heartbeat_at, git_tag,
+               halted, halted_at, halted_reason, state, config,
                (SELECT COUNT(*) FROM bot_trades t WHERE t.bot_id = bots.id) AS trades,
                (SELECT COALESCE(SUM(t.realized_pnl), 0) FROM bot_trades t WHERE t.bot_id = bots.id) AS realized,
                (SELECT equity FROM equity_snapshots e WHERE e.bot_id = bots.id ORDER BY ts DESC LIMIT 1) AS equity
-        FROM bots ORDER BY started_at DESC NULLS LAST, id DESC LIMIT %s
+        FROM bots {where} ORDER BY started_at DESC NULLS LAST, id DESC LIMIT %s
         """,
-        (limit,),
+        args,
     ).fetchall()
     out = []
     for r in rows:

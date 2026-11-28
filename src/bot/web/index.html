@@ -105,6 +105,25 @@
   .hint { font-size: 11.5px; color: var(--muted); margin-top: 7px; }
   /* a button inside a .row keeps its own width, even when .ghost/.small says otherwise */
   .row > button.small.ghost, .row > button.small { width: auto; flex: 0 0 auto; margin-top: 0; }
+  /* ---- bots: one card per loop, everything about it in one place ---- */
+  .botcard { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+             margin-bottom: 12px; background: var(--panel); }
+  .botcard.halted { border-color: #5c2731; }
+  .bhead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .bhead .name { font-weight: 600; font-size: 13.5px; }
+  .bhead .sub { color: var(--muted); font: 11.5px var(--mono); }
+  .bhead .sp { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .bfigs { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+           gap: 8px; margin: 12px 0 10px; }
+  .bfig .k { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+  .bfig .v { font: 13px var(--mono); margin-top: 2px; }
+  .pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill { font: 11px var(--mono); border: 1px solid var(--border); border-radius: 5px;
+          padding: 3px 8px; color: #c3ccd9; }
+  .pill b { color: var(--text); font-weight: 600; }
+  .botcard details { margin-top: 10px; }
+  .botcard summary { cursor: pointer; font-size: 11.5px; color: var(--muted); }
+  .botcard .scroll { max-height: 240px; }
 </style>
 </head>
 <body class="{{ENV}}">
@@ -147,42 +166,13 @@
 
   <!-- ================= BOTS ================= -->
   <div class="view" id="view-bots">
-    <div class="grid cols-2">
-      <div class="card">
-        <h2>Create bot</h2>
-        <label>Bot name</label>
-        <input type="text" id="botName" placeholder="e.g. UNI dip 4h">
-        <label>Ticker</label>
-        <select id="botSymbol"></select>
-        <div class="hint" id="botFeedHint"></div>
-        <label>Timeframe</label>
-        <div class="chips" id="botTf"></div>
-        <label>Strategy</label>
-        <select id="botStrategy"></select>
-        <div id="botParams"></div>
-        <details style="margin-top:8px">
-          <summary style="cursor:pointer;font-size:11.5px;color:var(--muted)">Risk &amp; costs</summary>
-          <div class="row">
-            <div><label>Initial $</label><input type="number" id="botInitialCash" value="10000"></div>
-            <div><label>Risk/trade %</label><input type="number" id="botRisk" value="1" step="0.1"></div>
-          </div>
-          <div class="row">
-            <div><label>Fee bps</label><input type="number" id="botFee" value="10"></div>
-            <div><label>Slippage bps</label><input type="number" id="botSlip" value="5"></div>
-          </div>
-          <div class="row">
-            <div><label>Max position %</label><input type="number" id="botMaxPos" value="95"></div>
-            <div><label>Max DD %</label><input type="number" id="botMaxDD" value="25"></div>
-          </div>
-        </details>
-        <button class="primary" id="btnCreateBot">Create bot</button>
+    <div class="card">
+      <h2>Bots <span id="botTotals" class="badge muted">—</span></h2>
+      <div class="hint" style="margin:-4px 0 14px">
+        Bots are created and promoted from lab; this page runs them. A kill switch
+        halts within one poll: no new entries, and an open position is closed.
       </div>
-      <div>
-        <div class="card" style="margin-bottom:14px">
-          <h2>Bots</h2>
-          <table id="botsTable"></table>
-        </div>
-      </div>
+      <div id="botsList"><div class="empty">loading…</div></div>
     </div>
   </div>
 
@@ -216,19 +206,12 @@
 const $ = (id) => document.getElementById(id);
 const ENV = {{ENV_JSON}};
 const LAB = {{LAB_JSON}};
-if (ENV === "prod"){
-  /* Read-only world: tune on paper, then promote the package. */
-  ["btnCreateBot"].forEach(id => {
-    const b = $(id); if (!b) return;
-    b.disabled = true;
-    b.title = "read-only on prod — create and tune on paper, then promote";
-  });
-}
 const fmt = (x, dp=2, suffix="") => (x==null || x!==x) ? "–" : (x>=0?"+":"") + Number(x).toFixed(dp) + suffix;
 const cls = (x) => (x==null || x!==x) ? "" : (x>=0 ? "pos" : "neg");
+const ago = (s) => s == null ? "—" : s < 90 ? `${Math.max(0,Math.round(s))}s ago` : s < 5400 ? `${Math.round(s/60)}m ago` : `${(s/3600).toFixed(1)}h ago`;
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-let S = { strategies: {}, symbols: {}, symbolMeta: {} };
+let S = { strategies: {} };
 
 function fail(m){ $("err").textContent = m; $("err").classList.remove("hidden"); }
 function ok(){ $("err").classList.add("hidden"); }
@@ -271,7 +254,7 @@ document.querySelectorAll("nav a").forEach(a => a.onclick = () => {
   $("view-"+a.dataset.view).classList.add("on");
   $("viewTitle").textContent = a.textContent.trim().replace(/^[^\w$]+/,"");
   if (a.dataset.view==="dashboard") loadDashboard();
-  if (a.dataset.view==="bots") loadBots();
+  if (a.dataset.view==="bots") renderBots();
   if (a.dataset.view==="strategies") renderStrategies();
   if (a.dataset.view==="trades") syncTrades();
 });
@@ -279,87 +262,7 @@ document.querySelectorAll("nav a").forEach(a => a.onclick = () => {
 /* ================= shared controls ================= */
 async function loadStrategies(){
   S.strategies = await api("/api/strategies");
-  const names = Object.keys(S.strategies);
-  const none = names.length === 0;
-  $("botStrategy").innerHTML = none
-    ? `<option value="">— none promoted —</option>`
-    : names.map(n=>`<option value="${n}">${n}</option>`).join("");
-  $("botStrategy").disabled = none;
-  $("botStrategy").onchange = () => renderParams("botStrategy");
-  renderParams("botStrategy");
-  if (none){
-    ["btnCreateBot"].forEach(id => {
-      const b = $(id); if (!b) return;
-      b.disabled = true; b.title = "nothing is promoted to this world yet";
-    });
-  }
 }
-function renderParams(selId){
-  const meta = S.strategies[$(selId).value] || {};
-  const defaults = meta.defaults || {};
-  // Defaults come from the strategy class itself, so the form never shows an
-  // empty box for a sleeve whose tunables have no generic fallback.
-  const names = meta.params || [];
-  let html = "";
-  for (let i = 0; i < names.length; i += 2) {
-    const cell = (p) => p === undefined ? "<div></div>" : `<div><label>${p}</label>
-      <input type="number" step="any" data-param="bo:${p}" value="${defaults[p] ?? ""}"></div>`;
-    html += `<div class="row">${cell(names[i])}${cell(names[i+1])}</div>`;
-  }
-  $("botParams").innerHTML = html;
-  // A promotion manifest names the symbol and timeframe the strategy was
-  // measured on; the form follows it instead of offering a free choice.
-  if ((meta.symbols || []).length === 1 && [...$("botSymbol").options].some(o => o.value === meta.symbols[0]))
-    $("botSymbol").value = meta.symbols[0];
-  [...$("botTf").children].forEach(c => {
-    const allowed = !meta.timeframe || c.textContent === meta.timeframe;
-    c.classList.toggle("on", allowed);
-    c.style.opacity = allowed ? "" : ".35";
-    c.style.pointerEvents = allowed ? "" : "none";
-    c.title = allowed ? "" : `this strategy was measured on ${meta.timeframe}`;
-  });
-}
-function collectParams(prefix){
-  const p = {};
-  document.querySelectorAll(`[data-param^="${prefix}:"`).forEach(i => {
-    if (i.value!=="") p[i.dataset.param.split(":")[1]] = Number(i.value);
-  });
-  return p;
-}
-function timeframes(containerId, initial, multi){
-  const el = $(containerId); el.innerHTML = "";
-  ["1h","4h","6h","1d","1w"].forEach(tf => {
-    const c = document.createElement("span");
-    c.className = "chip" + ((multi ? initial.includes(tf) : initial===tf) ? " on" : "");
-    c.textContent = tf;
-    c.onclick = () => {
-      if (multi){ c.classList.toggle("on");
-        const sel = [...el.children].filter(x=>x.classList.contains("on")).map(x=>x.textContent);
-        if (!sel.length){ c.classList.add("on"); sel.push(tf); }
-        return sel; }
-      [...el.children].forEach(x=>x.classList.remove("on")); c.classList.add("on");
-    };
-    el.appendChild(c);
-  });
-}
-const selTf = (id, multi) => [...$(id).children].filter(x=>x.classList.contains("on")).map(x=>x.textContent).join(",") || (multi?[]:"1h");
-function fillSymbolDropdown(dropdownId, market){
-  const sel = $(dropdownId); if (!sel) return;
-  const entries = S.symbols[market] || [];
-  const prev = sel.value;
-  sel.innerHTML = entries.map(e => {
-    const label = e.label ? `${e.symbol} · ${e.label}` : e.symbol;
-    return `<option value="${esc(e.symbol)}">${esc(label)}</option>`;
-  }).join("");
-  if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
-}
-function costPayload(prefix){
-  const g = (id) => Number($(id).value);
-  return { initial_cash: g(prefix+"InitialCash"), fee_bps: g(prefix+"Fee"),
-    slippage_bps: g(prefix+"Slip"), risk_per_trade: g(prefix+"Risk")/100,
-    max_position_pct: g(prefix+"MaxPos")/100, max_drawdown_stop: g(prefix+"MaxDD")/100 };
-}
-
 /* ================= dashboard ================= */
 const money = (x, dp=2) => "$" + Number(x||0).toLocaleString(undefined,{minimumFractionDigits:dp,maximumFractionDigits:dp});
 const qtyFmt = (x) => Number(x||0).toLocaleString(undefined,{maximumFractionDigits:8});
@@ -434,7 +337,6 @@ async function loadDashboard(){
   }
   // Bots and runs are about this installation, not about the venue, so they
   // paint in both worlds - including prod, where the account cannot load.
-  const ago = (s) => s == null ? "—" : s < 90 ? `${Math.max(0,Math.round(s))}s ago` : s < 5400 ? `${Math.round(s/60)}m ago` : `${(s/3600).toFixed(1)}h ago`;
   try {
     const live = await api("/api/running");
     const n = live.bots.filter(b => b.alive).length;
@@ -463,33 +365,110 @@ async function loadDashboard(){
 }
 
 /* ================= bots ================= */
-function botPayload(){
-  return { name: $("botName").value.trim(), symbol: $("botSymbol").value,
-    timeframe: selTf("botTf"), kind: $("botStrategy").value, params: collectParams("bo"),
-    ...costPayload("bot") };
+// One card per bot: state, equity, run rate and — the point of this page —
+// where the stop and target are, whether it is in a trade, which orders are
+// resting, and every fill the bot has booked.
+const botBadge = (b) => b.halted
+  ? `<span class="badge muted" title="${esc(b.halted_reason || "killed from the dashboard")}">halted</span>`
+  : b.alive ? `<span class="badge live">running</span>`
+  : `<span class="badge muted">${esc(b.status === "running" ? "no heartbeat" : (b.status || "—"))}</span>`;
+
+function botCard(b){
+  const st = b.state || {};
+  const qty = Number(st.position_qty || 0);
+  const entry = st.entry_price == null ? null : Number(st.entry_price);
+  const mark = st.mark_price == null ? null : Number(st.mark_price);
+  const upnl = (qty && entry && mark) ? (mark - entry) * qty : null;
+  const rate = b.run_rate;
+  const rateTxt = rate ? `${rate.month_pct >= 0 ? "+" : "−"}${Math.abs(rate.month_pct).toFixed(1)}%/mo` : "—";
+  const rateTip = rate ? `${rate.window_days}d window · ${rate.samples} samples` : "needs a day of equity samples";
+  const fig = (k, v, c) => `<div class="bfig"><div class="k">${k}</div><div class="v ${c||""}">${v}</div></div>`;
+  return `<div class="botcard ${b.halted ? "halted" : ""}">
+    <div class="bhead">
+      <div><div class="name">${esc(b.name)}</div>
+        <div class="sub">${esc(b.symbol)} · ${esc(b.timeframe)} · ${esc(b.strategy_name || "")}</div></div>
+      <div class="sp">${botBadge(b)}
+        <button class="small ${b.halted ? "" : "danger"}" onclick="window.haltBot(${b.id}, ${!b.halted})">
+          ${b.halted ? "resume" : "kill"}</button></div>
+    </div>
+    <div class="bfigs">
+      ${fig("equity", b.equity == null ? "—" : money(b.equity))}
+      ${fig("capital", money(b.capital))}
+      ${fig("return", b.return_pct == null ? "—" : fmt(b.return_pct, 2, "%"), cls(b.return_pct))}
+      ${fig("run rate", `<span title="${esc(rateTip)}">${rateTxt}</span>`, cls(rate && rate.month_pct))}
+      ${fig("trades", b.trades == null ? "—" : b.trades)}
+      ${fig("realized", money(b.realized), cls(b.realized))}
+      ${fig("heartbeat", ago(b.heartbeat_age_s))}
+      ${fig("started", b.started_at ? dt(b.started_at) : "—")}
+    </div>
+    <div class="pills">
+      <span class="pill">position <b>${qty ? qtyFmt(qty) : "flat"}</b></span>
+      <span class="pill">entry <b>${entry == null ? "—" : money(entry)}</b></span>
+      <span class="pill">mark <b>${mark == null ? "—" : money(mark)}</b></span>
+      <span class="pill">uPnL <b class="${cls(upnl)}">${upnl == null ? "—" : money(upnl)}</b></span>
+      <span class="pill">stop <b>${st.stop == null ? "—" : money(st.stop)}</b></span>
+      <span class="pill">take profit <b>${st.take_profit == null ? "—" : money(st.take_profit)}</b></span>
+    </div>
+    <div id="bot-detail-${b.id}"><div class="hint">loading orders…</div></div>
+  </div>`;
 }
-async function loadBots(){
+
+function botDetail(d){
+  const orders = d.open_orders || [];
+  const trades = d.trades || [];
+  const ordersHtml = orders.length
+    ? `<table><tr><th>side</th><th>type</th><th>qty</th><th>price</th><th>status</th><th>placed</th></tr>` +
+      orders.map(o => `<tr><td class="${o.side === "buy" ? "pos" : "neg"}">${esc(o.side)}</td>
+        <td>${esc(o.type || "")}</td><td>${qtyFmt(o.qty)}</td>
+        <td>${o.price ? money(o.price) : "—"}</td><td class="dim">${esc(o.status || "")}</td>
+        <td class="dim">${o.created_at ? dt(o.created_at) : "—"}</td></tr>`).join("") + `</table>`
+    : `<div class="hint">no resting orders${d.orders_error ? ` · venue unreadable (${esc(d.orders_error)})` : " — entries and exits are market orders and the stop is held by the bot"}</div>`;
+  const tradesHtml = trades.length
+    ? `<table><tr><th>time</th><th>side</th><th>qty</th><th>price</th><th>fee</th><th>realized</th><th>closed by</th></tr>` +
+      trades.map(t => `<tr><td class="dim">${dt(t.closed_at || t.opened_at)}</td>
+        <td class="${t.side === "buy" ? "pos" : "neg"}">${esc(t.side)}</td><td>${qtyFmt(t.qty)}</td>
+        <td>${money(t.price)}</td><td class="dim">${money(t.fee)}</td>
+        <td class="${cls(t.realized_pnl)}">${t.realized_pnl == null ? "—" : money(t.realized_pnl)}</td>
+        <td class="dim">${esc(t.closed_by || "")}</td></tr>`).join("") + `</table>`
+    : `<div class="hint">no fills recorded under this bot yet</div>`;
+  return `<details><summary>orders &amp; executed history (${orders.length} open · ${trades.length} fills)</summary>
+    <div style="margin-top:10px"><div class="k dim" style="font-size:10.5px;text-transform:uppercase;letter-spacing:.6px">open orders</div>${ordersHtml}</div>
+    <div style="margin-top:12px"><div class="k dim" style="font-size:10.5px;text-transform:uppercase;letter-spacing:.6px">executed orders</div>
+      <div class="scroll">${tradesHtml}</div></div>
+  </details>`;
+}
+
+async function renderBots(){
+  const list = $("botsList");
   try {
-    const { bots } = await api("/api/bots");
-    $("botsTable").innerHTML = bots.length
-      ? `<tr><th>name</th><th>symbol</th><th>tf</th><th>strategy</th><th></th></tr>` +
-        bots.map(b => `<tr><td>${esc(b.name)}</td><td>${esc(b.symbol)}</td><td>${esc(b.timeframe)}</td>
-          <td>${esc(b.kind)}</td>
-          <td><button class="small danger" onclick="delBot(${b.id})">✕</button></td></tr>`).join("")
-      : `<tr><td colspan="5" class="dim">no bots yet — create one on the left</td></tr>`;
-  } catch(e){ $("botsTable").innerHTML = `<tr><td class="dim">${esc(e.message)}</td></tr>`; }
+    const { bots } = await api("/api/running");
+    $("botTotals").textContent = `${bots.filter(b => b.alive && !b.halted).length} running · ${bots.length} total`;
+    if (!bots.length){
+      list.innerHTML = `<div class="empty">no bots in this world yet — promote a strategy in lab, then start its loop on the box</div>`;
+      return;
+    }
+    list.innerHTML = bots.map(botCard).join("");
+    // Details are one extra call each (open orders need the venue), so they
+    // fill in after the cards paint rather than blocking the page.
+    await Promise.all(bots.map(async b => {
+      const box = $(`bot-detail-${b.id}`); if (!box) return;
+      try { const d = await api(`/api/bots/${b.id}`); box.innerHTML = botDetail(d); }
+      catch(e){ box.innerHTML = `<div class="hint">${esc(e.message)}</div>`; }
+    }));
+  } catch(e){
+    $("botTotals").textContent = "—";
+    list.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
 }
-window.delBot = async (id) => {
-  if (!confirm("Delete this bot and its run history?")) return;
-  try { await api(`/api/bots/${id}`, {}, "DELETE"); loadBots(); }
-  catch(e){ fail(e.message); }
+window.haltBot = async (id, halted) => {
+  if (halted && !confirm("Kill this bot now?\n\nIt stops entering and any open position is closed on the next poll. Resume is one click.")) return;
+  ok();
+  try {
+    await api(`/api/bots/${id}/halt`, { halted, reason: halted ? "killed from dashboard" : "resumed from dashboard" });
+    await renderBots();
+  } catch(e){ fail(e.message); }
 };
-$("btnCreateBot").onclick = async () => {
-  ok(); busy($("btnCreateBot"), true, "Create bot");
-  try { await api("/api/bots", botPayload()); loadBots(); }
-  catch(e){ fail(e.message); }
-  finally { busy($("btnCreateBot"), false, "Create bot"); }
-};
+
 /* ================= trades ================= */
 async function syncTrades(){
   try {
@@ -525,18 +504,7 @@ async function syncTrades(){
 $("btnSyncTrades").onclick = syncTrades;
 
 /* ================= boot ================= */
-timeframes("botTf", "1h");
-$("botSymbol").addEventListener("change", () => {
-  const sym = $("botSymbol").value;
-  $("botFeedHint").textContent = binancePair(sym)
-    ? "" : "no Binance pair for this symbol — this world trades crypto spot only";
-});
-
 (async function boot(){
-  try { S.symbols = await api("/api/symbols"); } catch(e){ S.symbols = {}; }
-  S.symbolMeta = {};
-  Object.values(S.symbols).forEach(entries => (entries||[]).forEach(e => { S.symbolMeta[e.symbol] = e; }));
-  fillSymbolDropdown("botSymbol", "crypto");
   // The dashboard describes this installation, not the venue, so it must
   // paint even when the strategy registry cannot be read. One failed call
   // used to leave every card empty.

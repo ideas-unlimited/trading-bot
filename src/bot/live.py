@@ -86,6 +86,12 @@ class LiveTrader:
         self.stream = stream if stream is not None else sys.stdout
         self.clock = clock
         self.state: dict[str, Any] = self._load_state()
+        # Older state files only carried last_ts + stops; give every loop the
+        # same shape so the dashboard view never depends on how it started.
+        for key in ("stops", "entries", "tps"):
+            self.state.setdefault(key, {})
+        self._last_view: dict[str, Any] = {}
+        self._trade_warned = False
         # Dashboard bookkeeping: a live loop registers itself once and then
         # writes equity + heartbeat every poll, so "is it running, and at
         # what rate" is answered by the database, not by hope.  A missing DB
@@ -122,6 +128,25 @@ class LiveTrader:
         position = self._position_qty()
         equity = self._book_equity(account)
 
+        # Register before reading the kill switch: without an id there is no
+        # flag to read.  Halting must be visible within one poll.
+        if self.record_dashboard and self.bot_id is None:
+            self._ensure_bot(equity)
+        if self._halted():
+            if position > 0:
+                self._exit(position, bars[-1].close, "halt", bars[-1].ts)
+                position = self._position_qty()
+                equity = self._book_equity(self.client.get_account()) or equity
+            self._emit(
+                f"[live] HALTED by kill switch :: {self.symbol} "
+                f"{'flat' if position <= 0 else 'position still open'}"
+            )
+            self._view(position, bars)
+            self._record(equity, position, bars[-1].close if bars else None)
+            self._status(bars, equity, position)
+            self.heartbeat.ping()
+            return 0
+
         last = self._last_ts()
         closed = [
             b for b in bars[:-1]
@@ -154,6 +179,8 @@ class LiveTrader:
             self._save_state()
 
         self._check_stop(bars, now)
+        position = self._position_qty()
+        self._view(position, bars)
         self._status(bars, equity, position)
         self._record(equity, position, bars[-1].close if bars else None)
         # Alive, even when there was nothing to trade: the ping is the proof.
@@ -207,6 +234,9 @@ class LiveTrader:
                     conn, self.bot_id,
                     equity=equity, position_qty=position, mark_price=price,
                 )
+                view = dict(self._last_view)
+                view["equity"] = equity
+                store.set_bot_state(conn, self.bot_id, view)
                 store.bot_heartbeat(conn, self.bot_id)
                 conn.commit()
             finally:
@@ -215,6 +245,83 @@ class LiveTrader:
             if not self._db_warned:
                 self._db_warned = True
                 self._emit(f"[live] dashboard bookkeeping off: {exc}")
+
+    def _halted(self) -> bool:
+        """Read the kill switch; a database hiccup must never stop the loop."""
+        from . import db as store
+
+        if not self.record_dashboard or self.bot_id is None:
+            return False
+        try:
+            conn = store.connect()
+            try:
+                return store.bot_halted(conn, self.bot_id)
+            finally:
+                conn.close()
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _view(self, position: float, bars: list[Bar]) -> None:
+        """Snapshot for the dashboard: what the bot holds and what protects it."""
+        entry = self.state.get("entries", {}).get(self.symbol) or {}
+        self._last_view = {
+            "position_qty": float(position),
+            "entry_price": entry.get("price"),
+            "opened_at": entry.get("ts"),
+            "stop": self.state.get("stops", {}).get(self.symbol),
+            "take_profit": self.state.get("tps", {}).get(self.symbol),
+            "mark_price": bars[-1].close if bars else None,
+            "last_bar_ts": bars[-1].ts.isoformat() if bars else None,
+        }
+
+    def _book_fill(
+        self,
+        side: str,
+        qty: float,
+        price: float,
+        *,
+        realized: float | None = None,
+        closed_by: str = "",
+        order_id: str = "",
+        opened_at: datetime | None = None,
+        closed_at: datetime | None = None,
+    ) -> None:
+        """Write the fill to bot_trades so the dashboard has real history."""
+        from . import db as store
+
+        if not (self.record_dashboard and self.bot_id):
+            return
+        fee = abs(float(qty) * float(price)) * self.config.costs.fee_bps / 10_000.0
+        try:
+            conn = store.connect()
+            try:
+                store.record_trade(
+                    conn, self.bot_id,
+                    symbol=self.symbol, side=side, qty=qty, price=price, fee=fee,
+                    realized_pnl=realized, opened_at=opened_at, closed_at=closed_at,
+                    closed_by=closed_by, order_id=order_id,
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as exc:  # noqa: BLE001
+            if not self._trade_warned:
+                self._trade_warned = True
+                self._emit(f"[live] trade history off: {exc}")
+
+    def _exit(self, qty: float, price: float, why: str, ts: datetime) -> None:
+        """Close the position and record the sell with its realized P&L."""
+        entry = self.state.get("entries", {}).get(self.symbol) or {}
+        entry_price = float(entry.get("price") or 0.0)
+        order = self.client.close_position(self.symbol)
+        realized = (float(price) - entry_price) * float(qty) if entry_price and qty else None
+        self._book_fill(
+            "sell", qty, price, realized=realized, closed_by=why,
+            order_id=str((order or {}).get("id") or ""), closed_at=ts,
+        )
+        for key in ("stops", "tps", "entries"):
+            self.state.get(key, {}).pop(self.symbol, None)
+        self._save_state()
 
     def _book_equity(self, account: dict[str, Any]) -> float:
         """Equity this bot may size from: honours the capital cap when set."""
@@ -257,7 +364,7 @@ class LiveTrader:
             if qty * bar.close < 1.0:
                 self._emit(f"[live] {bar.ts:%Y-%m-%d %H:%M} buy skipped: size ${qty * bar.close:.2f} too small")
             else:
-                self.client.submit_order(
+                order = self.client.submit_order(
                     self.symbol, "buy", qty,
                     price=bar.close,
                     stop=signal.stop_loss,
@@ -265,14 +372,24 @@ class LiveTrader:
                 )
                 if signal.stop_loss is not None:
                     self.state["stops"][self.symbol] = signal.stop_loss
+                if signal.take_profit is not None:
+                    self.state.setdefault("tps", {})[self.symbol] = signal.take_profit
+                # Book what the venue actually filled, not what was asked for.
+                filled = float(order.get("filled_qty") or qty)
+                fill_px = float(order.get("filled_avg_price") or bar.close)
+                self.state.setdefault("entries", {})[self.symbol] = {
+                    "qty": filled, "price": fill_px, "ts": bar.ts.isoformat(),
+                }
+                self._book_fill(
+                    "buy", filled, fill_px, order_id=str(order.get("id") or ""),
+                )
                 self._emit(
                     f"[live] {bar.ts:%Y-%m-%d %H:%M} BUY {qty:.4f} {self.symbol} @ ~{bar.close:.2f}"
                     + (f" stop={signal.stop_loss:.2f}" if signal.stop_loss else " (no stop)")
                     + f" :: {signal.reason}"
                 )
         elif signal.action is Action.CLOSE and position > 0:
-            self.client.close_position(self.symbol)
-            self.state["stops"].pop(self.symbol, None)
+            self._exit(position, bar.close, "signal", bar.ts)
             self._emit(f"[live] {bar.ts:%Y-%m-%d %H:%M} CLOSE {self.symbol} @ ~{bar.close:.2f} :: {signal.reason}")
         else:
             self._emit(f"[live] {bar.ts:%Y-%m-%d %H:%M} signal {signal.action.value} ignored (position {position})")
@@ -285,10 +402,9 @@ class LiveTrader:
             return
         latest = bars[-1]
         if latest.low <= stop and latest.ts + self.duration <= now:
-            self.client.close_position(self.symbol)
-            self.state["stops"].pop(self.symbol, None)
+            qty = self._position_qty()
+            self._exit(qty, stop, "stop", latest.ts)
             self._emit(f"[live] {latest.ts:%Y-%m-%d %H:%M} STOP hit ({stop:.2f} <= low {latest.low:.2f}) -> closed {self.symbol}")
-            self._save_state()
 
     def _status(self, bars: list[Bar], equity: float, position: float) -> None:
         if bars:
