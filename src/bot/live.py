@@ -62,6 +62,7 @@ class LiveTrader:
         heartbeat_every: float = 1800.0,
         stream: TextIO | None = None,
         clock: Any = time.sleep,
+        record: bool = False,
     ) -> None:
         self.client = client
         self.strategy = strategy
@@ -85,6 +86,13 @@ class LiveTrader:
         self.stream = stream if stream is not None else sys.stdout
         self.clock = clock
         self.state: dict[str, Any] = self._load_state()
+        # Dashboard bookkeeping: a live loop registers itself once and then
+        # writes equity + heartbeat every poll, so "is it running, and at
+        # what rate" is answered by the database, not by hope.  A missing DB
+        # must never stop trading or flood the log.
+        self.record_dashboard = record
+        self.bot_id: int | None = None
+        self._db_warned = False
 
     # -- state --------------------------------------------------------------
     def _load_state(self) -> dict[str, Any]:
@@ -147,9 +155,66 @@ class LiveTrader:
 
         self._check_stop(bars, now)
         self._status(bars, equity, position)
+        self._record(equity, position, bars[-1].close if bars else None)
         # Alive, even when there was nothing to trade: the ping is the proof.
         self.heartbeat.ping()
         return len(closed)
+
+    # -- dashboard bookkeeping ----------------------------------------------
+    def _ensure_bot(self, equity: float) -> None:
+        """Register this run once so the dashboard can list it by name."""
+        from . import db as store
+        from .envcfg import env_name
+
+        name = f"{self.symbol.replace('/', '')}-{self.strategy.name}"
+        conn = store.connect()
+        try:
+            row = conn.execute(
+                "SELECT id FROM bots WHERE name = %s AND status = 'running' "
+                "ORDER BY id DESC LIMIT 1", (name,)
+            ).fetchone()
+            if row:
+                self.bot_id = int(row["id"])
+            else:
+                bot = store.register_bot(
+                    conn, name,
+                    symbol=self.symbol,
+                    timeframe=self.timeframe,
+                    strategy_name=self.strategy.name,
+                    params={
+                        k: v for k, v in (getattr(self.strategy, "params", None) or {}).items()
+                        if isinstance(v, (str, int, float, bool))
+                    },
+                    capital=float(self.capital or equity),
+                    env=env_name(),
+                )
+                self.bot_id = int(bot["id"])
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _record(self, equity: float, position: float, price: float | None) -> None:
+        from . import db as store
+
+        if not self.record_dashboard:
+            return
+        try:
+            if self.bot_id is None:
+                self._ensure_bot(equity)
+            conn = store.connect()
+            try:
+                store.record_equity(
+                    conn, self.bot_id,
+                    equity=equity, position_qty=position, mark_price=price,
+                )
+                store.bot_heartbeat(conn, self.bot_id)
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as exc:  # noqa: BLE001 - never stop trading for bookkeeping
+            if not self._db_warned:
+                self._db_warned = True
+                self._emit(f"[live] dashboard bookkeeping off: {exc}")
 
     def _book_equity(self, account: dict[str, Any]) -> float:
         """Equity this bot may size from: honours the capital cap when set."""

@@ -364,6 +364,7 @@ def cmd_live(args: argparse.Namespace) -> int:
         capital=args.capital,
         heartbeat_url=args.heartbeat_url,
         heartbeat_every=args.heartbeat_every,
+        record=True,
     ).run(once=args.once)
     return 0
 
@@ -524,6 +525,18 @@ def cmd_rotate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _symbol_overrides(args: argparse.Namespace) -> dict[str, dict]:
+    """Per-coin parameter overrides from --symbol-params and --params-file."""
+    from . import symbolcfg
+
+    out = symbolcfg.parse_overrides(getattr(args, "symbol_params", None))
+    path = getattr(args, "params_file", None)
+    if path:
+        for sym, params in symbolcfg.load_overrides(path).items():
+            out.setdefault(sym, {}).update(symbolcfg.coerce_params(params, symbol=sym))
+    return out
+
+
 def cmd_book(args: argparse.Namespace) -> int:
     """Backtest one shared wallet across several coins, one slot at a time."""
     symbols = [s.strip() for s in args.coins.split(",") if s.strip()]
@@ -565,8 +578,18 @@ def cmd_book(args: argparse.Namespace) -> int:
         channel_spans=tuple(
             int(x) for x in str(getattr(args, "channel_spans", "") or "").split(",") if x.strip()
         ),
+        trail_atr=getattr(args, "trail_atr", None),
+        trail_after_r=getattr(args, "trail_after_r", 0.0),
     )
-    result = simulate_book(bars, config)
+    overrides = _symbol_overrides(args)
+    unknown = [sym for sym in overrides if sym not in bars]
+    if unknown:
+        raise SystemExit(f"--symbol-params: {', '.join(unknown)} not in --coins")
+    configs = {sym: config for sym in bars}
+    for sym, params in overrides.items():
+        configs[sym] = merge_book_config(config, params, symbol=sym)
+
+    result = simulate_book(bars, config, symbol_configs=configs)
     print(f"rule       SMA {config.fast}/{config.slow} cross, {config.atr_mult:g} ATR stop")
     gate = []
     if config.damiani_filter:
@@ -583,6 +606,10 @@ def cmd_book(args: argparse.Namespace) -> int:
         print("filter     " + " + ".join(gate))
     print(f"coins      {', '.join(symbols)}  ({args.source}, {args.timeframe})")
     print(f"slots      {config.max_positions}  risk {config.risk_per_trade:.1%} per trade")
+    for sym in overrides:
+        diff = {k: v for k, v in configs[sym].__dict__.items()
+                if getattr(config, k) != v}
+        print(f"params     {sym:<10} " + "  ".join(f"{k}={v}" for k, v in diff.items()))
     print()
     print(format_book(result))
 
@@ -593,7 +620,7 @@ def cmd_book(args: argparse.Namespace) -> int:
 
     print()
     print("next open (paper):")
-    for sym, text in last_signal(result, bars).items():
+    for sym, text in last_signal(result, bars, configs).items():
         print(f"  {sym:<10} {text}")
     return 0
 
@@ -904,6 +931,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_book.add_argument("--channel-spans", default="",
                         help="comma separated pivot spans; two or more make the channel "
                              "their median, which removes the span as a tuned parameter")
+    p_book.add_argument("--trail-atr", type=float, default=None,
+                        help="exit on a Chandelier trail this many ATRs under the peak "
+                             "(omit for the fixed ATR stop)")
+    p_book.add_argument("--trail-after-r", type=float, default=0.0,
+                        help="only arm the trail once the trade shows this many R of profit")
     p_book.add_argument("--outdir", default="runs/book")
     p_book.set_defaults(func=cmd_book)
 

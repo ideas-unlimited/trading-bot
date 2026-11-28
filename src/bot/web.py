@@ -449,6 +449,61 @@ def api_bots_list() -> dict[str, Any]:
         conn.close()
 
 
+def _run_rate(conn: Any, bot_id: int, capital: float) -> dict[str, Any] | None:
+    """Average P&L per day over the last 7 days of equity snapshots.
+
+    Deliberately not annualised from two samples: a bot that is hours old has
+    no rate, and the label says the window it measured.
+    """
+    rows = conn.execute(
+        "SELECT ts, equity FROM equity_snapshots "
+        "WHERE bot_id = %s AND ts >= now() - interval '7 days' ORDER BY ts",
+        (bot_id,),
+    ).fetchall()
+    if len(rows) < 2:
+        return None
+    first, last = rows[0], rows[-1]
+    days = (last["ts"] - first["ts"]).total_seconds() / 86400.0
+    if days < 0.05:  # under ~70 minutes: too short to call a rate
+        return None
+    per_day = (float(last["equity"]) - float(first["equity"])) / days
+    return {
+        "window_days": round(days, 2),
+        "per_day": per_day,
+        "month_pct": (per_day * 30.0 / capital * 100.0) if capital > 0 else None,
+        "samples": len(rows),
+    }
+
+
+def api_running() -> dict[str, Any]:
+    """Bots the database believes exist, with liveness and run rate.
+
+    ``alive`` requires a heartbeat inside the last five minutes: a row whose
+    process died still says ``running`` in the database, and the dashboard
+    must not repeat that lie.
+    """
+    conn = _db_conn()
+    try:
+        now = datetime.now(timezone.utc)
+        bots = store.bot_lifecycle(conn, limit=50)
+        for b in bots:
+            b["capital"] = float(b["capital"] or 0.0)
+            b["equity"] = float(b["equity"]) if b.get("equity") is not None else None
+            b["realized"] = float(b["realized"] or 0.0)
+            age = None
+            if b.get("last_heartbeat_at"):
+                age = (now - b["last_heartbeat_at"]).total_seconds()
+                b["heartbeat_age_s"] = int(age)
+            b["alive"] = bool(age is not None and age < 300 and b.get("status") == "running")
+            b["return_pct"] = (
+                (b["equity"] / b["capital"] - 1.0) * 100.0
+                if (b["equity"] is not None and b["capital"] > 0) else None
+            )
+            b["run_rate"] = _run_rate(conn, int(b["id"]), b["capital"])
+        return _jsonify({"bots": bots, "as_of": now.isoformat(timespec="seconds")})
+    finally:
+        conn.close()
+
 def api_bots_create(payload: dict[str, Any]) -> dict[str, Any]:
     if _read_only():
         return {"error": "prod is read-only: create bots on paper, then promote"}
@@ -788,6 +843,8 @@ class WebHandler(BaseHTTPRequestHandler):
             self._send_json(200, api_symbols())
         elif self.path == "/api/bots":
             self._send_json(200, api_bots_list())
+        elif self.path == "/api/running":
+            self._send_json(200, api_running())
         elif self.path == "/api/runs":
             self._send_json(200, api_runs_list())
         elif self.path == "/api/paper/trades":

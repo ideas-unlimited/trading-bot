@@ -141,6 +141,10 @@
       </div>
     </div>
     <div class="card" style="margin-top:12px">
+      <h2>Live bots <span id="botsCount" class="badge muted">0 running</span></h2>
+      <table id="dashBots"></table>
+    </div>
+    <div class="card" style="margin-top:12px">
       <h2>Recent runs</h2>
       <table id="dashRuns"></table>
     </div>
@@ -599,6 +603,32 @@ async function loadDashboard(){
       `<tr><td>${esc(p.symbol)}</td><td>${qtyFmt(p.qty)}</td><td>${money(p.avg_entry_price, 4)}</td>
        <td class="${cls(p.unrealized_pl)}">${fmt(p.unrealized_pl)}</td></tr>`).join("")
     : `<tr><td class="empty" colspan="4">no open positions</td></tr>`;
+  const ago = (s) => s == null ? "—" : s < 90 ? `${Math.max(0,Math.round(s))}s ago` : s < 5400 ? `${Math.round(s/60)}m ago` : `${(s/3600).toFixed(1)}h ago`;
+  try {
+    const live = await api("/api/running");
+    const n = live.bots.filter(b => b.alive).length;
+    $("botsCount").textContent = `${n} running`;
+    $("botsCount").className = "badge " + (n ? "live" : "muted");
+    $("dashBots").innerHTML = live.bots.length
+      ? `<tr><th>bot</th><th>symbol</th><th>tf</th><th>state</th><th>equity</th><th>return</th><th>run rate</th><th>last beat</th></tr>` +
+        live.bots.map(b => {
+          const rate = b.run_rate;
+          const rateTxt = rate ? `${rate.month_pct >= 0 ? "+" : "−"}${Math.abs(rate.month_pct).toFixed(1)}%/mo` : "—";
+          const rateTip = rate ? `${rate.window_days}d window · ${rate.per_day >= 0 ? "+" : "−"}$${Math.abs(rate.per_day).toFixed(2)}/day · ${rate.samples} samples` : "needs a day of equity samples";
+          const state = b.alive ? "running" : (b.status === "running" ? "no heartbeat" : (b.status || "—"));
+          const stateCls = b.alive ? "live" : "muted";
+          return `<tr><td><b>${esc(b.name)}</b></td><td>${esc(b.symbol)}</td><td>${esc(b.timeframe)}</td>` +
+            `<td><span class="badge ${stateCls}">${esc(state)}</span></td>` +
+            `<td>${b.equity == null ? "—" : money(b.equity)}</td>` +
+            `<td class="${cls(b.return_pct)}">${b.return_pct == null ? "—" : fmt(b.return_pct, 2, "%")}</td>` +
+            `<td class="${cls(rate && rate.month_pct)}" title="${esc(rateTip)}">${rateTxt}</td>` +
+            `<td class="dim">${ago(b.heartbeat_age_s)}</td></tr>`;
+        }).join("")
+      : `<tr><td class="empty" colspan="8">no bots running — nothing is enabled yet</td></tr>`;
+  } catch(e) {
+    $("botsCount").textContent = "—";
+    $("dashBots").innerHTML = `<tr><td class="empty" colspan="8">${esc(e.message)}</td></tr>`;
+  }
   try {
     const { runs } = await api("/api/runs");
     $("dashRuns").innerHTML = runs.length
