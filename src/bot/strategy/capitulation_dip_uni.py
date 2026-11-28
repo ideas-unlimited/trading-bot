@@ -1,6 +1,6 @@
 """Capitulation-dip reversion: buy a violent 4h drawdown, exit on the bounce.
 
-Researched on UNI/USDT spot, 4h, 2024-11-28 .. 2026-11-28 (4,380 bars,
+Researched on UNI/USDT spot, 4h, 2024-11-28 .. 2026-11-28 (4,381 bars,
 Binance production klines, next-open fills, 10 bps fee + 5 bps slippage
 each side, long only):
 

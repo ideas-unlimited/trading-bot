@@ -1,5 +1,9 @@
 # HANDOFF — conviction swing strategy research (pause 2026-11-26)
 
+> **Archived 2026-11-28.** This is a historical resume point, not current
+> policy. The scripts it names now live in `research/archive/`; paths below
+> are updated, and its three-year measurements predate the two-year cap.
+
 Resume point for the "analyze top-5 crypto, build conviction-gated swing
 strategies (4h/1d), $1k, 0 fees" task. Read this + AGENTS.md first.
 
@@ -22,7 +26,7 @@ strategies (4h/1d), $1k, 0 fees" task. Read this + AGENTS.md first.
 ## Key findings (validated, honest)
 1. **Per-trade P(win) >= 0.70 does not exist in this data.** Three model
    families agree: peer's logistic (walk_forward, purged), peer's bucket
-   empirical model, my GBM (`research/conviction_model.py`, sklearn HGB).
+   empirical model, my GBM (`research/archive/conviction_model.py`, sklearn HGB).
    - 1d AUC 0.485 (worse than chance; high-p buckets win LESS than base).
    - 4h AUC 0.520 (mild; top bucket 42.6% vs 36.6% base — real but tiny).
    - Base rates (3y): P(target 1.5R before stop 2ATR) ~ 0.36-0.40;
@@ -59,22 +63,23 @@ HANDOFF text or `git show` if lost. Baseline to beat: 2.5/2.0/40 no gate
 (+255.5% 3y, but -1.4% in final year).
 
 ## Peer coordination
-- Peer agent (daf33c7e) works the same request; owns research/model.py,
-  sim.py (portfolio sim engine I reuse), run*.py, year_*.py, fastsim.py.
+- Peer agent (daf33c7e) works the same request; owns research/archive/model.py,
+  archive/sim.py (portfolio sim engine I reuse), archive/run*.py,
+  archive/year_*.py, archive/fastsim.py.
   They were validating year-by-year robustness; fetch_1h.py/year_1h.py
   exist (1h is OUTSIDE user's requested 4h/1d — flag if they push it).
 - Peer b34a1a19 added AGENTS.md (read it; pip quirks, Postgres conventions,
-  3y cap, shared-file warnings).
+  backtest windows, shared-file warnings).
 - Division agreed (message sent): peer = model/sim validation; me = final
   strategy class + tests + report. Their sim.simulate gate input is a
   `p` column (p>=threshold) — deterministic rules are expressed as p=1/0.
 
 ## My files (created this session)
-- `research/conviction_model.py` — sklearn HGB walk-forward conviction model
+- `research/archive/conviction_model.py` — sklearn HGB walk-forward conviction model
   (3y cutoff, labels y_pos = exit pnl>0). Keep for the report's evidence.
-- `research/validate_geom.py` — geometry gate builder + walk-forward runner
+- `research/archive/validate_geom.py` — geometry gate builder + walk-forward runner
   (exports gate_frame; setup=brk/dip/both, regime=bull/any).
-- `research/sensitivity.py` — 36-config grid + monthly win rate.
+- `research/archive/sensitivity.py` — 36-config grid + monthly win rate.
 - `runs/conviction_oos_{1d,4h}.csv` — full-data OOS predictions (pre-3y-cap;
   rerun if needed for the report).
 - sklearn installed in .venv (scikit-learn 1.9.1) — pyproject.toml not yet

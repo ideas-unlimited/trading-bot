@@ -46,13 +46,17 @@ python -m unittest discover -s tests
 
 ## Crypto swing / rotation playbook
 
-Research on Binance bars (BTC/ETH/BNB/XRP/SOL) lives in `research/`. All
-backtests and strategy selection are capped at the last two years - nothing
-older than `MAX_HISTORY_DAYS` is loaded. A coin with less history uses
-everything since its listing.
+Research on Binance bars (BTC/ETH/BNB/XRP/SOL) lives in `research/`, indexed
+by `research/README.md`. All backtests and strategy selection are capped at
+the last two years - nothing older than `MAX_HISTORY_DAYS` is loaded. A coin
+with less history uses everything since its listing.
 
-> The return figures below were measured under the previous three-year cap.
-> They are retained as history; re-runs now use the two-year window.
+> **Read this section as history.** It records what the 2026-11 research
+> found; several measurements were taken under the previous three-year cap or
+> against books that have since changed. They are kept because they explain
+> why the rules look the way they do, and they are not reproducible under
+> today's two-year rule. The forward paper books (A-E) are documented at the
+> end of this file.
 
 The rule that survived a 1,750-config search on the last 12 months and the
 old 3-year re-check is a 4h SMA 30/50 cross, 2 ATR stop, one position at a time,
@@ -136,12 +140,12 @@ Risk per trade runs into the position cap, and the cap, not the risk budget,
 decides size on most entries: at a 50% cap every risk setting from 2% to 6%
 produces the identical book ($4,074, -22.1% drawdown), because the cap always
 binds first. At the 95% cap, raising risk from 3% to 6% buys roughly another
-140 points of three-year return for four points of drawdown - and the
+140 points of the old three-year return for four points of drawdown - and the
 last-12-month figure peaks at 3%, then slowly decays (+31.0%, +30.0%, +30.0%,
 +29.0%). 3% is the most recent-year-efficient unit; 5% is the most dollars
 without a materially worse profile.
 
-The tail still pays for everything: over three years the single best trade is
+The tail still pays for everything: over the old three-year window the single best trade is
 51% of all profit, and in the last 12 months one ETH trade is 89% of the
 year. The earlier write-up on the raw 2% rule is `runs/report/year.html`.
 
@@ -158,7 +162,7 @@ python -m bot backtest --source csv --csv data/crypto/BTCUSDT_1d.csv \
                        --strategy momentum_swing --risk-per-trade 0.02
 ```
 
-On the same three-year window the rotation core returned +119.7% with a
+On the earlier three-year window the rotation core returned +119.7% with a
 -29.7% drawdown, so the 4h book is the default. All of these win less than
 half their trades - the edge is payoff asymmetry, not hit rate.
 
@@ -248,17 +252,30 @@ bounded. That is the risk layer doing its job, not a bug.
 ```
 src/bot/
   config.py        cost + risk settings (frozen dataclasses)
-  backtest.py      bar-by-bar engine, next-bar fills, intrabar stops
+  backtest.py      single-symbol bar-by-bar engine, next-bar fills, intrabar stops
+  book.py          one wallet across several coins, per-symbol configs, trailing stop
+  autobook.py      BookSpec definitions + the forward paper books
   broker.py        long-only fills, fees, slippage, round-trip accounting
   risk.py          stop-based sizing, position caps, drawdown kill switch
   metrics.py       return/CAGR/Sharpe/Sortino/drawdown/win-rate/profit factor
   report.py        summary text, trades csv, equity chart
   paper.py         live-ish replay through the same engine
-  cli.py           gen-data | strategies | backtest | paper
-  data/feed.py     Bar type, csv loader, deterministic synthetic generator
-  strategy/        base interface + registry + two example strategies
-tests/             58 unittest cases, no network
+  live.py          Binance production signals -> demo orders, local stops
+  cli.py           gen-data | backtest | book | auto | pool | live | scan | promote ...
+  data/            Bar type, csv loader, Binance/TradingView feeds, synthetic generator
+  strategy/        base interface, registry, one module per rule or per-symbol sleeve
+  analysis.py      shared indicators, structure, regime and volume primitives
+  promotions.py    activation manifests + promotion gate checks
+  symbolcfg.py     per-coin parameter validation for research and replay
+  scanlib.py       bars cache + incremental Binance sync under the 2-year cap
+  web.py           dashboard and JSON API (env-branded, promotion-aware)
+  db.py            Postgres schema: bots, trades, equity, events, promotions
+tests/             323 unittest cases, no network
 ```
+
+`research/` is the lab (`research/README.md` is the map), `config/` holds the
+18-symbol target pool, `deploy/` the server bundle and `promotions/` the
+activation manifests.
 
 ## Adding a strategy
 
@@ -266,7 +283,12 @@ tests/             58 unittest cases, no network
 2. Add indicator columns in `prepare` (vectorised, past-only).
 3. Return a `Signal` from `signal(i, df, position)` — `BUY` with a `stop_loss`,
    `CLOSE`, or `None`.
-4. Register it in `strategy/__init__.py`.
+4. Register it in `strategy/__init__.py` and add a test in `tests/`.
+5. If the rule is fitted to **one symbol**, ship it as a static sleeve:
+   module and class named `<strategy>_<symbol>`, tuned defaults baked in as
+   the constructor defaults, and a docstring carrying the window, timeframe
+   and measured numbers. Do not add a parameter file; the sleeve is the
+   artifact (`docs/TARGETS.md`).
 
 ```python
 from bot.strategy.base import Action, Signal, Strategy
@@ -329,17 +351,20 @@ verify that simulated and live fills agree before scaling.
 
 ## Known limits (on purpose)
 
-- **Long-only**, one position at a time: shorting and margin need funding-cost
-  and liquidation models to be honest.
+- **Long-only.** The single-symbol engine holds one position at a time; the
+  multi-coin book holds a fixed number of slots. Shorting and margin would
+  need funding-cost and liquidation models to be honest, so neither exists.
 - **Bar data only**: no order book, no partial fills, no queue position, no
   latency. Short-horizon strategies will look far better here than in reality.
 - **Fixed slippage**: real slippage scales with size and volatility.
-- **No walk-forward or parameter search**: both are easy to do badly (overfitting)
-  and deserve their own harness.
+- **The engine ships no parameter search**: searching and walk-forward
+  validation live in `research/`, because both are easy to do badly. A fit is
+  only accepted when an untouched later slice agrees (`docs/TARGETS.md`).
 - **Synthetic data is a random walk**, not a market. Do not tune against it.
 
-Next steps worth doing, in order: walk-forward validation on real data, an
-out-of-sample holdout, then capital-scaled slippage.
+Next steps worth doing, in order: capital-scaled slippage, then a forward
+paper run for each sleeve. Walk-forward validation and an out-of-sample
+holdout already exist in `research/`; use them before shipping a fit.
 
 ## Running the books live (paper)
 
@@ -371,4 +396,42 @@ Run the cycle just after a 4h close (00:00, 04:00, 08:00, 12:00, 16:00,
 poll matches the backtest exactly - which is also its one optimism: a real
 order placed four hours late would not get that price. Prompt polling keeps
 the paper book honest rather than flattering.
+
+### Per-symbol sleeves
+
+The books above share one rule across five majors. The next shelf is one
+**sleeve per coin**: a static module, `src/bot/strategy/<strategy>_<symbol>.py`,
+with the tuned parameters baked in as constructor defaults and the window and
+numbers that produced them in the docstring. There is no parameter file to
+drift - the module is the artifact, and git is its audit trail
+(`docs/TARGETS.md`).
+
+The first sleeve is `capitulation_dip_uni` (UNI/USDT, 4h): buy a 20-bar
+capitulation close 20% under its high, 2.5 ATR stop, 1.5R target, 18-bar time
+exit. Two years, 10 bps fees and 5 bps slippage, 5% risk / 50% position cap:
+**+67.8%**, -5.3% drawdown, 19 trades, 89.5% wins. Its research, including the
+walk-forward folds and the cost stress, is `research/uni/`.
+
+`config/target_symbols.json` is the scored 18-coin pool. Each row stays
+`untuned` (book defaults) until its sleeve ships; `python -m bot auto --pool
+config/target_symbols.json` runs one $1,000 wallet per coin for comparison.
+
+### Promotion
+
+A strategy becomes visible to the dashboard only when
+`promotions/paper/<name>.json` exists and is active:
+
+```bash
+python -m bot promote capitulation_dip_uni --to paper \
+  --symbols UNI/USDT --timeframe 4h \
+  --params '{"window": 20, "drop_pct": 0.2, "stop_atr": 2.5, "rr": 1.5, "max_hold": 18}' \
+  --evidence evidence.json
+```
+
+`evidence.json` carries the backtest: `bars`, `window_days` (<= 730),
+`trades`, `fee_bps`, `slippage_bps` and `params_hash` (printed by a failed
+gate, or computed with `bot.promotions.params_hash`). The gate prints one
+PASS/FAIL line per check; `--force --reason "..."` overrides it and records
+why. `bot promotions` lists what is active, `bot demote` drains it. The full
+contract, including the paper -> prod gate, is `deploy/PROMOTION.md`.
 

@@ -65,9 +65,9 @@ when you hit a new environment quirk and solve it, add it here and commit.
 
 ## Live paper books (`bot auto`)
 
-- `start_bots.cmd [seconds]` runs the four research books as $1,000 paper
-  wallets (A gated 3%, B gated 5%, C plain 3%, D room-gated 3%) every 15
-  minutes, detached,
+- `start_bots.cmd [seconds]` runs the five research books as $1,000 paper
+  wallets (A gated 3%, B gated 5%, C plain 3%, D room-gated 3%, E gated
+  entries + 1.5 ATR trail) every 15 minutes, detached,
   logging to `logs\bots_<ts>.log`. `python -m bot auto --once` is the same
   cycle for Task Scheduler. **Nothing is ordered** - the wallets are simulated
   so the books can hold the same coin at different sizes.
@@ -315,7 +315,8 @@ when you hit a new environment quirk and solve it, add it here and commit.
   passwordless sudo, so every privileged step is `sudo ...`. The service user
   `trader` has no shell — reach the dashboard with
   `ssh -L 9000:127.0.0.1:9000 debian@139.99.236.166`.
-  Verified on the box: web returns 200, 197 tests pass,
+  Verified on the box: web returns 200, the test suite passes (323 tests
+  locally as of 2026-11-28),
   `load_scan_bars("BTC/USDT","4h",source="binance")` fetches 2,190 bars (no
   451), so the venue path works from this IP.
 - **Server layout (agreed 2026-11-27).** `/opt/trading-bot` is a git

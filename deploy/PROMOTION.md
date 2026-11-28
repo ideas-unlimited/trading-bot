@@ -25,14 +25,22 @@ Package contents, and nothing else:
     tests/test_<name>.py
     promotions/paper/<name>.json
 
-`deploy/promote.sh` refuses any diff outside that list; framework edits take
-the `--core` route (branch from master, full suite green, merge).
+`bot promote` writes the manifest, computes its `params_hash` and prints one
+PASS/FAIL line per gate check; commit it with the module and the test. There
+is no `promote.sh`: the path rule is enforced by review, so keep the package
+diff to those three files. Framework edits take the core route instead - branch
+from master, full suite green, reviewed merge.
 
 Entry requirements:
 
 - full test suite green locally;
-- the manifest carries the backtest evidence: window (3y cap, sub-4h = 1y),
-  strategy params hash, symbols, timeframe, and the run's metrics.
+- the manifest carries the backtest evidence: window (2-year cap, sub-4h =
+  1 year), strategy params hash, symbols, timeframe, and the run's metrics -
+  the gate reads `bars`, `window_days`, `trades`, `fee_bps`,
+  `slippage_bps` and `params_hash` (the hash of `--params`);
+- the forward runner reproduces the backtest's exits: if the rule uses a
+  take-profit or a time exit, both must be implemented in the live loop. A
+  paper run that drops the target measures a different strategy.
 
 Paper capital is **$1,000 per bot/strategy**. It is simulated money; the point
 is that every strategy is measured on the same stake.
@@ -64,15 +72,23 @@ the promoted size.
 
 ```json
 {
-  "strategy": "momentum_swing",
-  "params_hash": "sha256:...",
-  "symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT"],
+  "strategy": "capitulation_dip_uni",
+  "env": "paper",
+  "params_hash": "sha256:1f3c...",
+  "symbols": ["UNI/USDT"],
   "timeframe": "4h",
   "capital": 1000,
-  "promoted_at": "2026-11-28T00:00:00Z",
+  "promoted_at": "2026-11-28T13:00:00+00:00",
   "promoted_by": "sahil",
-  "evidence": {"run_id": 42, "weeks_live": 2, "fills": 6,
-                "max_divergence_bps": 12, "note": "..."}
+  "override": false,
+  "override_reason": "",
+  "checks": [{"name": "backtest_bars", "ok": true, "detail": "bars=4381"}],
+  "evidence": {"bars": 4381, "window_days": 730, "trades": 19,
+               "fee_bps": 10, "slippage_bps": 5,
+               "params_hash": "sha256:1f3c..."},
+  "active": true,
+  "demoted_at": "",
+  "demote_reason": ""
 }
 ```
 

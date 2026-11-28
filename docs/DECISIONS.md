@@ -23,8 +23,8 @@ can be present on a box and inert there. Never fork code per environment.
 | DB | Holds |
 | --- | --- |
 | `trading_common` | `bars` only (market data, environment-agnostic) |
-| `trading_paper` | bots, bot_trades, equity_snapshots, events, runs, strategies |
-| `trading_prod`  | same schema + `promotions` |
+| `trading_paper` | bots, bot_trades, equity_snapshots, events, runs, promotions |
+| `trading_prod`  | same schema, real money, its own promotions audit |
 
 Separate databases, not schemas, so the paper role physically cannot write
 prod rows. One schema file applied to both env DBs so they cannot drift.
@@ -39,8 +39,9 @@ trading flat and silent.
 ## D5 - Promotion is a package, path-guarded
 
 lab -> paper package: strategy module, its tests, its paper manifest. Nothing
-else. Framework edits take the `--core` route (branch from master, full suite
-green). `deploy/promote.sh` refuses any other path in the diff.
+else. Framework edits take the core route (branch from master, full suite
+green). `bot promote` writes the manifest; keeping the diff to those three
+paths is enforced by review, not by a script.
 
 ## D6 - Paper gate: 2 weeks, $1,000, execution checks
 

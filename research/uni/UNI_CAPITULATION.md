@@ -22,7 +22,7 @@ reproduces the 180-config grid byte-for-byte, not just the headline run.
 ## Data and costs
 
 - Venue: Binance spot production klines, UNI/USDT.
-- Window: **2024-11-28 04:00 to 2026-11-28 00:00 UTC**, 4,380 4h bars.
+- Window: **2024-11-28 04:00 to 2026-11-28 00:00 UTC**, 4,381 4h bars.
 - Fills: signal on bar close, fill at next bar open.
 - Costs: **10 bps fee + 5 bps adverse slippage on both sides**.
 - Risk: 5% of equity per trade, max position **50% of equity**, 50% hard
@@ -30,6 +30,12 @@ reproduces the 180-config grid byte-for-byte, not just the headline run.
 - No shorting, no margin, no leverage.
 
 ## Headline result
+
+Verified 2026-11-28 by replaying the shipped module over the cached bars:
+**+67.8%**, **-5.27%** max drawdown, 19 round trips, 89.5% wins, 4,381 bars
+(`python -m bot backtest --source binance --symbol UNI/USDT --interval 4h
+--start 2024-11-28 --strategy capitulation_dip_uni --risk-per-trade 0.05
+--max-position-pct 0.5 --fee-bps 10 --slippage-bps 5`).
 
 | Slice | Return | Max DD | Sharpe | Trades | Win rate | Avg trade | Profit factor | Exposure |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -212,13 +218,17 @@ running forward yet:
   still lost ~27% before the switch.
 
 So: do not treat a `bot live` run with the 1.5R target as a validation of
-this backtest. The next step is a paper sleeve that records simulated fills
-with the same exit semantics, then 20 forward trades.
+this backtest. Promotion to paper needs one code change first - teach the live
+loop to persist and check the target (and the entry timestamp) the same way it
+handles the stop - or it must be promoted as the `rr=None` variant with that
+choice recorded in the manifest evidence (`deploy/PROMOTION.md`, exit parity).
+After that: a paper sleeve that records simulated fills with the same exit
+semantics, then 20 forward trades.
 
 To watch the historical replay through the CLI:
 
     $env:PYTHONPATH='src'; .venv\Scripts\python.exe -m bot paper --source binance `
-      --symbol UNI/USDT --interval 4h --n-bars 4380 --strategy capitulation_dip_uni `
+      --symbol UNI/USDT --interval 4h --n-bars 4381 --strategy capitulation_dip_uni `
       --param window=20 --param drop_pct=0.20 --param stop_atr=2.5 `
       --param rr=1.5 --param max_hold=18 --risk-per-trade 0.05 `
       --max-position-pct 0.5 --max-drawdown-stop 0.25

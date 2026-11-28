@@ -1,9 +1,10 @@
 # research/ - the lab
 
 Ideas live here; nothing here runs in the live loop. A study earns its way
-onto the shelf: it is probed and tuned here, and only a locked parameter set
-in `strategies/symbols/<SYMBOL>.json` (planned - policy in `docs/TARGETS.md`)
-is allowed to trade. Scratch is expected to be messy inside a study; the
+onto the shelf by being tuned here and then shipped as a static sleeve
+module, `src/bot/strategy/<strategy>_<symbol>.py`, which carries its tuned
+params and provenance (policy in `docs/TARGETS.md`). There is no runtime
+parameter file to drift. Scratch is expected to be messy inside a study; the
 folder is not allowed to be messy between studies.
 
 ## Layout
@@ -81,7 +82,7 @@ Artifacts: `wvfx_stage1..4.csv`, `wvfx_pooled_4h.csv`, `wvfx_xcheck.csv`,
 | --- | --- |
 | `tf_trail.py` | timeframe x trailing-stop sweep |
 | `fetch_binance.py`, `fetch_tf.py`, `fetch_1h.py` | scratch CSV fetchers (prefer the Postgres bars cache) |
-| `HANDOFF.md` | current handover notes |
+| `HANDOFF.md` | 2026-11-26 handover, kept as provenance (its files are in `archive/`) |
 
 ### Archive
 

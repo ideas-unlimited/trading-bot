@@ -40,7 +40,7 @@ audit. They are not targets and must not be tuned or traded.
 | 4 | XRP/USDT | Binance spot | untuned |
 | 5 | HYPE/USDT | Binance spot | untuned |
 | 6 | LINK/USDT | Binance spot | untuned |
-| 7 | UNI/USDT | Binance spot | untuned |
+| 7 | UNI/USDT | Binance spot | sleeve: `capitulation_dip_uni`, paper pending |
 | 8 | AVAX/USDT | Binance spot | untuned |
 | 9 | SUI/USDT | Binance spot | untuned |
 | 10 | TAO/USDT | Binance spot | untuned |
@@ -80,7 +80,14 @@ audit. They are not targets and must not be tuned or traded.
 
 ## Current assignments
 
-All 18 symbols are unassigned. `strategy`, `timeframe` and `params` in the JSON
-are placeholders; a completed assignment names the sleeve module that ships
-(`<strategy>_<symbol>`), its timeframe, and its in-sample / out-of-sample
-dates. The numbers live in that module, not in this file.
+17 symbols are unassigned; `strategy`, `timeframe` and `params` in the JSON
+are placeholders for them. A completed assignment names the sleeve module that
+ships (`<strategy>_<symbol>`), its timeframe, and its in-sample /
+out-of-sample dates. The numbers live in that module, not in this file.
+
+UNI shipped `capitulation_dip_uni` (4h, 2024-11-28 .. 2026-11-28, +67.8% /
+-5.3% drawdown / 19 trades at 5% risk and 50% position cap, researched in
+`research/uni/`). It is a **candidate, not live**: no
+`promotions/paper/capitulation_dip_uni.json` exists yet, and the forward
+runner does not yet execute its 1.5R target or persist the 18-bar hold clock
+(`research/uni/UNI_CAPITULATION.md`, "Deployment status").

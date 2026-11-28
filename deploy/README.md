@@ -159,8 +159,8 @@ a position.
 | One bot's state | `cat /var/lib/tradingbot/btc.json` |
 | Stop everything | `systemctl stop 'tradingbot@*' tradingbot-web` |
 | Add a bot | new `/etc/tradingbot/<name>.env`, then `systemctl enable --now tradingbot@<name>` |
-| Update | `cd /opt/trading-bot && git pull && bash deploy/install.sh` |
-| Restore a dump | `zcat /var/backups/tradingbot/trading_bot-<date>.sql.gz | runuser -u postgres -- psql trading_bot` |
+| Update | `sudo bash /opt/trading-bot/deploy/update.sh` |
+| Restore a dump | `for db in trading_common trading_paper trading_prod; do zcat /var/backups/tradingbot/$db-<date>.sql.gz | runuser -u postgres -- psql $db; done` |
 
 Every bot gets its own wallet (`--capital`), its own state file and its own
 unit, but they share one demo account: two bots on the same symbol

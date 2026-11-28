@@ -126,10 +126,10 @@
       "venue": "binance",
       "market": "spot",
       "data_source": "binance",
-      "status": "untuned",
+      "status": "sleeve (paper pending)",
       "available": true,
-      "strategy": null,
-      "timeframe": null,
+      "strategy": "capitulation_dip_uni",
+      "timeframe": "4h",
       "params": {}
     },
     {
