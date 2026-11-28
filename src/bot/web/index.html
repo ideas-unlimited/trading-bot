@@ -128,6 +128,79 @@
   .botcard details { margin-top: 10px; }
   .botcard summary { cursor: pointer; font-size: 11.5px; color: var(--muted); }
   .botcard .scroll { max-height: 240px; }
+  /* ---- dashboard widget board ----
+     The KPI strip is fixed; everything below it is a widget the owner can
+     drag, resize and remove. Layout persists in localStorage per browser:
+     a dashboard preference is not trading state, so it never touches the
+     promotions manifests or the database. */
+  .spacer { flex: 1; }
+  .btn { padding: 6px 12px; border: 1px solid var(--border); background: transparent;
+         color: var(--text); border-radius: 6px; cursor: pointer; font: inherit; font-size: 12.5px; }
+  .btn:hover { background: #171d26; }
+  .btn.on { background: #1b2533; border-color: #35507a; color: #fff; }
+  #view-dashboard { max-width: 1560px; }
+  .updt { font: 11px var(--mono); color: var(--muted); }
+  .updt .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+               background: var(--good); margin-right: 6px; vertical-align: 1px; }
+  .hinline { font: 11px var(--mono); color: var(--accent); background: #101828;
+             border: 1px solid #24365a; border-radius: 8px; padding: 8px 12px; margin: 0 0 12px;
+             display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .hinline .reset { margin-left: auto; cursor: pointer; text-decoration: underline; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+          gap: 12px; margin-bottom: 12px; }
+  .wgrid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 12px; }
+  .wg { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+        display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
+  .wg > header { display: flex; align-items: center; gap: 8px; padding: 10px 12px 8px; }
+  .wg > header h3 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .9px;
+                    color: #9aa4b2; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+  .wg .grip { color: #3a4454; font-size: 11px; cursor: grab; visibility: hidden; user-select: none; }
+  .wtools { margin-left: auto; display: flex; gap: 4px; visibility: hidden; }
+  .wtools button { background: transparent; border: 1px solid var(--border); color: var(--muted);
+                   border-radius: 5px; font: 10.5px var(--mono); padding: 2px 7px; cursor: pointer; }
+  .wtools button:hover { color: var(--text); border-color: #35507a; }
+  .wtools .rm:hover { color: var(--bad); border-color: #5c2731; }
+  .wg .wbody { padding: 4px 12px 12px; overflow-x: auto; overflow-y: hidden; flex: 1; }
+  body.edit .wg { cursor: grab; }
+  body.edit .wg::after { content: ""; position: absolute; inset: 0; border-radius: 10px;
+                         border: 1px dashed #35507a; pointer-events: none; }
+  body.edit .grip, body.edit .wtools { visibility: visible; }
+  body.edit .wg.dragging { opacity: .35; }
+  .w3 { grid-column: span 3; } .w4 { grid-column: span 4; }
+  .w6 { grid-column: span 6; } .w8 { grid-column: span 8; } .w12 { grid-column: span 12; }
+  @media (max-width: 1100px) {
+    .w3, .w4 { grid-column: span 6; }
+    .w6, .w8 { grid-column: span 12; }
+  }
+  @media (max-width: 720px) { .wg { grid-column: span 12 !important; } }
+  #eqCanvas { width: 100%; height: 180px; display: block; }
+  .chartcap { display: flex; gap: 14px; align-items: center; font-size: 11px;
+              color: var(--muted); margin-top: 6px; }
+  .health { display: flex; flex-direction: column; gap: 8px; padding: 2px 0; }
+  .hrow { display: flex; align-items: center; gap: 9px; font-size: 12.5px; min-width: 0; }
+  .hrow .st { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; background: var(--muted); }
+  .hrow .ms { margin-left: auto; font: 11px var(--mono); color: var(--muted);
+              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .addmenu { position: fixed; right: 20px; top: 76px; z-index: 80; width: 265px;
+             background: #171d26; border: 1px solid #2a3444; border-radius: 10px;
+             box-shadow: 0 12px 32px rgba(0,0,0,.5); padding: 6px; display: none; }
+  .addmenu.open { display: block; }
+  .addmenu .ah { font-size: 10.5px; letter-spacing: .8px; text-transform: uppercase;
+                 color: var(--muted); padding: 6px 10px; }
+  .addmenu button { display: flex; width: 100%; text-align: left; gap: 10px; align-items: center;
+                    background: transparent; border: 0; color: var(--text); font: inherit;
+                    padding: 8px 10px; border-radius: 7px; cursor: pointer; }
+  .addmenu button:hover { background: #1e2633; }
+  .addmenu button .ico { opacity: .8; width: 18px; text-align: center; }
+  .addmenu button .desc { font-size: 11px; color: var(--muted); }
+  .addmenu button.used { opacity: .35; pointer-events: none; }
+  .addmenu .closex { position: absolute; top: 6px; right: 10px; cursor: pointer; color: var(--muted); }
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+           background: #171d26; border: 1px solid #2a3444; color: var(--text);
+           padding: 9px 16px; border-radius: 8px; font-size: 12px; z-index: 90;
+           box-shadow: 0 10px 30px rgba(0,0,0,.5); transition: opacity .4s; opacity: 0;
+           pointer-events: none; }
+  .toast.show { opacity: 1; }
 </style>
 </head>
 <body class="{{ENV}}">
@@ -135,7 +208,7 @@
 <nav>
   <div class="logo"><img src="/favicon.svg?v=1" alt="" width="20" height="20">trading<span>bot</span></div>
   <a data-view="dashboard" class="on">Dashboard</a>
-  <a data-view="bots">Bots</a>
+  <a data-view="bots">Trading bots</a>
   <a data-view="strategies">Strategies</a>
   <a data-view="trades">P&amp;L</a>
   <div class="foot">{{ENV_FOOT}}</div>
@@ -143,48 +216,38 @@
 <main>
   <div class="topbar">
     <span class="title" id="viewTitle">Dashboard</span>
+    <span class="updt" id="updtChip"><span class="dot"></span>loading…</span>
+    <span class="spacer"></span>
+    <button class="btn" id="btnAddWidget">＋ Add widget</button>
+    <button class="btn" id="btnEditLayout">✎ Edit layout</button>
     <span id="accountChip">account: checking…</span>
   </div>
 
   <div id="err" class="error hidden" style="margin:14px 20px 0"></div>
 
-  <!-- ================= DASHBOARD ================= -->
+  <!-- ================= DASHBOARD =================
+       The KPI strip is fixed; the rest is a widget board the owner can
+       rearrange (edit mode: drag, S/M/L resize, ✕ remove, ＋ add). The layout
+       lives in localStorage — a browser preference, never trading state. -->
   <div class="view on" id="view-dashboard">
-    <div class="metrics" id="dashMetrics" style="margin-bottom:12px"></div>
-    <div class="grid cols-2">
-      <div class="card">
-        <h2>Assets <span id="venueBadge" class="badge muted">…</span></h2>
-        <table id="dashAssets"></table>
-        <div class="hint" id="assetsHint"></div>
-      </div>
-      <div class="card">
-        <h2>Open positions</h2>
-        <table id="dashPositions"></table>
-      </div>
+    <div class="hinline" id="hintline" style="display:none">
+      ✎ edit mode — drag cards by their header · S/M/L resize · ✕ removes ·
+      saved in this browser only
+      <span class="reset" id="btnResetLayout">reset to default</span>
     </div>
-    <div class="card" style="margin-top:12px">
-      <h2>Live bots <span id="botsCount" class="badge muted">0 running</span></h2>
-      <table id="dashBots"></table>
-    </div>
-    <div class="card" id="forwardCard" style="margin-top:12px">
-      <h2>Forward paper sleeves <span id="forwardCount" class="badge muted">—</span></h2>
-      <table id="dashForward"></table>
-      <div class="hint">
-        Shadow replays from the forward runner — a strategy can be promoted and
-        replayed here without a live-bot row. “live” starts at $1,000 on the
-        deploy pin; “history” is the full two-year replay.
-      </div>
-    </div>
+    <div class="kpis" id="kpis"></div>
+    <div class="wgrid" id="board"></div>
   </div>
 
   <!-- ================= BOTS ================= -->
   <div class="view" id="view-bots">
     <div class="card">
-      <h2>Bots <span id="botTotals" class="badge muted">—</span></h2>
+      <h2>Trading bots <span id="botTotals" class="badge muted">—</span></h2>
       <div class="hint" style="margin:-4px 0 14px">
-        Bots are created and promoted from lab; this page runs them. A kill switch
-        halts within one poll: no new entries, and an open position is closed.
-        Forward sleeve replays are not live-bot rows — they are on the Dashboard.
+        Trading bots are created and promoted from lab; this page runs them. A
+        kill switch halts within one poll: no new entries, and an open position is
+        closed. Dry-run sleeve replays are not trading-bot rows — they are on the
+        Dashboard.
       </div>
       <div id="botsList"><div class="empty">loading…</div></div>
     </div>
@@ -215,6 +278,20 @@
   </div>
 
 </main>
+
+<!-- add-widget menu (dashboard) -->
+<div class="addmenu" id="addmenu">
+  <span class="closex" id="addclose">✕</span>
+  <div class="ah">Add a widget to the dashboard</div>
+  <button data-add="equity"><span class="ico">📈</span><span>Equity curve<br><span class="desc">portfolio history, all wallets summed</span></span></button>
+  <button data-add="positions"><span class="ico">◉</span><span>Open positions<br><span class="desc">venue exposure, entry and uP&L</span></span></button>
+  <button data-add="bots"><span class="ico">◎</span><span>Trading bots<br><span class="desc">loops, heartbeats, returns</span></span></button>
+  <button data-add="forward"><span class="ico">◇</span><span>Dry-run bots<br><span class="desc">shadow replays vs history</span></span></button>
+  <button data-add="assets"><span class="ico">◧</span><span>Assets<br><span class="desc">balances and allocation</span></span></button>
+  <button data-add="fills"><span class="ico">⇅</span><span>Recent fills<br><span class="desc">last executed orders</span></span></button>
+  <button data-add="health"><span class="ico">♥</span><span>System health<br><span class="desc">stale loops, fresh data, runner</span></span></button>
+</div>
+<div class="toast" id="toast"></div>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -271,7 +348,11 @@ document.querySelectorAll("nav a").forEach(a => a.onclick = () => {
   a.classList.add("on");
   $("view-"+a.dataset.view).classList.add("on");
   $("viewTitle").textContent = a.textContent.trim().replace(/^[^\w$]+/,"");
-  if (a.dataset.view==="dashboard") loadDashboard();
+  const dash = a.dataset.view === "dashboard";
+  $("btnAddWidget").style.display = dash ? "" : "none";
+  $("btnEditLayout").style.display = dash ? "" : "none";
+  $("updtChip").style.display = dash ? "" : "none";
+  if (dash) refreshDashboard();
   if (a.dataset.view==="bots") renderBots();
   if (a.dataset.view==="strategies") renderStrategies();
   if (a.dataset.view==="trades") syncTrades();
@@ -281,9 +362,18 @@ document.querySelectorAll("nav a").forEach(a => a.onclick = () => {
 async function loadStrategies(){
   S.strategies = await api("/api/strategies");
 }
-/* ================= dashboard ================= */
+/* ================= dashboard: widget board =================
+   Data lives in S (one fetch per endpoint, shared by every widget); the
+   board is a 12-column grid of widgets the owner can drag, resize and
+   remove in edit mode. The layout is a browser preference: localStorage,
+   never a database row, so paper and prod manifests stay trading state
+   only. The KPI strip above the board is fixed — the four numbers that
+   must be readable in one glance. */
 const money = (x, dp=2) => "$" + Number(x||0).toLocaleString(undefined,{minimumFractionDigits:dp,maximumFractionDigits:dp});
 const qtyFmt = (x) => Number(x||0).toLocaleString(undefined,{maximumFractionDigits:8});
+const stateBadge = (b) => b.alive
+  ? `<span class="badge live">running</span>`
+  : `<span class="badge muted">${esc(b.status === "running" ? "no heartbeat" : (b.status || "—"))}</span>`;
 async function loadAccount(){
   try {
     // Raw fetch: `api()` turns any {"error": ...} into a throw, and the
@@ -291,6 +381,7 @@ async function loadAccount(){
     // page can explain the venue instead of showing a bare failure.
     const res = await fetch("/api/account");
     let a; try { a = await res.json(); } catch { throw new Error("HTTP " + res.status); }
+    S.account = a; S.accountError = null;
     const venue = (a.venue || "demo").toUpperCase();
     if (a.error) {
       $("accountChip").innerHTML = venue === "LIVE"
@@ -300,128 +391,357 @@ async function loadAccount(){
     }
     $("accountChip").innerHTML = `<b>${venue}</b> · equity <b>${money(a.equity)}</b> · cash ${money(a.cash)} · ${a.positions.length} position${a.positions.length===1?"":"s"}`;
     return a;
-  } catch(e){ $("accountChip").textContent = "account: " + e.message; return null; }
+  } catch(e){ S.account = null; S.accountError = e.message; $("accountChip").textContent = "account: " + e.message; return null; }
+}
+async function loadRunning(){
+  try { S.running = await api("/api/running"); S.runningError = null; }
+  catch(e){ S.running = null; S.runningError = e.message; }
 }
 async function loadForward(){
-  const card = $("forwardCard");
-  if (ENV !== "paper") { card.style.display = "none"; return; }
-  const table = $("dashForward"), count = $("forwardCount");
-  try {
-    const data = await api("/api/forward");
-    const sleeves = data.sleeves || [];
-    const n = sleeves.filter(s => s.state === "running").length;
-    count.textContent = sleeves.length
-      ? `${n} running · ${sleeves.length} active`
-      : "none active";
-    count.className = "badge " + (n ? "live" : "muted");
-    table.innerHTML = sleeves.length
-      ? `<tr><th>sleeve</th><th>market</th><th>tf</th><th>state</th><th>history</th><th>trades</th><th>live since deploy</th><th>position</th><th>updated</th></tr>` +
+  if (ENV !== "paper") { S.forward = null; return; }
+  try { S.forward = await api("/api/forward"); S.forwardError = null; }
+  catch(e){ S.forward = null; S.forwardError = e.message; }
+}
+async function loadEquity(){
+  try { S.equity = await api("/api/equity"); S.equityError = null; }
+  catch(e){ S.equity = null; S.equityError = e.message; }
+}
+
+/* ---- widget registry. render() returns the body HTML from S; head()
+   returns an optional badge for the header row. ---- */
+const WIDGETS = {
+  equity: { icon: "📈", title: "Equity curve", w: 8,
+    render(){
+      if (S.equityError) return `<div class="empty">${esc(S.equityError)}</div>`;
+      const s = (S.equity && S.equity.series) || [];
+      if (s.length < 2)
+        return `<div class="empty">no equity history yet — the first trading-bot poll or dry-run cycle writes a point</div>`;
+      const first = new Date(s[0].ts), last = new Date(s[s.length-1].ts);
+      const span = `${first.toLocaleDateString([],{month:"short",day:"numeric"})} → ${last.toLocaleDateString([],{month:"short",day:"numeric"})}`;
+      return `<canvas id="eqCanvas"></canvas>
+        <div class="chartcap"><span class="legend"><i style="background:#4f8cff"></i>portfolio equity</span>
+        <span class="dim">${span} · ${S.equity.contributors} wallet${S.equity.contributors===1?"":"s"} summed · priced in USDT</span></div>`;
+    },
+    after(root){ drawEquity(root.querySelector("#eqCanvas")); } },
+
+  positions: { icon: "◉", title: "Open positions", w: 4,
+    head(){ const n = (S.account && !S.account.error && S.account.positions) ? S.account.positions.length : 0;
+      return `<span class="badge ${n?"live":"muted"}">${n}</span>`; },
+    render(){
+      if (S.accountError) return `<div class="empty">${esc(S.accountError)}</div>`;
+      const a = S.account;
+      if (!a || a.error)
+        return `<div class="empty">${a && a.venue === "live" ? "no live venue configured — prod refuses demo credentials before it reads a key" : esc((a && a.error) || "account unreadable")}</div>`;
+      if (!a.positions.length) return `<div class="empty">no open positions</div>`;
+      return `<table><tr><th>symbol</th><th>qty</th><th>entry</th><th>uP&L</th></tr>` +
+        a.positions.map(p =>
+          `<tr><td><b>${esc(p.symbol)}</b></td><td>${qtyFmt(p.qty)}</td><td>${money(p.avg_entry_price, 4)}</td>
+           <td class="${cls(p.unrealized_pl)}">${fmt(p.unrealized_pl)}</td></tr>`).join("") + `</table>
+        <div class="hint">venue view — the local stop and target are on the trading-bots page</div>`;
+    } },
+
+  bots: { icon: "◎", title: "Trading bots", w: 6,
+    head(){ const bots = (S.running && S.running.bots) || [];
+      const n = bots.filter(b => b.alive).length;
+      return `<span class="badge ${n?"live":"muted"}">${n} running · ${bots.length} total</span>`; },
+    render(){
+      if (S.runningError) return `<div class="empty">${esc(S.runningError)}</div>`;
+      const bots = (S.running && S.running.bots) || [];
+      if (!bots.length) return `<div class="empty">no trading bots in this world yet — promote a strategy in lab, then start its loop on the box</div>`;
+      return `<table><tr><th>bot</th><th>state</th><th>equity</th><th>return</th><th>run rate</th><th>last beat</th></tr>` +
+        bots.map(b => {
+          const rate = b.run_rate;
+          const rateTxt = rate ? `${rate.month_pct >= 0 ? "+" : "−"}${Math.abs(rate.month_pct).toFixed(1)}%/mo` : "—";
+          const rateTip = rate ? `${rate.window_days}d window · ${rate.per_day >= 0 ? "+" : "−"}$${Math.abs(rate.per_day).toFixed(2)}/day · ${rate.samples} samples` : "needs a day of equity samples";
+          return `<tr><td><b>${esc(b.name)}</b><div class="dim" style="font-size:10.5px">${esc(b.symbol)} · ${esc(b.timeframe)}</div></td>` +
+            `<td>${stateBadge(b)}</td>` +
+            `<td>${b.equity == null ? "—" : money(b.equity)}</td>` +
+            `<td class="${cls(b.return_pct)}">${b.return_pct == null ? "—" : fmt(b.return_pct, 2, "%")}</td>` +
+            `<td class="${cls(rate && rate.month_pct)}" title="${esc(rateTip)}">${rateTxt}</td>` +
+            `<td class="dim">${ago(b.heartbeat_age_s)}</td></tr>`;
+        }).join("") + `</table>
+        <div class="hint">kill switch, stop and target: the trading-bots page</div>`;
+    } },
+
+  forward: { icon: "◇", title: "Dry-run bots", w: 6,
+    head(){ if (ENV !== "paper") return "";
+      const sl = (S.forward && S.forward.sleeves) || [];
+      const n = sl.filter(s => s.state === "running").length;
+      return `<span class="badge ${n?"live":"muted"}">${sl.length ? `${n} running · ${sl.length} active` : "none active"}</span>`; },
+    render(){
+      if (ENV !== "paper")
+        return `<div class="empty">dry-run sleeves replay in the paper world only — this world is ${esc(ENV)}</div>`;
+      if (S.forwardError) return `<div class="empty">${esc(S.forwardError)}</div>`;
+      const sleeves = (S.forward && S.forward.sleeves) || [];
+      if (!sleeves.length) return `<div class="empty">no active dry-run sleeves</div>`;
+      return `<table><tr><th>sleeve</th><th>state</th><th>history 2y</th><th>since deploy</th><th>position</th></tr>` +
         sleeves.map(s => {
           const h = s.history || {};
           const f = s.forward || {};
           const p = s.position;
-          const stateCls = s.state === "running" ? "live" : "muted";
           const pos = p
-            ? `${qtyFmt(p.qty)} @ ${money(p.entry)}<br><span class="dim">uPnL ${money(p.unrealized)} · stop ${money(p.stop)}</span>`
+            ? `${qtyFmt(p.qty)} @ ${money(p.entry)}<br><span class="dim">uPnL ${money(p.unrealized)}</span>`
             : "flat";
-          return `<tr><td><b>${esc(s.strategy)}</b><div class="dim">${esc(s.symbol)}</div></td>` +
-            `<td>${esc(s.symbol)}</td><td>${esc(s.timeframe)}</td>` +
-            `<td><span class="badge ${stateCls}">${esc(s.state)}</span></td>` +
+          return `<tr><td><b>${esc(s.strategy)}</b><div class="dim" style="font-size:10.5px">${esc(s.symbol)} · ${esc(s.timeframe)}</div></td>` +
+            `<td><span class="badge ${s.state === "running" ? "live" : "muted"}" title="${s.updated_at ? "updated " + esc(s.updated_at) : "never updated"}">${esc(s.state)}</span></td>` +
             `<td class="${cls(h.return_pct)}">${h.return_pct == null ? "—" : fmt(h.return_pct*100, 2, "%")}` +
             `<div class="dim">dd ${h.max_drawdown == null ? "—" : fmt(h.max_drawdown*100, 1, "%")}</div></td>` +
-            `<td>${h.trades == null ? "—" : h.trades}</td>` +
             `<td class="${cls(f.return_pct)}">${f.return_pct == null ? "—" : fmt(f.return_pct*100, 2, "%")}` +
-            `<div class="dim">${f.trades == null ? 0 : f.trades} new fill${f.trades === 1 ? "" : "s"}</div></td>` +
-            `<td class="dim">${pos}</td>` +
-            `<td class="dim">${s.age_s == null ? "never" : ago(s.age_s)}</td></tr>`;
-        }).join("")
-      : `<tr><td class="empty" colspan="9">no active forward sleeves</td></tr>`;
-  } catch(e) {
-    count.textContent = "—";
-    table.innerHTML = `<tr><td class="empty" colspan="9">${esc(e.message)}</td></tr>`;
-  }
+            `<div class="dim">${f.trades == null ? 0 : f.trades} fill${f.trades === 1 ? "" : "s"}</div></td>` +
+            `<td class="dim">${pos}</td></tr>`;
+        }).join("") + `</table>
+        <div class="hint">“since deploy” starts at $1,000 on the deploy pin; “history” is the full two-year replay</div>`;
+    } },
+
+  assets: { icon: "◧", title: "Assets", w: 4,
+    head(){ const a = S.account;
+      if (!a) return "";
+      const live = a.venue === "live";
+      return `<span class="badge ${a.error ? "muted" : live ? "live" : "demo"}">${live ? "live" : a.error ? "no venue" : "demo · virtual"}</span>`; },
+    render(){
+      if (S.accountError) return `<div class="empty">${esc(S.accountError)}</div>`;
+      const a = S.account;
+      if (!a || a.error)
+        return `<div class="empty">${a && a.venue === "live" ? "no live venue is wired in this build — real-money routing has to be added deliberately and reviewed" : esc((a && a.error) || "account unreadable")}</div>`;
+      if (!a.assets.length) return `<div class="empty">no balances reported</div>`;
+      return `<table><tr><th>asset</th><th>qty</th><th>value</th><th style="width:84px">alloc</th></tr>` +
+        a.assets.map(x => {
+          const share = Math.min(100, Math.max(0, Number(x.share||0)*100));
+          return `<tr><td><b>${esc(x.asset)}</b></td><td>${qtyFmt(x.total)}</td>
+            <td>${x.value == null ? "—" : money(x.value)}</td>
+            <td><div class="alloc"><i style="width:${share.toFixed(1)}%"></i></div></td></tr>`;
+        }).join("") + `</table>
+        <div class="hint">priced in USDT${a.as_of ? ` · ${dt(a.as_of)}` : ""}</div>`;
+    } },
+
+  fills: { icon: "⇅", title: "Recent fills", w: 4,
+    head(){ return `<span class="badge muted">last ${(S.trades && S.trades.trades || []).slice(0,12).length}</span>`; },
+    render(){
+      if (S.tradesError) return `<div class="empty">${esc(S.tradesError)}</div>`;
+      const trades = (S.trades && S.trades.trades) || [];
+      if (!trades.length) return `<div class="empty">no fills synced yet</div>`;
+      return `<table><tr><th>time</th><th>symbol</th><th>side</th><th>qty</th><th>price</th></tr>` +
+        trades.slice(0, 12).map(t => `<tr><td class="dim">${dt(t.filled_at)}</td><td>${esc(t.symbol)}</td>
+          <td class="${t.side==="buy"?"pos":"neg"}">${esc(t.side)}</td><td>${t.qty}</td>
+          <td>${t.price.toFixed(2)}</td></tr>`).join("") + `</table>
+        <div class="hint">full history with notional: the P&L page</div>`;
+    } },
+
+  health: { icon: "♥", title: "System health", w: 4,
+    render(){
+      const row = (ok, name, msg) =>
+        `<div class="hrow"><span class="st" style="background:${ok ? "var(--good)" : ok == null ? "var(--muted)" : "var(--bad)"}"></span>
+         <span>${esc(name)}</span><span class="ms" title="${esc(msg)}">${esc(msg)}</span></div>`;
+      const rows = [];
+      const bots = (S.running && S.running.bots) || [];
+      for (const b of bots.slice(0, 6))
+        rows.push(row(b.alive, b.name, b.alive ? `beat ${ago(b.heartbeat_age_s)}` : (b.halted ? "halted" : `stale ${ago(b.heartbeat_age_s)}`)));
+      if (ENV === "paper" && S.forward) {
+        const sl = S.forward.sleeves || [];
+        const stale = sl.filter(s => s.state === "stale").length;
+        const running = sl.filter(s => s.state === "running").length;
+        if (sl.length)
+          rows.push(row(!stale, "dry-run runner", running ? `${running} fresh · ${stale} stale` : "all sleeves stale"));
+      }
+      const a = S.account;
+      if (a && a.error)
+        rows.push(row(ENV === "prod" ? null : false, "venue", a.venue === "live" ? "not configured (prod by design)" : String(a.error)));
+      else if (a)
+        rows.push(row(true, "venue", `${(a.venue || "demo")} · priced ${ago(Math.max(0, (Date.now() - new Date(a.as_of).getTime()) / 1000))}`));
+      rows.push(row(null, "strategies", `${Object.keys(S.strategies).length} promoted to this world`));
+      if (!rows.length) return `<div class="empty">nothing to report yet</div>`;
+      return `<div class="health">${rows.join("")}</div>`;
+    } },
+};
+
+const DEFAULT_LAYOUT = [
+  { id: "equity", w: 8 }, { id: "positions", w: 4 },
+  { id: "bots", w: 6 }, { id: "forward", w: 6 },
+  { id: "health", w: 4 }, { id: "fills", w: 4 }, { id: "assets", w: 4 },
+];
+const LS_KEY = "tb.dash.layout.v1";
+let layout;
+try { layout = JSON.parse(localStorage.getItem(LS_KEY)); } catch { layout = null; }
+if (!Array.isArray(layout) || !layout.every(x => x && WIDGETS[x.id]))
+  layout = DEFAULT_LAYOUT.slice();
+const saveLayout = () => { try { localStorage.setItem(LS_KEY, JSON.stringify(layout)); } catch {} };
+
+const board = $("board");
+function widgetEl(item){
+  const def = WIDGETS[item.id];
+  const el = document.createElement("section");
+  el.className = "wg w" + item.w;
+  el.dataset.wid = item.id;
+  el.innerHTML = `<header><span class="grip">⠿⠿</span><h3>${def.icon} ${def.title}</h3>
+    <div class="wtools"><button class="sz" title="cycle width">S/M/L</button>
+    <button class="rm" title="remove">✕</button></div></header><div class="wbody"></div>`;
+  if (def.head){ const span = document.createElement("span");
+    span.innerHTML = def.head() || "";
+    el.querySelector("h3").after(span); }
+  el.querySelector(".wbody").innerHTML = def.render();
+  el.querySelector(".sz").onclick = () => {
+    const sizes = [3, 4, 6, 8, 12];
+    item.w = sizes[(sizes.indexOf(item.w) + 1) % sizes.length];
+    el.className = "wg w" + item.w;
+    if (item.id === "equity") drawEquity(el.querySelector("#eqCanvas"));
+    saveLayout();
+  };
+  el.querySelector(".rm").onclick = () => {
+    if (!document.body.classList.contains("edit")) return;
+    el.remove();
+    layout = layout.filter(x => x.id !== item.id);
+    saveLayout();
+  };
+  el.draggable = document.body.classList.contains("edit");
+  return el;
+}
+function finishWidget(el){
+  // Post-attach hooks (the equity canvas needs clientWidth, which a detached
+  // node does not have — it used to paint an empty chart on first load).
+  const def = WIDGETS[el.dataset.wid];
+  if (def.after) requestAnimationFrame(() => def.after(el));
+}
+function paintBoard(force){
+  // A poll must not yank the board mid-drag; an explicit reset may repaint
+  // even in edit mode, because the DOM no longer matches the layout.
+  if (!force && document.body.classList.contains("edit")) return;
+  board.querySelectorAll(".wg").forEach(x => x.remove());
+  for (const item of layout){ const el = widgetEl(item); board.appendChild(el); finishWidget(el); }
 }
 
-async function loadDashboard(){
-  const a = await loadAccount();
-  const stats = $("dashMetrics"), assets = $("dashAssets"), hint = $("assetsHint");
-  const badge = $("venueBadge");
-  if (!a) {
-    stats.innerHTML = `<div class="metric"><div class="k">account</div><div class="v">unavailable</div></div>`;
-    return;
-  }
-  if (a.error) {
-    const live = a.venue === "live";
-    badge.className = "badge " + (live ? "live" : "muted");
-    badge.textContent = live ? "live · not configured" : "error";
-    stats.innerHTML = [
-      ["venue", live ? "LIVE" : "DEMO", live ? "real-money world" : "virtual funds"],
-      ["equity", "—", "no live venue wired"],
-      ["cash", "—", ""],
-      ["positions", "—", ""],
-    ].map(([k,v,d]) => `<div class="metric"><div class="k">${k}</div><div class="v">${v}</div>${d?`<div class="d">${esc(d)}</div>`:""}</div>`).join("");
-    assets.innerHTML = `<tr><td class="empty" colspan="5">${live ? "no live venue configured" : esc(a.error)}</td></tr>`;
-    hint.innerHTML = live
-      ? `<div>No live venue is wired in this build. Prod refuses demo credentials before it reads a key, and real-money routing has to be added deliberately and reviewed.</div>`
-      : "";
-    $("dashPositions").innerHTML = `<tr><td class="empty" colspan="4">no venue</td></tr>`;
-  } else {
-  const upnl = Number(a.unrealized_pl||0);
-  const pnlTxt = (upnl >= 0 ? "+" : "−") + money(Math.abs(upnl));
-  badge.className = "badge " + (a.venue === "live" ? "live" : "demo");
-  badge.textContent = a.venue === "live" ? "live" : "demo · virtual";
-  stats.innerHTML = [
-    ["equity", money(a.equity), a.venue === "live" ? "live account" : "virtual demo account", ""],
-    ["cash", money(a.cash), "available", ""],
-    ["positions value", money(a.equity - a.cash), `${a.positions.length} open`, ""],
-    ["unrealized p&l", pnlTxt, "marked to market", cls(upnl)],
-  ].map(([k,v,d,c]) => `<div class="metric"><div class="k">${k}</div><div class="v ${c}">${v}</div><div class="d">${esc(d)}</div></div>`).join("");
+/* ---- equity chart (canvas, no dependencies) ---- */
+function drawEquity(canvas){
+  if (!canvas || !canvas.clientWidth) return;
+  const s = (S.equity && S.equity.series) || [];
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  const ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr);
+  if (s.length < 2) return;
+  const vals = s.map(p => p.equity);
+  const mn = Math.min(...vals), mx = Math.max(...vals), pad = (mx - mn) * 0.08 || 1;
+  const lo = mn - pad, hi = mx + pad;
+  const X = i => 4 + i / (s.length - 1) * (W - 8);
+  const Y = v => H - 14 - (v - lo) / (hi - lo) * (H - 26);
+  ctx.beginPath(); s.forEach((p, i) => i ? ctx.lineTo(X(i), Y(p.equity)) : ctx.moveTo(X(0), Y(p.equity)));
+  ctx.strokeStyle = "#4f8cff"; ctx.lineWidth = 1.6; ctx.stroke();
+  ctx.lineTo(X(s.length - 1), H); ctx.lineTo(X(0), H); ctx.closePath();
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, "rgba(79,140,255,.22)"); grad.addColorStop(1, "rgba(79,140,255,0)");
+  ctx.fillStyle = grad; ctx.fill();
+  ctx.font = "10px " + getComputedStyle(document.body).getPropertyValue("--mono");
+  ctx.fillStyle = "#848e9c";
+  ctx.fillText("$" + Math.round(mx).toLocaleString(), 4, 11);
+  ctx.fillText("$" + Math.round(lo).toLocaleString(), 4, H - 3);
+  const last = vals[vals.length - 1];
+  ctx.fillStyle = "#eaecef";
+  ctx.fillText("$" + Math.round(last).toLocaleString(), W - 60, Y(last) - 6);
+}
 
-  assets.innerHTML = `<tr><th>asset</th><th>qty</th><th>price</th><th>value</th><th class="alloch">allocation</th></tr>` +
-    a.assets.map(x => {
-      const share = Math.min(100, Math.max(0, Number(x.share||0)*100));
-      return `<tr><td><b>${esc(x.asset)}</b></td><td>${qtyFmt(x.total)}</td>
-        <td>${x.price == null ? "—" : money(x.price, x.price >= 1 ? 2 : x.price >= 0.01 ? 4 : 6)}</td>
-        <td>${x.value == null ? "—" : money(x.value)}</td>
-        <td class="alloch"><div class="alloc"><i style="width:${share.toFixed(1)}%"></i></div></td></tr>`;
-    }).join("");
-  hint.textContent = `priced in USDT · ${a.assets.length} asset${a.assets.length===1?"":"s"}` + (a.as_of ? ` · ${dt(a.as_of)}` : "");
+/* ---- KPI strip: the four numbers that must survive any rearrangement ---- */
+function paintKpis(){
+  const a = S.account;
+  const kpi = (k, v, d, c) => `<div class="metric"><div class="k">${k}</div><div class="v ${c||""}">${v}</div>${d ? `<div class="d">${esc(d)}</div>` : ""}</div>`;
+  let equity, eqSub, eqCls = "";
+  if (a && !a.error) { equity = money(a.equity); eqSub = `${a.venue === "live" ? "live" : "demo · virtual"} · cash ${money(a.cash)}`; }
+  else { equity = "—"; eqSub = a && a.venue === "live" ? "no live venue wired" : (a ? String(a.error) : "account unreadable"); }
+  const s = (S.equity && S.equity.series) || [];
+  let deploy = "—", depSub = "since deploy pin", depCls = "";
+  if (s.length >= 2 && S.equity.contributors) {
+    const r = (s[s.length-1].equity / s[0].equity - 1) * 100;
+    deploy = fmt(r, 2, "%"); depCls = cls(r);
+    depSub = `${S.equity.contributors} wallet${S.equity.contributors===1?"":"s"} summed`;
+  }
+  const bots = (S.running && S.running.bots) || [];
+  const rated = bots.filter(b => b.run_rate);
+  let rate = "—", rateSub = rated.length ? `${rated.length} of ${bots.length} bots have a window` : "no trading bots with a window", rateCls = "";
+  if (rated.length) {
+    const cap = rated.reduce((t, b) => t + b.capital, 0);
+    const perDay = rated.reduce((t, b) => t + b.run_rate.per_day, 0);
+    if (cap > 0) { const mp = perDay * 30 / cap * 100; rate = fmt(mp, 1, "%/mo"); rateCls = cls(mp); rateSub = `+$${perDay.toFixed(2)}/day · ${rated[0].run_rate.window_days}d window`; }
+  }
+  const nPos = (a && !a.error && a.positions ? a.positions.length : 0)
+    + bots.filter(b => Number((b.state || {}).position_qty || 0) > 0).length
+    + ((S.forward && S.forward.sleeves) || []).filter(x => x.position).length;
+  const kpis = [
+    kpi(`equity ${a && !a.error ? (a.venue === "live" ? "· live" : "· demo") : ""}`, equity, eqSub, eqCls),
+    kpi("portfolio since deploy", deploy, depSub, depCls),
+    kpi("run rate", rate, rateSub, rateCls),
+    kpi("open positions", String(nPos), "venue · bots · sleeves, stops held locally", nPos ? "" : "dim"),
+  ];
+  $("kpis").innerHTML = kpis.join("");
+}
 
-  $("dashPositions").innerHTML = a.positions.length
-    ? `<tr><th>symbol</th><th>qty</th><th>entry</th><th>p&l</th></tr>` + a.positions.map(p =>
-      `<tr><td>${esc(p.symbol)}</td><td>${qtyFmt(p.qty)}</td><td>${money(p.avg_entry_price, 4)}</td>
-       <td class="${cls(p.unrealized_pl)}">${fmt(p.unrealized_pl)}</td></tr>`).join("")
-    : `<tr><td class="empty" colspan="4">no open positions</td></tr>`;
-  }
-  // Bots and runs are about this installation, not about the venue, so they
-  // paint in both worlds - including prod, where the account cannot load.
-  try {
-    const live = await api("/api/running");
-    const n = live.bots.filter(b => b.alive).length;
-    $("botsCount").textContent = `${n} running`;
-    $("botsCount").className = "badge " + (n ? "live" : "muted");
-    $("dashBots").innerHTML = live.bots.length
-      ? `<tr><th>bot</th><th>symbol</th><th>tf</th><th>state</th><th>equity</th><th>return</th><th>run rate</th><th>started</th><th>last beat</th></tr>` +
-        live.bots.map(b => {
-          const rate = b.run_rate;
-          const rateTxt = rate ? `${rate.month_pct >= 0 ? "+" : "−"}${Math.abs(rate.month_pct).toFixed(1)}%/mo` : "—";
-          const rateTip = rate ? `${rate.window_days}d window · ${rate.per_day >= 0 ? "+" : "−"}$${Math.abs(rate.per_day).toFixed(2)}/day · ${rate.samples} samples` : "needs a day of equity samples";
-          const state = b.alive ? "running" : (b.status === "running" ? "no heartbeat" : (b.status || "—"));
-          const stateCls = b.alive ? "live" : "muted";
-          return `<tr><td><b>${esc(b.name)}</b></td><td>${esc(b.symbol)}</td><td>${esc(b.timeframe)}</td>` +
-            `<td><span class="badge ${stateCls}">${esc(state)}</span></td>` +
-            `<td>${b.equity == null ? "—" : money(b.equity)}</td>` +
-            `<td class="${cls(b.return_pct)}">${b.return_pct == null ? "—" : fmt(b.return_pct, 2, "%")}</td>` +
-            `<td class="${cls(rate && rate.month_pct)}" title="${esc(rateTip)}">${rateTxt}</td>` +
-            `<td class="dim">${dt(b.started_at)}${b.uptime_s == null ? "" : `<br>up ${up(b.uptime_s)}`}</td>` +
-            `<td class="dim">${ago(b.heartbeat_age_s)}</td></tr>`;
-        }).join("")
-      : `<tr><td class="empty" colspan="9">no bots running — nothing is enabled yet</td></tr>`;
-  } catch(e) {
-    $("botsCount").textContent = "—";
-    $("dashBots").innerHTML = `<tr><td class="empty" colspan="9">${esc(e.message)}</td></tr>`;
-  }
-  await loadForward();
+/* ---- edit mode: drag to reorder, S/M/L resize, ✕ remove, ＋ add ---- */
+let dragEl = null;
+$("btnEditLayout").onclick = () => {
+  const on = document.body.classList.toggle("edit");
+  $("btnEditLayout").classList.toggle("on", on);
+  $("btnEditLayout").textContent = on ? "✓ Done" : "✎ Edit layout";
+  $("hintline").style.display = on ? "flex" : "none";
+  document.querySelectorAll("#board .wg").forEach(el => el.draggable = on);
+  toast(on ? "Edit mode: drag cards, resize with S/M/L" : "Layout saved");
+};
+board.addEventListener("dragstart", e => {
+  const wg = e.target.closest(".wg");
+  if (!wg || !document.body.classList.contains("edit")) { e.preventDefault(); return; }
+  dragEl = wg; wg.classList.add("dragging"); e.dataTransfer.effectAllowed = "move";
+});
+board.addEventListener("dragend", () => {
+  if (!dragEl) return;
+  dragEl.classList.remove("dragging"); dragEl = null;
+  layout = [...board.querySelectorAll(".wg")]
+    .map(el => ({ id: el.dataset.wid, w: +el.className.match(/w(\d+)/)[1] }));
+  saveLayout();
+});
+board.addEventListener("dragover", e => {
+  if (!dragEl) return;
+  e.preventDefault();
+  const over = e.target.closest(".wg");
+  if (!over || over === dragEl) return;
+  const r = over.getBoundingClientRect();
+  board.insertBefore(dragEl, (e.clientX - r.left) / r.width < 0.5 ? over : over.nextSibling);
+});
+const addmenu = $("addmenu");
+$("btnAddWidget").onclick = () => {
+  addmenu.classList.toggle("open");
+  addmenu.querySelectorAll("[data-add]").forEach(b =>
+    b.classList.toggle("used", !!layout.find(x => x.id === b.dataset.add)));
+};
+$("addclose").onclick = () => addmenu.classList.remove("open");
+document.addEventListener("click", e => {
+  if (!addmenu.contains(e.target) && e.target.id !== "btnAddWidget") addmenu.classList.remove("open");
+});
+addmenu.querySelectorAll("[data-add]").forEach(b => b.onclick = () => {
+  const id = b.dataset.add;
+  const item = { id, w: WIDGETS[id].w };
+  layout.push(item);
+  const el = widgetEl(item);
+  board.appendChild(el); finishWidget(el);
+  saveLayout(); addmenu.classList.remove("open");
+  toast(WIDGETS[id].title + " added — drag it into place");
+});
+$("btnResetLayout").onclick = () => {
+  layout = DEFAULT_LAYOUT.slice(); saveLayout(); paintBoard(true);
+  toast("Default layout restored");
+};
+let toastT;
+function toast(m){
+  const t = $("toast"); t.textContent = m; t.classList.add("show");
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2600);
+}
+
+/* ---- refresh: every endpoint once, then paint. Polls every 60s while the
+   dashboard is visible so freshness is visible without a manual reload. ---- */
+let lastStamp = null;
+function stampChip(){
+  if (!lastStamp) return;
+  $("updtChip").innerHTML = `<span class="dot"></span>updated ${ago((Date.now() - lastStamp) / 1000)} · 60s poll`;
+}
+async function refreshDashboard(){
+  await Promise.all([loadAccount(), loadRunning(), loadForward(), loadEquity(), loadTrades()]);
+  lastStamp = Date.now();
+  paintKpis(); paintBoard(); stampChip(); ok();
 }
 
 /* ================= bots ================= */
@@ -439,6 +759,7 @@ function botCard(b){
   const entry = st.entry_price == null ? null : Number(st.entry_price);
   const mark = st.mark_price == null ? null : Number(st.mark_price);
   const upnl = (qty && entry && mark) ? (mark - entry) * qty : null;
+  const posVal = (qty && entry) ? qty * entry : null;  // the position in USDT, not units
   const rate = b.run_rate;
   const rateTxt = rate ? `${rate.month_pct >= 0 ? "+" : "−"}${Math.abs(rate.month_pct).toFixed(1)}%/mo` : "—";
   const rateTip = rate ? `${rate.window_days}d window · ${rate.samples} samples` : "needs a day of equity samples";
@@ -462,7 +783,7 @@ function botCard(b){
       ${fig("started", `${dt(b.started_at)}${b.uptime_s == null ? "" : `<span class="up">up ${up(b.uptime_s)}</span>`}`)}
     </div>
     <div class="pills">
-      <span class="pill">position <b>${qty ? qtyFmt(qty) : "flat"}</b></span>
+      <span class="pill">position <b>${qty ? qtyFmt(qty) : "flat"}</b>${posVal ? `<span class="dim"> ≈ ${money(posVal)}</span>` : ""}</span>
       <span class="pill">entry <b>${entry == null ? "—" : money(entry)}</b></span>
       <span class="pill">mark <b>${mark == null ? "—" : money(mark)}</b></span>
       <span class="pill">uPnL <b class="${cls(upnl)}">${upnl == null ? "—" : money(upnl)}</b></span>
@@ -484,10 +805,10 @@ function botDetail(d){
         <td class="dim">${o.created_at ? dt(o.created_at) : "—"}</td></tr>`).join("") + `</table>`
     : `<div class="hint">no resting orders${d.orders_error ? ` · venue unreadable (${esc(d.orders_error)})` : " — entries and exits are market orders and the stop is held by the bot"}</div>`;
   const tradesHtml = trades.length
-    ? `<table><tr><th>time</th><th>side</th><th>qty</th><th>price</th><th>fee</th><th>realized</th><th>closed by</th></tr>` +
+    ? `<table><tr><th>time</th><th>side</th><th>qty</th><th>price</th><th>value</th><th>fee</th><th>realized</th><th>closed by</th></tr>` +
       trades.map(t => `<tr><td class="dim">${dt(t.closed_at || t.opened_at)}</td>
         <td class="${t.side === "buy" ? "pos" : "neg"}">${esc(t.side)}</td><td>${qtyFmt(t.qty)}</td>
-        <td>${money(t.price)}</td><td class="dim">${money(t.fee)}</td>
+        <td>${money(t.price)}</td><td>${money(t.qty * t.price)}</td><td class="dim">${money(t.fee)}</td>
         <td class="${cls(t.realized_pnl)}">${t.realized_pnl == null ? "—" : money(t.realized_pnl)}</td>
         <td class="dim">${esc(t.closed_by || "")}</td></tr>`).join("") + `</table>`
     : `<div class="hint">no fills recorded under this bot yet</div>`;
@@ -529,47 +850,64 @@ window.haltBot = async (id, halted) => {
   } catch(e){ fail(e.message); }
 };
 
-/* ================= trades ================= */
-async function syncTrades(){
-  try {
-    const { trades, summary } = await api("/api/paper/trades");
-    const total = summary.reduce((a,s)=>a+(s.realized_pnl||0),0);
-    $("pnlMetrics").innerHTML = [
-      ["Realized P&L", "$"+total.toFixed(2), cls(total)],
-      ["Fills", trades.length, ""],
-      ["Symbols traded", summary.length, ""],
-    ].map(([k,v,c]) => `<div class="metric"><div class="k">${k}</div><div class="v ${c}">${v}</div></div>`).join("");
-    $("pnlSummary").innerHTML = summary.length
-      ? `<tr><th>symbol</th><th>realized p&l</th><th>open qty</th></tr>` + summary.map(s =>
-        `<tr><td>${esc(s.symbol)}</td><td class="${cls(s.realized_pnl)}">$${(s.realized_pnl||0).toFixed(2)}</td>
-         <td>${s.open_qty}</td></tr>`).join("")
-      : `<tr><td colspan="3" class="dim">no fills yet — nothing has traded in this world</td></tr>`;
-    $("tradesTable").innerHTML = trades.length
-      ? `<tr><th>time</th><th>symbol</th><th>side</th><th>qty</th><th>price</th><th>notional</th></tr>` +
-        trades.map(t => `<tr><td>${dt(t.filled_at)}</td><td>${esc(t.symbol)}</td>
-          <td class="${t.side==="buy"?"pos":"neg"}">${esc(t.side)}</td><td>${t.qty}</td>
-          <td>${t.price.toFixed(2)}</td><td>$${(t.qty*t.price).toLocaleString(undefined,{maximumFractionDigits:2})}</td></tr>`).join("")
-      : `<tr><td colspan="6" class="dim">no fills synced yet</td></tr>`;
-  } catch(e){
-    // P&L is a venue question. In prod there is no venue, so this page
+/* ================= trades =================
+   One fetch fills both the fills widget and the P&L page. */
+async function loadTrades(){
+  try { S.trades = await api("/api/paper/trades"); S.tradesError = null; }
+  catch(e){
+    S.trades = null;
+    // P&L is a venue question. In prod there is no venue, so the payload
     // explains that in place instead of raising a page-wide banner.
-    const why = /PROD refused/.test(e.message)
+    S.tradesError = /PROD refused/.test(e.message)
       ? "this world has no live venue — there are no fills to sync"
       : e.message;
-    $("pnlMetrics").innerHTML = "";
-    $("pnlSummary").innerHTML = `<tr><td class="dim">${esc(why)}</td></tr>`;
-    $("tradesTable").innerHTML = `<tr><td class="dim">${esc(why)}</td></tr>`;
   }
 }
+function renderPnl(){
+  if (S.tradesError){
+    $("pnlMetrics").innerHTML = "";
+    $("pnlSummary").innerHTML = `<tr><td class="dim">${esc(S.tradesError)}</td></tr>`;
+    $("tradesTable").innerHTML = `<tr><td class="dim">${esc(S.tradesError)}</td></tr>`;
+    return;
+  }
+  const { trades, summary } = S.trades;
+  const total = summary.reduce((a,s)=>a+(s.realized_pnl||0),0);
+  $("pnlMetrics").innerHTML = [
+    ["Realized P&L", "$"+total.toFixed(2), cls(total)],
+    ["Fills", trades.length, ""],
+    ["Symbols traded", summary.length, ""],
+  ].map(([k,v,c]) => `<div class="metric"><div class="k">${k}</div><div class="v ${c}">${v}</div></div>`).join("");
+  $("pnlSummary").innerHTML = summary.length
+    ? `<tr><th>symbol</th><th>realized p&l</th><th>open qty</th></tr>` + summary.map(s =>
+      `<tr><td>${esc(s.symbol)}</td><td class="${cls(s.realized_pnl)}">$${(s.realized_pnl||0).toFixed(2)}</td>
+       <td>${s.open_qty}</td></tr>`).join("")
+    : `<tr><td colspan="3" class="dim">no fills yet — nothing has traded in this world</td></tr>`;
+  $("tradesTable").innerHTML = trades.length
+    ? `<tr><th>time</th><th>symbol</th><th>side</th><th>qty</th><th>price</th><th>notional</th></tr>` +
+      trades.map(t => `<tr><td>${dt(t.filled_at)}</td><td>${esc(t.symbol)}</td>
+        <td class="${t.side==="buy"?"pos":"neg"}">${esc(t.side)}</td><td>${t.qty}</td>
+        <td>${t.price.toFixed(2)}</td><td>$${(t.qty*t.price).toLocaleString(undefined,{maximumFractionDigits:2})}</td></tr>`).join("")
+    : `<tr><td colspan="6" class="dim">no fills synced yet</td></tr>`;
+}
+async function syncTrades(){ await loadTrades(); renderPnl(); }
 $("btnSyncTrades").onclick = syncTrades;
 
 /* ================= boot ================= */
 (async function boot(){
   // The dashboard describes this installation, not the venue, so it must
   // paint even when the strategy registry cannot be read. One failed call
-  // used to leave every card empty.
+  // used to leave every card empty; every widget now carries its own error
+  // state instead of blocking the board.
   try { await loadStrategies(); } catch(e){ fail("strategies: " + e.message); }
-  loadAccount(); loadDashboard();
+  await refreshDashboard();
+  setInterval(() => {
+    if ($("view-dashboard").classList.contains("on")) refreshDashboard();
+  }, 60000);
+  setInterval(stampChip, 10000);
+  window.addEventListener("resize", () => {
+    const c = document.querySelector("#eqCanvas");
+    if (c) drawEquity(c);
+  });
 })();
 </script>
 </body>

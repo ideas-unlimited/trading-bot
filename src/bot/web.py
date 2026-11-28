@@ -521,12 +521,12 @@ def _run_rate(conn: Any, bot_id: int, capital: float) -> dict[str, Any] | None:
 
 
 def api_forward(base: Path | None = None, state_dir: Path | None = None) -> dict[str, Any]:
-    """Status of the paper forward sleeve replays.
+    """Status of the paper dry-run sleeve replays.
 
-    Forward sleeves are not rows in bots: one process replays every active
+    Dry-run sleeves are not rows in bots: one process replays every active
     manifest and writes <state>/<strategy>/forward/status.json. The Bots page
-    therefore cannot show them from the live-bot table; this endpoint is the
-    read-only view the dashboard uses so they are not invisible.
+    therefore cannot show them from the trading-bot table; this endpoint is
+    the read-only view the dashboard uses so they are not invisible.
     """
     if env_name() != "paper":
         return {"sleeves": [], "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds")}
@@ -583,6 +583,103 @@ def api_forward(base: Path | None = None, state_dir: Path | None = None) -> dict
         "sleeves": sleeves,
         "as_of": now.isoformat(timespec="seconds"),
         "state_dir": str(root),
+    })
+
+
+def _equity_contributors(conn: Any, days: int) -> list[tuple[str, list[tuple[datetime, float]]]]:
+    """Per-wallet equity histories for this world.
+
+    Two kinds of contributor: trading bots (equity_snapshots rows, one series
+    per bot) and, in paper, dry-run sleeves (the <state>/<strategy>/forward/
+    <SYMBOL>.equity.csv files the dry-run runner appends to). One merged
+    portfolio curve is built from them in api_equity; keeping the contributors
+    separate here is what makes the merge testable without a database.
+    """
+    out: list[tuple[str, list[tuple[datetime, float]]]] = []
+    rows = conn.execute(
+        "SELECT b.name, e.ts, e.equity FROM equity_snapshots e "
+        "JOIN bots b ON b.id = e.bot_id "
+        "WHERE e.ts >= now() - (%s || ' days')::interval ORDER BY e.ts",
+        (str(days),),
+    ).fetchall()
+    per_bot: dict[str, list[tuple[datetime, float]]] = {}
+    for row in rows:
+        per_bot.setdefault(str(row["name"]), []).append(
+            (row["ts"], float(row["equity"]))
+        )
+    for name, series in per_bot.items():
+        out.append((name, series))
+    if env_name() == "paper":
+        root = env_state_dir("paper")
+        try:
+            manifests = promo.active_manifests("paper")
+        except Exception:  # noqa: BLE001 - a broken promotions dir must not 500 the widget
+            manifests = {}
+        for name, manifest in sorted(manifests.items()):
+            for symbol in manifest.symbols:
+                path = root / name / "forward" / f"{symbol.replace('/', '')}.equity.csv"
+                try:
+                    lines = path.read_text(encoding="utf-8").strip().splitlines()
+                except OSError:
+                    continue
+                series: list[tuple[datetime, float]] = []
+                for line in lines[1:]:  # header: ts, equity, live_return, position_qty
+                    parts = line.split(",")
+                    if len(parts) < 2:
+                        continue
+                    try:
+                        ts = datetime.fromisoformat(parts[0].strip().replace("Z", "+00:00"))
+                        series.append((ts, float(parts[1])))
+                    except (ValueError, TypeError):
+                        continue
+                if len(series) >= 2:
+                    out.append((f"{name}:{symbol}", series))
+    return out
+
+
+def api_equity(max_points: int = 400, days: int = 730) -> dict[str, Any]:
+    """Portfolio equity curve for this world, for the dashboard widget.
+
+    At each timestamp the portfolio is the sum of every contributor's latest
+    known equity, so a sleeve or bot that starts later joins the curve at its
+    own capital instead of being read as a loss. Downsampled to at most
+    ``max_points`` buckets, last value of each bucket wins: the final point is
+    always the true current equity, and a flat tail is honest (a 4h system
+    with one poll a day genuinely has one point a day).
+    """
+    now = datetime.now(timezone.utc)
+    contributors: list[tuple[str, list[tuple[datetime, float]]]]
+    try:
+        conn = _db_conn()
+    except ValueError:
+        conn = None
+    try:
+        contributors = _equity_contributors(conn, days) if conn is not None else []
+    finally:
+        if conn is not None:
+            conn.close()
+    # Merge: one pointer per contributor over its own sorted series.
+    stamps = sorted({ts for _, series in contributors for ts, _ in series})
+    cursors = [0] * len(contributors)
+    merged: list[tuple[datetime, float]] = []
+    for ts in stamps:
+        total = 0.0
+        for i, (_, series) in enumerate(contributors):
+            while cursors[i] + 1 < len(series) and series[cursors[i] + 1][0] <= ts:
+                cursors[i] += 1
+            if series[cursors[i]][0] <= ts:
+                total += series[cursors[i]][1]
+        merged.append((ts, total))
+    # Bucket to max_points, newest value of each bucket wins.
+    if len(merged) > max_points:
+        bucket = len(merged) / max_points
+        merged = [merged[min(len(merged) - 1, int((i + 1) * bucket) - 1)]
+                  for i in range(max_points)]
+    return _jsonify({
+        "series": [{"ts": ts.isoformat(timespec="seconds"), "equity": eq}
+                   for ts, eq in merged],
+        "contributors": len(contributors),
+        "as_of": now.isoformat(timespec="seconds"),
     })
 
 
@@ -1046,6 +1143,8 @@ class WebHandler(BaseHTTPRequestHandler):
             self._send_json(200, api_bots_list())
         elif self.path == "/api/forward":
             self._send_json(200, api_forward())
+        elif self.path == "/api/equity":
+            self._send_json(200, api_equity())
         elif self.path == "/api/running":
             self._send_json(200, api_running())
         elif self.path == "/api/runs":

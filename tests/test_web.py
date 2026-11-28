@@ -16,6 +16,7 @@ from bot.web import (
     api_bot_halt,
     api_bots_create,
     api_bots_delete,
+    api_equity,
     api_forward,
     api_presets_create,
     api_presets_delete,
@@ -263,6 +264,118 @@ class StrategyCatalogueTests(unittest.TestCase):
     def test_preset_create_requires_promotion(self) -> None:
         out = api_presets_create({"name": "x", "kind": "sma_cross"})
         self.assertIn("not activated for paper", out["error"])
+
+
+class _NoRowsConn:
+    """Stand-in connection: no equity_snapshots rows for this world."""
+
+    def execute(self, *args, **kwargs):
+        return self
+
+    def fetchall(self):
+        return []
+
+    def close(self):
+        pass
+
+
+class EquityCurveTests(unittest.TestCase):
+    """The dashboard equity widget merges every wallet into one curve.
+
+    Two honesty rules are pinned here: a wallet that starts later joins at
+    its own capital (it must not read as a portfolio loss), and after
+    downsampling the final point is still the true current equity.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+
+    def _contributors(self, contribs):
+        db = patch("bot.web._db_conn", return_value=_NoRowsConn())
+        src = patch("bot.web._equity_contributors", return_value=contribs)
+        db.start(); src.start()
+        self.addCleanup(db.stop); self.addCleanup(src.stop)
+
+    def test_late_wallet_joins_at_its_own_capital(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        t0 = datetime(2026, 11, 28, tzinfo=timezone.utc)
+        contribs = [
+            ("A", [(t0, 1000.0), (t0 + timedelta(hours=8), 1100.0)]),
+            ("B", [(t0 + timedelta(hours=4), 1000.0)]),
+        ]
+        self._contributors(contribs)
+        data = api_equity()
+        equity = [point["equity"] for point in data["series"]]
+        self.assertEqual(equity, [1000.0, 2000.0, 2100.0])
+        self.assertEqual(data["contributors"], 2)
+        json.dumps(data)  # the browser must be able to read it
+
+    def test_downsample_keeps_the_true_last_point(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        t0 = datetime(2026, 11, 28, tzinfo=timezone.utc)
+        series = [(t0 + timedelta(minutes=i), 1000.0 + i) for i in range(1000)]
+        self._contributors([("A", series)])
+        data = api_equity(max_points=50)
+        self.assertEqual(len(data["series"]), 50)
+        self.assertEqual(data["series"][-1]["equity"], 1999.0)
+        # Every bucket keeps a real sample: values never invent a move.
+        equity = [point["equity"] for point in data["series"]]
+        self.assertEqual(equity, sorted(equity))
+        self.assertTrue(all(v in {1000.0 + i for i in range(1000)} for v in equity))
+
+    def test_forward_equity_csv_is_a_contributor(self) -> None:
+        from types import SimpleNamespace
+
+        state = self.base / "state"
+        path = state / "sma_cross" / "forward" / "BTCUSDT.equity.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "ts,equity,live_return,position_qty\n"
+            "2026-11-28 00:00:00+00:00,1000.0,0,0\n"
+            "2026-11-28 04:00:00+00:00,1010.0,0.01,1\n"
+            "2026-11-28 08:00:00+00:00,1005.0,0.005,1\n",
+            encoding="utf-8")
+        with patch.dict(os.environ, {"BOT_ENV": "paper", "BOT_LAB": ""}), \
+                patch("bot.web._db_conn", return_value=_NoRowsConn()), \
+                patch("bot.web.env_state_dir", return_value=state), \
+                patch("bot.web.promo.active_manifests",
+                      return_value={"sma_cross": SimpleNamespace(symbols=("BTC/USDT",))}):
+            data = api_equity()
+        self.assertEqual(data["contributors"], 1)
+        self.assertEqual(data["series"][-1]["equity"], 1005.0)
+
+    def test_prod_ignores_the_forward_csvs(self) -> None:
+        from types import SimpleNamespace
+
+        state = self.base / "state"
+        path = state / "sma_cross" / "forward" / "BTCUSDT.equity.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "ts,equity,live_return,position_qty\n"
+            "2026-11-28 00:00:00+00:00,1000.0,0,0\n",
+            encoding="utf-8")
+        with patch.dict(os.environ, {"BOT_ENV": "prod", "BOT_LAB": ""}), \
+                patch("bot.web._db_conn", return_value=_NoRowsConn()), \
+                patch("bot.web.env_state_dir", return_value=state), \
+                patch("bot.web.promo.active_manifests",
+                      return_value={"sma_cross": SimpleNamespace(symbols=("BTC/USDT",))}):
+            data = api_equity()
+        self.assertEqual(data["contributors"], 0)
+        self.assertEqual(data["series"], [])
+
+    def test_broken_db_still_serves_an_empty_curve(self) -> None:
+        # The widget must not take the dashboard down when the database is
+        # unreachable; it renders its own empty state instead.
+        def _broken():
+            raise ValueError("database not reachable")
+        with patch("bot.web._db_conn", side_effect=_broken):
+            data = api_equity()
+        self.assertEqual(data["series"], [])
+        self.assertEqual(data["contributors"], 0)
 
 
 class EnvironmentBrandingTests(unittest.TestCase):
