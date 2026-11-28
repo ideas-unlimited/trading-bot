@@ -36,6 +36,7 @@ from .backtest import Engine, bars_to_frame
 from .config import BotConfig, CostConfig, RiskConfig
 from .data.feed import Bar
 from .heartbeat import Heartbeat
+from .notify import Notifier
 from .strategy import build
 from .strategy.base import Strategy
 
@@ -107,6 +108,126 @@ def _stats(trades: Sequence[Any], curve: Sequence[tuple[datetime, float]],
     }
 
 
+def _fill_key(fill: Any) -> str:
+    """Stable identity for one execution inside a deterministic replay."""
+    return (
+        f"{fill.ts.isoformat()}|{fill.side}|"
+        f"{float(fill.qty):.12g}|{float(fill.price):.12g}"
+    )
+
+
+def _trade_for_fill(fill: Any, trades: Sequence[Any]) -> Any | None:
+    """The round-trip trade closed by this sell fill, when there is one."""
+    if fill.side != "sell":
+        return None
+    for trade in reversed(trades):
+        if trade.exit_ts != fill.ts:
+            continue
+        if abs(trade.exit_price - fill.price) > 1e-9:
+            continue
+        if abs(trade.qty - fill.qty) > 1e-9:
+            continue
+        return trade
+    return None
+
+
+def _notify_fills(
+    *,
+    notifier: Notifier | None,
+    previous: Mapping[str, Any],
+    fills: Sequence[Any],
+    trades: Sequence[Any],
+    strategy: str,
+    symbol: str,
+    timeframe: str,
+    now: datetime,
+    equity: float,
+    deploy_equity: float,
+    current_entry_ts: datetime | None,
+    current_stop: float | None,
+    current_take: float | None,
+) -> dict[str, Any]:
+    """Alert on fills that appeared since the last cycle.
+
+    The replay rebuilds every fill each cycle, so the cursor is a fill key
+    persisted in status.json, not a count.  The first cycle after alerts are
+    installed only anchors the cursor: history is not replayed as alerts.
+    If every channel fails, the cursor is not advanced and the same fill is
+    retried on the next cycle (at-least-once, never silently lost).
+    """
+    previous_alerts = previous.get("alerts")
+    alerts = previous_alerts if isinstance(previous_alerts, dict) else {}
+    last_key = str(alerts.get("last_fill") or "")
+    keys = [_fill_key(fill) for fill in fills]
+    last_sent_at = alerts.get("last_sent_at")
+
+    if not alerts.get("initialized"):
+        return {
+            "initialized": True,
+            "last_fill": keys[-1] if keys else "",
+            "last_sent_at": last_sent_at,
+        }
+
+    if last_key and last_key in keys:
+        new_fills = fills[keys.index(last_key) + 1:]
+    elif last_key:
+        # The window moved and pruned the old cursor.  Re-anchor instead of
+        # replaying a whole capped window to the user as fresh trades.
+        return {
+            "initialized": True,
+            "last_fill": keys[-1] if keys else "",
+            "last_sent_at": last_sent_at,
+        }
+    else:
+        new_fills = list(fills)
+
+    cursor = last_key
+    sent = 0
+    can_send = notifier is not None and notifier.enabled
+    env = (os.environ.get("BOT_ENV") or "paper").strip().lower() or "paper"
+
+    for fill in new_fills:
+        trade = _trade_for_fill(fill, trades)
+        held_hours = None
+        if trade is not None:
+            held_hours = (trade.exit_ts - trade.entry_ts).total_seconds() / 3600.0
+        stop = None
+        take_profit = None
+        if fill.side == "buy" and current_entry_ts == fill.ts:
+            stop = current_stop
+            take_profit = current_take
+        event = {
+            "side": fill.side,
+            "strategy": strategy,
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "env": env,
+            "ts": fill.ts,
+            "price": fill.price,
+            "qty": fill.qty,
+            "notional": fill.notional,
+            "stop": stop,
+            "take_profit": take_profit,
+            "reason": fill.reason,
+            "pnl": trade.pnl if trade is not None else None,
+            "return_pct": trade.return_pct if trade is not None else None,
+            "held_hours": held_hours,
+            "wallet": equity,
+            "deploy_equity": deploy_equity,
+        }
+        if can_send and not notifier.send_trade(event):
+            break
+        cursor = _fill_key(fill)
+        if can_send:
+            sent += 1
+
+    return {
+        "initialized": True,
+        "last_fill": cursor,
+        "last_sent_at": now.isoformat() if sent else last_sent_at,
+    }
+
+
 def run_cycle(
     strategy_name: str | Strategy,
     symbol: str,
@@ -124,6 +245,7 @@ def run_cycle(
     outdir: str | Path | None = None,
     now: datetime | None = None,
     bars: Sequence[Bar] | None = None,
+    notifier: Notifier | None = None,
 ) -> dict[str, Any]:
     """One cycle: load bars, replay the sleeve, pin/read the deploy mark, write state."""
     now = now or datetime.now(timezone.utc)
@@ -223,6 +345,31 @@ def run_cycle(
     forward["wallet"] = capital * (1.0 + live_return)
     forward["trades"] = len(forward_trades)
 
+    # Alerts are a side effect of the replay, never a reason for it to fail.
+    # Only fills after the deploy bar are forward events; a position inherited
+    # from history can still produce a legitimate exit alert.
+    forward_fills = [fill for fill in engine.broker.fills if fill.ts > deploy_dt]
+    try:
+        alerts = _notify_fills(
+            notifier=notifier,
+            previous=prev,
+            fills=forward_fills,
+            trades=engine.broker.trades,
+            strategy=name,
+            symbol=symbol,
+            timeframe=timeframe,
+            now=now,
+            equity=equity,
+            deploy_equity=deploy_equity,
+            current_entry_ts=engine.broker.entry_ts,
+            current_stop=engine._stop,
+            current_take=engine._take,
+        )
+    except Exception as exc:  # noqa: BLE001 - alerting must not break the record
+        print(f"[forward] {name}:{symbol} alerts failed: {type(exc).__name__}: {exc}", flush=True)
+        previous_alerts = prev.get("alerts")
+        alerts = previous_alerts if isinstance(previous_alerts, dict) else {}
+
     payload = {
         "updated_at": now.isoformat(),
         "source": source,
@@ -245,6 +392,7 @@ def run_cycle(
         "forward": forward,
         "position": position,
         "halted_reason": engine.risk.halt_reason,
+        "alerts": alerts,
         "last_bar": last_bar,
         "mark": mark,
     }
@@ -349,7 +497,12 @@ def active_specs(env: str | None = None, base: Path | None = None) -> list[dict[
     return specs
 
 
-def run_specs(specs: Sequence[Mapping[str, Any]], **kwargs: Any) -> list[dict[str, Any]]:
+def run_specs(
+    specs: Sequence[Mapping[str, Any]],
+    *,
+    notifier: Notifier | None = None,
+    **kwargs: Any,
+) -> list[dict[str, Any]]:
     """One pass over every sleeve; a broken runner is logged, not fatal."""
     from . import promotions as promo
 
@@ -368,6 +521,7 @@ def run_specs(specs: Sequence[Mapping[str, Any]], **kwargs: Any) -> list[dict[st
             payload = run_cycle(
                 strategy, symbol, str(spec.get("timeframe") or "4h"),
                 capital=float(spec.get("capital") or 1_000.0),
+                notifier=notifier,
                 **kwargs,
             )
             print(format_status(payload), flush=True)
@@ -385,6 +539,7 @@ def run_all_forever(
     env: str | None = None,
     heartbeat_url: str | None = None,
     heartbeat_every: float = 1800.0,
+    notifier: Notifier | None = None,
     **kwargs: Any,
 ) -> None:
     """Poll loop over the active manifests; re-read them every cycle.
@@ -394,10 +549,17 @@ def run_all_forever(
     outage must never stop the record, so the ping never raises.
     """
     heartbeat = Heartbeat(heartbeat_url, every=heartbeat_every)
+    notifier = notifier or Notifier.from_env()
     print(
         f"[forward] heartbeat every {heartbeat_every:.0f}s"
         if heartbeat_url
         else "[forward] heartbeat off (set HEARTBEAT_URL)",
+        flush=True,
+    )
+    print(
+        f"[forward] trade alerts: {notifier.describe()}"
+        if notifier.enabled
+        else "[forward] trade alerts off (set TELEGRAM_*, NTFY_URL or SMTP_*)",
         flush=True,
     )
     while True:
@@ -405,7 +567,7 @@ def run_all_forever(
             specs = active_specs(env)
             if not specs:
                 print("[forward] no active sleeves in this environment", flush=True)
-            run_specs(specs, **kwargs)
+            run_specs(specs, notifier=notifier, **kwargs)
         except Exception as exc:  # noqa: BLE001 - the loop must outlive one cycle
             print(f"[forward] cycle failed: {type(exc).__name__}: {exc}", flush=True)
             traceback.print_exc()
@@ -419,19 +581,27 @@ def run_forever(
     *,
     heartbeat_url: str | None = None,
     heartbeat_every: float = 1800.0,
+    notifier: Notifier | None = None,
     **kwargs: Any,
 ) -> None:
     """Poll loop; each cycle is independent and idempotent."""
     heartbeat = Heartbeat(heartbeat_url, every=heartbeat_every)
+    notifier = notifier or Notifier.from_env()
     print(
         f"[forward] heartbeat every {heartbeat_every:.0f}s"
         if heartbeat_url
         else "[forward] heartbeat off (set HEARTBEAT_URL)",
         flush=True,
     )
+    print(
+        f"[forward] trade alerts: {notifier.describe()}"
+        if notifier.enabled
+        else "[forward] trade alerts off (set TELEGRAM_*, NTFY_URL or SMTP_*)",
+        flush=True,
+    )
     while True:
         try:
-            payload = run_cycle(**kwargs)
+            payload = run_cycle(notifier=notifier, **kwargs)
             print(format_status(payload), flush=True)
         except Exception as exc:  # noqa: BLE001 - one bad cycle must not stop the record
             print(f"[forward] cycle failed: {type(exc).__name__}: {exc}", flush=True)

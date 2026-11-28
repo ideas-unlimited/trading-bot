@@ -141,12 +141,16 @@ write_bot eth "ETH/USDT" 4h momentum_swing 1000
 write_bot sol "SOL/USDT" 4h momentum_swing 1000
 
 # One loop replays every active paper sleeve; no key is needed (public bars
-# only).  The heartbeat URL is the only secret and stays out of git.
-only_if_missing "$CONF_DIR/forward.env" "BOT_ENV=paper
-# Ping URL from healthchecks.io / Uptime Kuma.  Empty = no heartbeat.
-HEARTBEAT_URL="
-chown "root:$SVC_USER" "$CONF_DIR/forward.env"
-chmod 640 "$CONF_DIR/forward.env"
+# only).  The env template documents the heartbeat and alert secrets; it is
+# copied only when missing, so a configured host is never overwritten.
+for env_name in forward alerts; do
+  if [[ ! -f "$CONF_DIR/$env_name.env" ]]; then
+    install -m 0640 -o root -g "$SVC_USER" \
+      "$APP_DIR/deploy/$env_name.env.example" "$CONF_DIR/$env_name.env"
+  fi
+  chown "root:$SVC_USER" "$CONF_DIR/$env_name.env"
+  chmod 640 "$CONF_DIR/$env_name.env"
+done
 
 log "systemd"
 install -m 0644 "$APP_DIR/deploy/tradingbot-web.service" /etc/systemd/system/

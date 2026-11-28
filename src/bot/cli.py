@@ -334,6 +334,7 @@ def cmd_live(args: argparse.Namespace) -> int:
     """
     from . import envcfg, promotions as promo
     from .live import LiveTrader
+    from .notify import Notifier
 
     if not envcfg.lab_mode():
         try:
@@ -350,6 +351,7 @@ def cmd_live(args: argparse.Namespace) -> int:
             return 2
 
     strategy = build(args.strategy, **_parse_params(args.param))
+    notifier = Notifier.from_env()
     client = BinanceLiveClient()
     bars = client.fetch_bars(args.symbol, args.interval, limit=max(strategy.warmup + 2, 300))
     config = _config(args, bars)
@@ -366,6 +368,7 @@ def cmd_live(args: argparse.Namespace) -> int:
         heartbeat_url=args.heartbeat_url,
         heartbeat_every=args.heartbeat_every,
         record=True,
+        notifier=notifier,
     ).run(once=args.once)
     return 0
 
@@ -689,8 +692,10 @@ def cmd_forward(args: argparse.Namespace) -> int:
         active_specs, default_outdir, format_status, run_all_forever, run_cycle,
         run_forever, run_specs,
     )
+    from .notify import Notifier
 
     env = envcfg.env_name()
+    notifier = Notifier.from_env()
     # Resolve after env_name(): that call loads .env, so the heartbeat URL may
     # live in the repo dotfile, a systemd EnvironmentFile, or the shell.
     heartbeat_url = args.heartbeat_url or os.environ.get("HEARTBEAT_URL", "")
@@ -716,12 +721,13 @@ def cmd_forward(args: argparse.Namespace) -> int:
                   f"  ${spec['capital']:,.0f}")
         print(f"risk       {args.risk_per_trade:.1%}/trade   cap {args.max_position_pct:.0%}"
               f"   fees {args.fee_bps:g}/{args.slippage_bps:g} bps")
+        print(f"alerts     {notifier.describe() or 'off'}")
         print()
         if args.once:
             if not specs:
                 print("nothing to do: no active manifests")
                 return 1
-            results = run_specs(specs, **common)
+            results = run_specs(specs, notifier=notifier, **common)
             print()
             for result in results:
                 if result.get("error"):
@@ -734,6 +740,7 @@ def cmd_forward(args: argparse.Namespace) -> int:
             env=env,
             heartbeat_url=heartbeat_url,
             heartbeat_every=args.heartbeat_every,
+            notifier=notifier,
             **common,
         )
         return 0
@@ -792,9 +799,10 @@ def cmd_forward(args: argparse.Namespace) -> int:
     print(f"wallet     ${args.initial_cash:,.0f}   risk {args.risk_per_trade:.1%}/trade"
           f"   cap {args.max_position_pct:.0%}")
     print(f"data       {args.source} {args.interval}  window {args.days}d")
+    print(f"alerts     {notifier.describe() or 'off'}")
     print()
     if args.once:
-        payload = run_cycle(**kwargs)
+        payload = run_cycle(notifier=notifier, **kwargs)
         print(format_status(payload))
         print()
         print(f"state      {payload['status_path']}")
@@ -803,9 +811,32 @@ def cmd_forward(args: argparse.Namespace) -> int:
         args.poll,
         heartbeat_url=heartbeat_url,
         heartbeat_every=args.heartbeat_every,
+        notifier=notifier,
         **kwargs,
     )
     return 0
+
+
+def cmd_notify_test(args: argparse.Namespace) -> int:
+    """Send one test message through every configured alert channel."""
+    from .envdot import load_env
+    from .notify import Notifier
+
+    if getattr(args, "env_file", None):
+        load_env(args.env_file)
+    notifier = Notifier.from_env()
+    print(f"channels   {notifier.describe() or 'none configured'}")
+    if not notifier.enabled:
+        print("nothing sent: set TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID, NTFY_URL "
+              "or SMTP_* in the environment")
+        return 1
+    ok = notifier.send(
+        "Trading bot alert test",
+        "If you can read this, trade alerts are working.\n\n"
+        "No order was sent; this is a delivery test.",
+    )
+    print("test sent" if ok else "test failed (see the channel error above)")
+    return 0 if ok else 1
 
 
 def cmd_pool(args: argparse.Namespace) -> int:
@@ -1175,6 +1206,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_fwd.add_argument("--outdir", default=None,
                        help="single-sleeve override; defaults to runs/<env>/<strategy>/forward")
     p_fwd.set_defaults(func=cmd_forward)
+    p_notify = sub.add_parser(
+        "notify-test", help="send a test message through the configured alert channels"
+    )
+    p_notify.add_argument("--env-file", default=None,
+                         help="read alert settings from this file (e.g. forward.env)")
+    p_notify.set_defaults(func=cmd_notify_test)
     p_pool = sub.add_parser("pool", help="show or edit per-symbol parameters")
     p_pool.add_argument("--file", default=None, help="defaults to config/target_symbols.json")
     p_pool.add_argument("--set", action="append", default=None, metavar="SYM:k=v;SYM:k=v",

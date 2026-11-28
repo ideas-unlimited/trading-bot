@@ -16,6 +16,8 @@ Environment=PYTHONUNBUFFERED=1
 Environment=OMP_NUM_THREADS=1
 Environment=OPENBLAS_NUM_THREADS=1
 Environment=MALLOC_ARENA_MAX=2
+# Alert channels are shared with the forward runner and every other bot.
+EnvironmentFile=-/etc/tradingbot/alerts.env
 ExecStart=/opt/trading-bot/deploy/run_bot.sh %i
 Restart=always
 RestartSec=15

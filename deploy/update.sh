@@ -26,17 +26,19 @@ AFTER=$(git rev-parse --short HEAD)
 # Units and their env files are part of the deployment, not of a code change:
 # install them even when the checkout is already current, so an existing box
 # can be repaired with the same routine update.
+if [[ -f deploy/tradingbot@.service ]]; then
+  install -m 0644 deploy/tradingbot@.service /etc/systemd/system/
+fi
 if [[ -f deploy/tradingbot-forward.service ]]; then
   install -m 0644 deploy/tradingbot-forward.service /etc/systemd/system/
 fi
-if [[ -f /etc/systemd/system/tradingbot-forward.service ]]; then
-  if [[ ! -f /etc/tradingbot/forward.env ]]; then
-    printf '%s\n' 'BOT_ENV=paper' \
-      '# Ping URL from healthchecks.io / Uptime Kuma.  Empty = no heartbeat.' \
-      'HEARTBEAT_URL=' > /etc/tradingbot/forward.env
-    chown root:trader /etc/tradingbot/forward.env
-    chmod 640 /etc/tradingbot/forward.env
+for env_name in forward alerts; do
+  if [[ ! -f "/etc/tradingbot/$env_name.env" ]]; then
+    install -m 0640 -o root -g trader \
+      "deploy/$env_name.env.example" "/etc/tradingbot/$env_name.env"
   fi
+done
+if [[ -f /etc/systemd/system/tradingbot-forward.service ]]; then
   systemctl daemon-reload
   systemctl enable tradingbot-forward.service
   systemctl is-active --quiet tradingbot-forward || systemctl start tradingbot-forward

@@ -119,6 +119,14 @@ when you hit a new environment quirk and solve it, add it here and commit.
   active manifest, and refuses a parameter set whose hash differs from the
   promoted one. Use it to validate a target-bearing sleeve; `bot live`
   still drops `take_profit`.
+- **Forward fills can alert, but only after the pin.** One optional message per
+  new entry/exit (email, Telegram or ntfy) is wired into the forward replay;
+  `status.json` stores a fill-key cursor, so history is never replayed as a
+  burst and a restart does not duplicate a fill. A failed send keeps the
+  cursor and retries next cycle. The forward runner and every live
+  `tradingbot@<name>` bot share `/etc/tradingbot/alerts.env` (template
+  `deploy/alerts.env.example`); verify with `bot notify-test --env-file ...`;
+  alerts off by default, and an alert failure is logged, never fatal.
 - **The pin is per window.** If the replay window's start moves by more than
   two days (history cap changed, a coin delisted, backfill), the pin is
   re-taken at the current equity and `repinned_at` records the old deploy
@@ -349,7 +357,7 @@ when you hit a new environment quirk and solve it, add it here and commit.
   passwordless sudo, so every privileged step is `sudo ...`. The service user
   `trader` has no shell — reach the dashboard with
   `ssh -L 9000:127.0.0.1:9000 debian@139.99.236.166`.
-  Verified on the box: web returns 200, the test suite passes (342 tests
+  Verified on the box: web returns 200, the test suite passes (359 tests
   locally as of 2026-11-28),
   `load_scan_bars("BTC/USDT","4h",source="binance")` fetches 2,190 bars (no
   451), so the venue path works from this IP.

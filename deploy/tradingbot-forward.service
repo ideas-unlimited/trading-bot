@@ -19,6 +19,8 @@ Environment=BOT_ENV=paper
 Environment=BOT_STATE_DIR=/var/lib/tradingbot
 # HEARTBEAT_URL lives here (root:trader, 0640), never in git.
 EnvironmentFile=-/etc/tradingbot/forward.env
+# Alert channels are shared with every tradingbot@<name> service.
+EnvironmentFile=-/etc/tradingbot/alerts.env
 ExecStart=/opt/trading-bot/.venv/bin/bot forward --all --poll 900
 Restart=always
 RestartSec=30

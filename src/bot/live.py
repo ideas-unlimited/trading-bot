@@ -15,6 +15,7 @@ and any locally-managed stop.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -25,6 +26,7 @@ from .exchange.live_client import BinanceLiveClient, duration_for
 from .config import BotConfig
 from .data.feed import Bar
 from .heartbeat import Heartbeat
+from .notify import Notifier
 from .strategy.base import Action, Strategy
 
 
@@ -63,6 +65,7 @@ class LiveTrader:
         stream: TextIO | None = None,
         clock: Any = time.sleep,
         record: bool = False,
+        notifier: Notifier | None = None,
     ) -> None:
         self.client = client
         self.strategy = strategy
@@ -99,6 +102,11 @@ class LiveTrader:
         self.record_dashboard = record
         self.bot_id: int | None = None
         self._db_warned = False
+        # Trade alerts are a side effect of a booked fill, never a trading
+        # path: a dead SMTP server must not leave a position unmanaged.
+        self.notifier = notifier
+        self._last_equity = 0.0
+        self._alert_warned = False
 
     # -- state --------------------------------------------------------------
     def _load_state(self) -> dict[str, Any]:
@@ -127,6 +135,7 @@ class LiveTrader:
         account = self.client.get_account()
         position = self._position_qty()
         equity = self._book_equity(account)
+        self._last_equity = equity
 
         # Register before reading the kill switch: without an id there is no
         # flag to read.  Halting must be visible within one poll.
@@ -134,9 +143,10 @@ class LiveTrader:
             self._ensure_bot(equity)
         if self._halted():
             if position > 0:
-                self._exit(position, bars[-1].close, "halt", bars[-1].ts)
+                self._exit(position, bars[-1].close, "halt", bars[-1].ts, equity=equity)
                 position = self._position_qty()
                 equity = self._book_equity(self.client.get_account()) or equity
+                self._last_equity = equity
             self._emit(
                 f"[live] HALTED by kill switch :: {self.symbol} "
                 f"{'flat' if position <= 0 else 'position still open'}"
@@ -309,10 +319,66 @@ class LiveTrader:
                 self._trade_warned = True
                 self._emit(f"[live] trade history off: {exc}")
 
-    def _exit(self, qty: float, price: float, why: str, ts: datetime) -> None:
+    def _alert_fill(
+        self,
+        side: str,
+        qty: float,
+        price: float,
+        *,
+        why: str = "",
+        stop: float | None = None,
+        take_profit: float | None = None,
+        realized: float | None = None,
+        entry_price: float | None = None,
+        entry_ts: datetime | None = None,
+        ts: datetime | None = None,
+        equity: float | None = None,
+    ) -> None:
+        """One best-effort alert for a fill the venue already accepted."""
+        if self.notifier is None or not self.notifier.enabled:
+            return
+        held_hours = None
+        if entry_ts is not None and ts is not None:
+            held_hours = (ts - entry_ts).total_seconds() / 3600.0
+        return_pct = None
+        if realized is not None and entry_price and qty:
+            return_pct = realized / (entry_price * qty)
+        event = {
+            "side": side,
+            "strategy": self.strategy.name,
+            "symbol": self.symbol,
+            "timeframe": self.timeframe,
+            "env": (os.environ.get("BOT_ENV") or "paper").strip().lower() or "paper",
+            "ts": ts,
+            "price": price,
+            "qty": qty,
+            "notional": float(qty) * float(price),
+            "stop": stop,
+            "take_profit": take_profit,
+            "reason": why,
+            "pnl": realized,
+            "return_pct": return_pct,
+            "held_hours": held_hours,
+            "wallet": equity if equity is not None else self._last_equity,
+        }
+        try:
+            self.notifier.send_trade(event)
+        except Exception as exc:  # noqa: BLE001 - never stop managing a position
+            if not self._alert_warned:
+                self._alert_warned = True
+                self._emit(f"[live] trade alerts failed: {type(exc).__name__}: {exc}")
+
+    def _exit(self, qty: float, price: float, why: str, ts: datetime,
+              *, equity: float | None = None) -> None:
         """Close the position and record the sell with its realized P&L."""
         entry = self.state.get("entries", {}).get(self.symbol) or {}
         entry_price = float(entry.get("price") or 0.0)
+        entry_ts = None
+        if entry.get("ts"):
+            try:
+                entry_ts = datetime.fromisoformat(str(entry["ts"]))
+            except ValueError:
+                entry_ts = None
         order = self.client.close_position(self.symbol)
         realized = (float(price) - entry_price) * float(qty) if entry_price and qty else None
         self._book_fill(
@@ -322,6 +388,12 @@ class LiveTrader:
         for key in ("stops", "tps", "entries"):
             self.state.get(key, {}).pop(self.symbol, None)
         self._save_state()
+        # State is saved before the (possibly slow) alert, so a crash during
+        # delivery cannot make the loop close the same position twice.
+        self._alert_fill(
+            "sell", qty, price, why=why, realized=realized,
+            entry_price=entry_price, entry_ts=entry_ts, ts=ts, equity=equity,
+        )
 
     def _book_equity(self, account: dict[str, Any]) -> float:
         """Equity this bot may size from: honours the capital cap when set."""
@@ -383,13 +455,18 @@ class LiveTrader:
                 self._book_fill(
                     "buy", filled, fill_px, order_id=str(order.get("id") or ""),
                 )
+                self._alert_fill(
+                    "buy", filled, fill_px, why=signal.reason,
+                    stop=signal.stop_loss, take_profit=signal.take_profit,
+                    entry_ts=bar.ts, ts=bar.ts, equity=equity,
+                )
                 self._emit(
                     f"[live] {bar.ts:%Y-%m-%d %H:%M} BUY {qty:.4f} {self.symbol} @ ~{bar.close:.2f}"
                     + (f" stop={signal.stop_loss:.2f}" if signal.stop_loss else " (no stop)")
                     + f" :: {signal.reason}"
                 )
         elif signal.action is Action.CLOSE and position > 0:
-            self._exit(position, bar.close, "signal", bar.ts)
+            self._exit(position, bar.close, "signal", bar.ts, equity=equity)
             self._emit(f"[live] {bar.ts:%Y-%m-%d %H:%M} CLOSE {self.symbol} @ ~{bar.close:.2f} :: {signal.reason}")
         else:
             self._emit(f"[live] {bar.ts:%Y-%m-%d %H:%M} signal {signal.action.value} ignored (position {position})")
@@ -403,7 +480,7 @@ class LiveTrader:
         latest = bars[-1]
         if latest.low <= stop and latest.ts + self.duration <= now:
             qty = self._position_qty()
-            self._exit(qty, stop, "stop", latest.ts)
+            self._exit(qty, stop, "stop", latest.ts, equity=self._last_equity)
             self._emit(f"[live] {latest.ts:%Y-%m-%d %H:%M} STOP hit ({stop:.2f} <= low {latest.low:.2f}) -> closed {self.symbol}")
 
     def _status(self, bars: list[Bar], equity: float, position: float) -> None:
@@ -420,6 +497,11 @@ class LiveTrader:
         self._emit(
             f"[live] paper trading {self.symbol} @ {self.timeframe} on Binance DEMO account "
             f"(strategy {self.strategy.name}, poll {self.poll_seconds:.0f}s)"
+        )
+        self._emit(
+            f"[live] trade alerts: {self.notifier.describe()}"
+            if self.notifier is not None and self.notifier.enabled
+            else "[live] trade alerts off (set TELEGRAM_*, NTFY_URL or SMTP_*)"
         )
         try:
             while True:

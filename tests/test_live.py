@@ -14,7 +14,7 @@ from bot.exchange.live_client import duration_for, interval_for, split_symbol
 from bot.heartbeat import Heartbeat
 from bot.live import LiveTrader, compute_entry_qty
 from bot.strategy import build
-from bot.strategy.base import Action, Signal
+from bot.strategy.base import Action, Signal, Strategy
 
 
 def _rows() -> list[dict]:
@@ -141,6 +141,30 @@ class ClientBarsTests(unittest.TestCase):
         self.assertEqual(bars[-1].close, 106.5)
 
 
+class BuyNow(Strategy):
+    name = "test_buy_now"
+    warmup = 1
+    PARAMS = ()
+
+    def prepare(self, df):
+        return df
+
+    def signal(self, i, df, position):
+        return Signal(Action.BUY, "test entry", stop_loss=90.0, take_profit=120.0)
+
+
+class Capture:
+    enabled = True
+
+    def __init__(self, ok=True):
+        self.ok = ok
+        self.calls = []
+
+    def send_trade(self, event):
+        self.calls.append(dict(event))
+        return self.ok
+
+
 class LiveTraderTests(unittest.TestCase):
     def _make(self, tmp: Path, strategy_name: str = "sma_cross") -> tuple[LiveTrader, _FakeClient]:
         client = _FakeClient(_rows())
@@ -255,6 +279,78 @@ class LiveTraderTests(unittest.TestCase):
             self.assertGreaterEqual(len(buys), 1)
             entry = price(120 - 1)  # last processed bar's price order of magnitude
             self.assertLessEqual(buys[0]["qty"] * entry, 1_000.0 * 1.01)
+
+
+class LiveAlertTests(unittest.TestCase):
+    def _trader(self, tmp: Path, notifier) -> tuple[LiveTrader, _FakeClient]:
+        client = _FakeClient(_rows())
+        trader = LiveTrader(
+            client, BuyNow(), BotConfig(), "BTC/USDT", "1d",
+            state_path=tmp / "state.json", stream=io.StringIO(),
+            clock=lambda s: None, notifier=notifier,
+        )
+        return trader, client
+
+    def test_buy_alert_carries_stop_and_target(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            capture = Capture()
+            trader, client = self._trader(tmp, capture)
+            bars = _bars(_rows())
+            trader._process_bar(
+                bars[-1], bars, 10_000.0, 0.0,
+                datetime(2024, 1, 5, tzinfo=timezone.utc),
+            )
+            self.assertEqual(len(client.orders), 1)
+            self.assertEqual(len(capture.calls), 1)
+            event = capture.calls[0]
+            self.assertEqual(event["side"], "buy")
+            self.assertEqual(event["stop"], 90.0)
+            self.assertEqual(event["take_profit"], 120.0)
+            self.assertEqual(event["ts"], bars[-1].ts)
+            self.assertGreater(event["qty"], 0)
+
+    def test_exit_alert_reports_pnl_and_clears_state(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            capture = Capture()
+            trader, client = self._trader(tmp, capture)
+            opened = datetime(2024, 1, 1, tzinfo=timezone.utc)
+            trader.state["entries"]["BTC/USDT"] = {
+                "qty": 2.0, "price": 100.0, "ts": opened.isoformat(),
+            }
+            trader.state["stops"]["BTC/USDT"] = 90.0
+            trader._exit(
+                2.0, 110.0, "take profit", opened + timedelta(days=1),
+                equity=1_020.0,
+            )
+            self.assertEqual(client.closed, ["BTC/USDT"])
+            self.assertNotIn("BTC/USDT", trader.state["entries"])
+            self.assertEqual(len(capture.calls), 1)
+            event = capture.calls[0]
+            self.assertEqual(event["side"], "sell")
+            self.assertEqual(event["pnl"], 20.0)
+            self.assertAlmostEqual(event["return_pct"], 0.10)
+            self.assertEqual(event["held_hours"], 24.0)
+            self.assertEqual(event["reason"], "take profit")
+            self.assertEqual(event["wallet"], 1_020.0)
+
+    def test_alert_failure_does_not_block_the_exit(self) -> None:
+        class Broken:
+            enabled = True
+
+            def send_trade(self, event):
+                raise RuntimeError("mail down")
+
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            trader, client = self._trader(tmp, Broken())
+            trader.state["entries"]["BTC/USDT"] = {
+                "qty": 1.0, "price": 100.0, "ts": "2024-01-01T00:00:00+00:00",
+            }
+            trader._exit(1.0, 100.0, "signal", datetime(2024, 1, 2, tzinfo=timezone.utc))
+            self.assertEqual(client.closed, ["BTC/USDT"])
+            self.assertIn("trade alerts failed", trader.stream.getvalue())
 
 
 class LiveAnchorTests(unittest.TestCase):

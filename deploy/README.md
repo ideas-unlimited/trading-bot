@@ -158,6 +158,65 @@ busy. It also covers the box dying, which no local watchdog can report.
 A failed ping never stops the bot: monitoring downtime costs you an alert, not
 a position.
 
+## Trade alerts (email, Telegram, ntfy)
+
+The forward runner can send one message when it books a fill: **TRADE
+OPENED** at the next-open entry and **TRADE CLOSED** with the realised P&L
+and exit reason.  The cursor lives in each sleeve's `status.json`; the first
+cycle after the feature is installed only anchors it, so the historical
+replay is never sent as a burst of old trades.  A fill is sent once.  If
+every channel fails, the cursor stays put and the next cycle retries it.
+
+Alerts are off until at least one channel is configured.  Both the forward
+runner and every live `tradingbot@<name>` bot read one shared file,
+`/etc/tradingbot/alerts.env` (template: `deploy/alerts.env.example`).  Each
+says `trade alerts: ...` (or `off`) at startup.  `EnvironmentFile=-` means a
+missing file or an empty value is not an error; the live bot and the forward
+replay use the same channels.
+
+Edit the shared file, then restart the loop(s) and verify:
+
+```bash
+sudo vi /etc/tradingbot/alerts.env
+sudo -u trader /opt/trading-bot/.venv/bin/bot notify-test \
+  --env-file /etc/tradingbot/alerts.env
+sudo systemctl restart tradingbot-forward
+sudo systemctl restart 'tradingbot@uni'   # repeat for each live bot you run
+```
+
+The `notify-test` command sends one message through every configured
+channel and prints which ones are active.  It never places an order.
+
+### Telegram (recommended for mobile)
+
+1. Message `@BotFather`, `/newbot`, keep the token it returns.
+2. Send the new bot any message (a bot cannot start a chat with you).
+3. Open `https://api.telegram.org/bot<token>/getUpdates` and copy the
+   numeric `chat.id`.
+4. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `alerts.env`.
+
+### ntfy (no account)
+
+Install the ntfy app, subscribe to a long random topic, and set
+`NTFY_URL=https://ntfy.sh/<topic>`.  Anyone who knows that URL can read the
+messages, so treat the topic as a password; `NTFY_TOKEN` protects a
+self-hosted or authenticated topic.  Trade sizes, symbols and P&L are
+visible to the ntfy server.
+
+### Email (SMTP)
+
+Set `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_USER`, `SMTP_PASSWORD`,
+`SMTP_FROM` and `ALERT_EMAIL_TO` (comma-separated).  Port 587 uses
+STARTTLS; `SMTP_SECURITY=ssl` for 465, `none` for a local relay.  Use an
+app password, not the mailbox password, and expect the first message to
+land in spam until the sender is trusted.  A daily-driver mailbox provider
+is more reliable than a VPS's local MTA.
+
+`alerts.env` is `root:trader` 0640 and is never committed.  When a token or
+password is added, record it in the master secrets file outside the repo at
+the same time.  An alert failure is logged as `[notify] <channel> failed`
+and never stops the record.
+
 ## Operations
 
 | Task | Command |

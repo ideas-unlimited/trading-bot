@@ -59,6 +59,20 @@ class BuyThenTimeExit(Strategy):
         return None
 
 
+class BuyAt15(Strategy):
+    name = 'test_buy_late'
+    warmup = 1
+    PARAMS = ()
+
+    def prepare(self, df):
+        return df
+
+    def signal(self, i, df, position):
+        if position == 0 and i == 15:
+            return Signal(Action.BUY, 'late entry', stop_loss=90.0, take_profit=200.0)
+        return None
+
+
 class TestForwardRunner(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -67,13 +81,15 @@ class TestForwardRunner(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def run_with(self, strategy, bars, outdir=None, symbol="TEST/USDT", now=None):
+    def run_with(self, strategy, bars, outdir=None, symbol="TEST/USDT", now=None,
+                 notifier=None):
         return run_cycle(
             strategy, symbol, '4h', params={}, capital=1_000.0,
             fee_bps=0.0, slippage_bps=0.0, risk_per_trade=0.05,
             max_position_pct=0.95, max_drawdown_stop=0.9,
             outdir=outdir or self.outdir, bars=bars,
             now=now or datetime(2024, 12, 1, tzinfo=timezone.utc),
+            notifier=notifier,
         )
 
     def test_default_folder_is_per_strategy(self):
@@ -135,6 +151,36 @@ class TestForwardRunner(unittest.TestCase):
         self.assertIsNotNone(payload['deploy']['repinned_at'])
         self.assertEqual(payload['deploy']['return_pct'], 0.0)
         self.assertEqual(payload['deploy']['deployed_at'][:10], '2024-12-01')
+
+    def test_new_forward_fill_is_alerted_once(self):
+        class Capture:
+            enabled = True
+
+            def __init__(self):
+                self.calls = []
+
+            def send_trade(self, event):
+                self.calls.append(dict(event))
+                return True
+
+        capture = Capture()
+        first = self.run_with(BuyAt15(), make_bars(16), notifier=capture)
+        self.assertEqual(capture.calls, [])
+        self.assertTrue(first['alerts']['initialized'])
+        self.assertEqual(first['alerts']['last_fill'], '')
+
+        second = self.run_with(BuyAt15(), make_bars(20), notifier=capture)
+        self.assertEqual(len(capture.calls), 1)
+        event = capture.calls[0]
+        self.assertEqual(event['side'], 'buy')
+        self.assertEqual(event['price'], 100.0)
+        self.assertEqual(event['stop'], 90.0)
+        self.assertEqual(event['take_profit'], 200.0)
+        self.assertTrue(second['alerts']['last_fill'])
+
+        third = self.run_with(BuyAt15(), make_bars(20), notifier=capture)
+        self.assertEqual(len(capture.calls), 1)
+        self.assertEqual(third['alerts']['last_fill'], second['alerts']['last_fill'])
 
     def test_status_file_keeps_other_symbols(self):
         self.run_with(BuyThenLeave(), make_bars(), symbol="A/USDT")
@@ -207,7 +253,9 @@ class TestRunSpecs(unittest.TestCase):
 class TestForwardLoopHeartbeat(unittest.TestCase):
     def test_all_loop_pings_once_per_pass_even_with_no_sleeves(self):
         heartbeat = mock.Mock()
+        notifier = mock.Mock(enabled=False)
         with mock.patch("bot.forward.Heartbeat", return_value=heartbeat) as hb_cls, \
+                mock.patch("bot.forward.Notifier.from_env", return_value=notifier), \
                 mock.patch("bot.forward.active_specs", return_value=[]), \
                 mock.patch("bot.forward.run_specs") as specs, \
                 mock.patch("bot.forward.time.sleep", side_effect=KeyboardInterrupt), \
@@ -216,7 +264,7 @@ class TestForwardLoopHeartbeat(unittest.TestCase):
                 run_all_forever(30, env="paper", heartbeat_url="https://hc.example/ping")
         hb_cls.assert_called_once_with("https://hc.example/ping", every=1800.0)
         heartbeat.ping.assert_called_once_with()
-        specs.assert_called_once_with([])
+        specs.assert_called_once_with([], notifier=notifier)
 
     def test_single_loop_pings_after_the_cycle(self):
         heartbeat = mock.Mock()
