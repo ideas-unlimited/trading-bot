@@ -696,7 +696,9 @@ def cmd_forward(args: argparse.Namespace) -> int:
 
     env = envcfg.env_name()
     # Forward is a shadow replay, not a trade: silent unless explicitly asked.
-    notifier = Notifier.from_env() if args.alerts else None
+    # A disabled Notifier (not None) stops the loop helper from auto-reading the
+    # live alert environment.
+    notifier = Notifier.from_env() if args.alerts else Notifier()
     # Resolve after env_name(): that call loads .env, so the heartbeat URL may
     # live in the repo dotfile, a systemd EnvironmentFile, or the shell.
     heartbeat_url = args.heartbeat_url or os.environ.get("HEARTBEAT_URL", "")
@@ -722,7 +724,7 @@ def cmd_forward(args: argparse.Namespace) -> int:
                   f"  ${spec['capital']:,.0f}")
         print(f"risk       {args.risk_per_trade:.1%}/trade   cap {args.max_position_pct:.0%}"
               f"   fees {args.fee_bps:g}/{args.slippage_bps:g} bps")
-        print(f"alerts     {(notifier.describe() if notifier else None) or 'off (forward replay)'}")
+        print(f"alerts     {notifier.describe() or 'off (forward replay)'}")
         print()
         if args.once:
             if not specs:
@@ -800,7 +802,7 @@ def cmd_forward(args: argparse.Namespace) -> int:
     print(f"wallet     ${args.initial_cash:,.0f}   risk {args.risk_per_trade:.1%}/trade"
           f"   cap {args.max_position_pct:.0%}")
     print(f"data       {args.source} {args.interval}  window {args.days}d")
-    print(f"alerts     {notifier.describe() if notifier else 'off (forward replay)'}")
+    print(f"alerts     {notifier.describe() or 'off (forward replay)'}")
     print()
     if args.once:
         payload = run_cycle(notifier=notifier, **kwargs)

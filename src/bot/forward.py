@@ -560,7 +560,7 @@ def run_all_forever(
     print(
         f"[forward] trade alerts: {notifier.describe()}"
         if notifier.enabled
-        else "[forward] trade alerts off (set TELEGRAM_*, NTFY_URL or SMTP_*)",
+        else "[forward] trade alerts off (forward replay is silent)",
         flush=True,
     )
     while True:
@@ -597,7 +597,7 @@ def run_forever(
     print(
         f"[forward] trade alerts: {notifier.describe()}"
         if notifier.enabled
-        else "[forward] trade alerts off (set TELEGRAM_*, NTFY_URL or SMTP_*)",
+        else "[forward] trade alerts off (forward replay is silent)",
         flush=True,
     )
     while True:
