@@ -34,11 +34,42 @@ wallets with the evidence below:
 | ARB | `swing_breakout_arb` | +67.2% / -8.4% | 30 | 56.7% | 2.33 | 2.60 | `promotions/paper/swing_breakout_arb.json` |
 | JUP | `capitulation_dip_jup` | +58.8% / -7.9% | 32 | 62.5% | 2.67 | 2.62 | `promotions/paper/capitulation_dip_jup.json` |
 
+Live as of 2026-11-28: `tradingbot@near`, `tradingbot@render`, `tradingbot@arb`
+(4h, $1,000 each, 3% risk) plus the forward replay of all four. JUP has no live
+slot: `jup_liquidity_15m` already trades that symbol, and two bots on one
+symbol share one demo balance and would close each other's position. Its 4h
+sleeve therefore accrues its record in the forward replay only.
+
 `research/five_sleeves_promote.py --write` regenerates the four evidence files
 in `research/evidence/`; each one replays the *shipped default* through
 `Engine` and must reproduce the table above before a manifest is stamped. The
 honesty caveats further down are unchanged: picks are best-of-hundreds on the
 reported year, so the forward record - not this table - is the test.
+
+### Cross-check: the window one year earlier
+
+The forward runner replays 730 days (2-year cap) at the same 3%/95% profile,
+so it also covers the year *before* the tuning window.  Split the two-year
+equity by year and the tuning year stops looking like the rule:
+
+| sleeve | tuned year | year before it | 2y return / dd | 2y trades |
+| --- | ---: | ---: | ---: | ---: |
+| `swing_pullback_near` | +86.0% | **-32.5%** | +25.6% / -36.3% | 111 |
+| `swing_breakout_render` | +70.1% | +6.9% | +81.8% / -12.3% | 63 |
+| `swing_breakout_arb` | +67.2% | +5.7% | +76.7% / -26.2% | 61 |
+| `capitulation_dip_jup` | +58.8% | **-26.0%** | +17.5% / -33.8% | 98 |
+
+(Derived from the runner: year-before = (1 + 2y) / (1 + tuned year) - 1, so it
+is approximate - the earlier year's equity changes every later position size.
+The 2y drawdown is deeper than either year alone for the same reason.)
+
+RENDER and ARB earn their keep in both years.  NEAR and JUP do not: their
+headline comes from one regime, and over two years JUP is +17.5% with a
+-33.8% drawdown and NEAR +25.6% with -36.3%.  Neither prior year was traded by
+the tuner, so this is the closest thing to an out-of-sample check these four
+have - and it says two of the four are regime bets, not edges.  They stay
+promoted (paper money, forward record decides), but the forward line is the
+unflattering one and the one to quote.
 
 ## The five
 
