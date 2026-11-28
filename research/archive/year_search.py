@@ -17,13 +17,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from bot import indicators as ind  # noqa: E402
 from fastsim import simulate  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 COINS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'XRPUSDT', 'SOLUSDT']
 END = pd.Timestamp('2026-11-26', tz='UTC')
 START = END - pd.Timedelta(days=365)

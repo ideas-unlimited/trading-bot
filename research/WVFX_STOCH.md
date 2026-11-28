@@ -68,6 +68,60 @@ at 2% risk, or +51.8% with the bear filter. The event study showed
 the edge is concentrated on the first green bar: delaying the cross by 2-3
 bars collapses the expected R to +0.03 / negative.
 
+## The literal rule, measured (2026-11-28, two-year window, 10 bps/side)
+
+The user restated the setup on 2026-11-28 as "green bar + %K<20 in the last 5
+bars + %K>=%D, take the entry every time this is true". Implemented exactly,
+that is `green_mode="any", trigger="state"`, and it is the losing variant:
+
+| rule (5 coins, 4h, 2y, $1,000, 1.5% risk, 3 slots) | ret | DD | Sharpe | n | avg R |
+|---|---:|---:|---:|---:|---:|
+| literal: every green bar | **-49.5%** | -57.0% | -0.90 | 395 | -0.064 |
+| first green bar only | +20.4% | -12.6% | 0.74 | 99 | +0.211 |
+| first green + state trigger | +11.6% | -16.1% | 0.42 | 138 | +0.138 |
+
+The 296 extra entries are the falling knife: once a panic cluster prints its
+first green bar the coin keeps sliding, so every further green bar is another
+stop-out. The first bar is the capitulation; the rest are the aftermath. The
+real cross (%K crossing above %D, rather than already being above) is also
+worth about 9 points of return over the state reading, which is why it is the
+default. Reproduce with `research/wvfx_literal.py`.
+
+## Two-year re-run (2026-11-28), with the fixes that work elsewhere
+
+Same five coins, 4h, 2 years, $1,000, 10 bps/side, 1.5% risk, 3 slots,
+stops/targets from the signal close:
+
+| variant | ret | DD | Sharpe | n | avg R |
+|---|---:|---:|---:|---:|---:|
+| fixed 2R target, bear filter off | +18.9% | -12.6% | 0.70 | 96 | +0.194 |
+| **fixed 2R target + 200d own-coin bear filter (deployed default)** | **+33.9%** | **-6.1%** | **1.43** | 48 | +0.506 |
+| trail 1.5 ATR, no filter | -2.5% | -8.4% | -0.12 | 110 | +0.040 |
+| trail 2.5 ATR, no filter | -14.4% | -16.7% | -0.62 | 103 | -0.088 |
+| trail 1.5 / 2.5 / 3.5 ATR + filter | +7.6 / +6.2 / +11.9% | -7 to -10% | 0.4-0.7 | ~52 | +0.14..+0.30 |
+
+Two conclusions. First, the bear filter is the whole risk story: it halves
+the drawdown and doubles the return per trade, which is why it is on by
+default - the +18.9% "raw strategy" is not the deployed thing. Second, the
+Chandelier trail that rescued the trend book **hurts here**: this is a
+capitulation-bounce (mean-reversion) edge with a fixed target, so a trail
+gives the bounce back. Do not port knobs between the two books.
+
+Risk scaling (bear filter on): 1.0% risk +23.9%/-4.4%, 1.5% +33.9%/-6.1%,
+2.0% +39.1%/-7.1% - the same Sharpe all the way, i.e. the only knob that
+matters is how much you are willing to lose per trade.
+
+## The coin pool is the biggest single risk in this setup
+
+Twenty coins instead of five, same rule and filter: **+8.0% with a -28.5%
+drawdown** over the same window (154 trades, avg R +0.09), against +33.9% and
+-6.1% on the five majors. Small caps spend most of their life under their
+200-day average, so the bear filter passes almost every panic, and a long-only
+bounce on a dying coin is a losing trade. The edge is a *majors* edge. Treat
+the five-coin universe as a parameter that has not been validated out of
+sample yet - the same caveat applies to the trend book, which dropped from
++65.3% to +8.0% on the wide pool.
+
 ## The 70% win-rate gate
 
 The default 2R target wins **56.9%**, not 70%. A tight target mechanically
