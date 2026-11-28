@@ -167,6 +167,18 @@ when you hit a new environment quirk and solve it, add it here and commit.
   (NEAR read -9.6% instead of +86%). `bot live` applies the drawdown brake to
   new entries and persists the peak in `state["risk"]`, so a restart cannot
   reset the protection.
+- **A balance below the venue's lot step is dust, not a position.** Binance
+  accepts an order quantity only as a whole multiple of the pair's `stepSize`
+  (JUPUSDT: step 0.1, `minQty` 0.1, `minNotional` 5 USDT), while entries are
+  sized in *quote* terms (`quoteOrderQty`), so a position is routinely
+  fractional. Exiting sells `floor(balance / step) * step` and strands the
+  remainder: closing 1,004.0949 JUP left 0.0949 that no order can ever sell
+  (below 0.1 x $0.24, about two cents). The loop used to read that crumb as an
+  open position and retry the sale every poll (`quantity 0.0949 floors to 0.0`).
+  `_position_qty()` now floors against the client's own rules, calls a sub-step
+  leftover flat and logs it once (`dust_logged` in the state file); the dust
+  stays on the venue, and chasing it is not worth a code path.
+
 - **Trading fills alert; the dry-run replay is silent.** Every trading
   `tradingbot@<name>` bot reads `/etc/tradingbot/alerts.env` (template
   `deploy/alerts.env.example`) and sends one email/Telegram/ntfy message per
@@ -260,6 +272,15 @@ when you hit a new environment quirk and solve it, add it here and commit.
   new entries while halted; it keeps heartbeating, so a killed bot reads
   `halted`, not `dead`. Halting is deliberately allowed in prod: stopping
   trading must never wait for a promotion.
+- **Retiring a bot is a step, not just a demotion.** `bot demote` makes the
+  dry-run runner drop the sleeve on its next pass, but the trading bot's env
+  file in `/etc/tradingbot` survives, so `reconcile_paper.sh` keeps expecting
+  an active manifest for a bot that is gone — retiring the 15m JUP ladder
+  produced three failures on its own. `deploy/retire_paper.sh <strategy>` is
+  the counterpart of release: it refuses while the bot still holds a position
+  (drain it, or `bot demote --flatten` first), then disables the unit and
+  archives the env file under `/etc/tradingbot/retired/`, which reconcile does
+  not scan. The dry-run sleeve needs no step at all.
 
 ## Analysis toolkit (bot.analysis)
 
