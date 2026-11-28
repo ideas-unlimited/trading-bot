@@ -131,10 +131,23 @@ if [[ $(systemctl is-active tradingbot@${name}) != active ]]; then
   echo "FAIL       tradingbot@${name} is not active; check: journalctl -u tradingbot@${name}" >&2
   exit 1
 fi
-journalctl -u tradingbot@${name} --no-pager | grep -c "on Binance DEMO account" >/dev/null || {
-  echo "FAIL       no demo-account line in the journal - the loop may have exited" >&2
+# The unit appends stdout to /var/log/tradingbot/<name>.log (StandardOutput),
+# so the journal only carries systemd's own lines: grep the log first and keep
+# the journal as the fallback for a unit configured the other way round.
+demo_line="on Binance DEMO account"
+demo_seen=0
+for _ in 1 2 3 4 5 6; do
+  if grep -qs "$demo_line" "/var/log/tradingbot/${name}.log" \
+     || journalctl -u "tradingbot@${name}" --no-pager 2>/dev/null | grep -q "$demo_line"; then
+    demo_seen=1
+    break
+  fi
+  sleep 5
+done
+if (( ! demo_seen )); then
+  echo "FAIL       no demo-account line yet (log /var/log/tradingbot/${name}.log or journal) - the loop may have exited" >&2
   exit 1
-}
+fi
 sleep 3
 if curl -fsS http://127.0.0.1:9000/api/bots 2>/dev/null | python3 -c "
 import json, sys

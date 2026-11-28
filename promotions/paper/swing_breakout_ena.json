@@ -7,7 +7,7 @@
   ],
   "timeframe": "4h",
   "capital": 1000.0,
-  "promoted_at": "2026-11-28T11:57:24+00:00",
+  "promoted_at": "2026-11-28T12:13:27+00:00",
   "promoted_by": "agent",
   "override": false,
   "override_reason": "",
@@ -53,7 +53,7 @@
     "profit_factor": 1.98,
     "params_hash": "sha256:44136fa355b3678a",
     "command": "python research/broad_evidence.py --picks \"ENA/USDT|lab breakout 120h s3 t5\"  # swing_breakout_ena, ENA/USDT, 4h",
-    "note": "shipped sleeve re-run through Engine on its out-of-sample year: next-open fills, stop-first intrabar, 3 ATR Chandelier trail, 18-bar time exit, 3% risk, 95% max position, drawdown switch off (0.99), 10 bps fee + 5 bps slippage a side. Parameters were selected on 2024-11-28..2025-11-27 (best of 26 configs, +45.4%) and never fitted to this window. Two-year cross-check: +123.2% / -16.6% / 47 trades against ENA hold -85.7%. Forward replay uses Engine, so the trail is exact; the live loop needs the Chandelier trail (src/bot/live.py) before its bot half may be released - until then this is a deliberate forward-only sleeve.",
+    "note": "shipped sleeve re-run through Engine on its out-of-sample year: next-open fills, stop-first intrabar, 3 ATR Chandelier trail, 18-bar time exit, 3% risk, 95% max position, drawdown switch off (0.99), 10 bps fee + 5 bps slippage a side. Parameters were selected on 2024-11-28..2025-11-27 (best of 26 configs, +45.4%) and never fitted to this window. Two-year cross-check: +123.2% / -16.6% / 47 trades against ENA hold -85.7%; the forward replay reads +107.9% / -16.6% / 45 trades on its 730-day window at the service's risk flags. Both halves are live as of 2026-11-28: the bot was held back until the live loop could ratchet the Chandelier trail (commit 3c8c68e), so the live exit rule is the measured one.",
     "risk_per_trade": 0.03,
     "max_position_pct": 0.95,
     "max_drawdown_stop": 0.99
