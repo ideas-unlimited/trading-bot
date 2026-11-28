@@ -32,6 +32,17 @@ class ProdRefusesDemoTests(unittest.TestCase):
         self.assertEqual(client.env, "paper")
 
 
+class VenueRulesTests(unittest.TestCase):
+    def test_filters_reach_the_broker_as_the_pairs_own_rules(self):
+        """The loop needs the lot step to tell a book from unsellable dust."""
+        sentinel = object()
+        broker = mock.Mock()
+        broker.filters.return_value = sentinel
+        client = lc.BinanceLiveClient(broker=broker, env="paper")
+        self.assertIs(client.filters("JUP/USDT"), sentinel)
+        broker.filters.assert_called_once_with("JUPUSDT")
+
+
 class PerEnvFileTests(unittest.TestCase):
     def test_specific_file_wins_over_base(self):
         with tempfile.TemporaryDirectory() as td:

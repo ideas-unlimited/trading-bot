@@ -257,6 +257,15 @@ class BinanceLiveClient:
         return {"symbol": symbol, "qty": bal.total}
 
     # -- orders ------------------------------------------------------------
+    def filters(self, symbol: str):
+        """Venue lot and tick rules for one pair, cached by the broker.
+
+        The loop asks for these to tell a real position from a leftover it
+        could never sell (a balance below the lot step is dust, not a book).
+        """
+        base, _, pair = split_symbol(symbol)
+        return self.broker.filters(pair)
+
     def submit_order(
         self,
         symbol: str,
