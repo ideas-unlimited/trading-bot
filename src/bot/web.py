@@ -542,6 +542,7 @@ def api_forward(base: Path | None = None, state_dir: Path | None = None) -> dict
                 "symbol": symbol,
                 "timeframe": manifest.timeframe,
                 "capital": manifest.capital,
+                "promoted_at": manifest.promoted_at,
                 "state": "waiting",
                 "updated_at": None,
                 "age_s": None,
@@ -575,6 +576,9 @@ def api_forward(base: Path | None = None, state_dir: Path | None = None) -> dict
                     "halted_reason": runner.get("halted_reason") or "",
                 })
             sleeves.append(row)
+    # Newest promotion first: the sleeves just shipped are the ones an owner
+    # opens the dashboard to check, not the oldest replay in the folder.
+    sleeves.sort(key=lambda item: str(item.get("promoted_at") or ""), reverse=True)
     return _jsonify({
         "sleeves": sleeves,
         "as_of": now.isoformat(timespec="seconds"),
