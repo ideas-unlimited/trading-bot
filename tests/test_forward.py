@@ -102,6 +102,11 @@ class TestForwardRunner(unittest.TestCase):
         payload = self.run_with(BuyThenLeave(), bars)
         self.assertIsNone(payload['position'])
         self.assertEqual(payload['history']['trades'], 1)
+        # The deploy pin is taken on this first cycle, so the public forward
+        # wallet starts at capital even though history has already traded.
+        self.assertAlmostEqual(payload['forward']['equity'], 1_000.0)
+        self.assertAlmostEqual(payload['forward']['wallet'], 1_000.0)
+        self.assertGreater(payload['history']['equity'], 1_000.0)
         with (self.outdir / 'TESTUSDT.trades.csv').open() as fh:
             rows = list(csv.DictReader(fh))
         self.assertEqual(len(rows), 1)
@@ -189,6 +194,47 @@ class TestForwardRunner(unittest.TestCase):
         self.assertEqual(state['strategy'], 'test_buy_leave')
         self.assertEqual(set(state['runners']), {'A/USDT', 'B/USDT'})
 
+    def test_status_records_the_risk_profile(self):
+        payload = self.run_with(BuyThenLeave(), make_bars())
+        self.assertEqual(payload["risk"]["risk_per_trade"], 0.05)
+        self.assertEqual(payload["risk"]["max_position_pct"], 0.95)
+        self.assertEqual(payload["risk"]["max_drawdown_stop"], 0.9)
+        self.assertEqual(payload["risk"]["source"], "flags")
+
+    def test_same_profile_keeps_the_pin(self):
+        self.run_with(BuyThenLeave(), make_bars())
+        first = json.loads((self.outdir / "status.json").read_text())
+        first = first["runners"]["TEST/USDT"]
+        again = self.run_with(BuyThenLeave(), make_bars(),
+                              now=datetime(2024, 12, 1, 1, tzinfo=timezone.utc))
+        self.assertEqual(again["deploy"]["deploy_equity"], first["deploy"]["deploy_equity"])
+        self.assertIsNone(again["deploy"]["repinned_at"])
+
+    def test_changed_profile_repins_the_deploy_mark(self):
+        self.run_with(BuyThenLeave(), make_bars())
+        first = json.loads((self.outdir / "status.json").read_text())
+        first = first["runners"]["TEST/USDT"]
+        shrunk = run_cycle(
+            BuyThenLeave(), "TEST/USDT", "4h", params={}, capital=1_000.0,
+            fee_bps=0.0, slippage_bps=0.0, risk_per_trade=0.02,
+            max_position_pct=0.95, max_drawdown_stop=0.9, outdir=self.outdir,
+            bars=make_bars(), now=datetime(2024, 12, 1, 2, tzinfo=timezone.utc),
+        )
+        # a smaller size is a different book, not a -60% forward record
+        self.assertEqual(shrunk["deploy"]["deploy_equity"], shrunk["history"]["equity"])
+        self.assertEqual(shrunk["deploy"]["repinned_at"], first["deploy"]["deployed_at"])
+        self.assertEqual(shrunk["risk"]["risk_per_trade"], 0.02)
+
+    def test_a_status_without_a_profile_repins_once(self):
+        self.run_with(BuyThenLeave(), make_bars())
+        path = self.outdir / "status.json"
+        state = json.loads(path.read_text())
+        state["runners"]["TEST/USDT"].pop("risk")
+        path.write_text(json.dumps(state))
+        again = self.run_with(BuyThenLeave(), make_bars(),
+                              now=datetime(2024, 12, 1, 3, tzinfo=timezone.utc))
+        self.assertIsNotNone(again["deploy"]["repinned_at"])
+
     def test_one_folder_cannot_hold_two_strategies(self):
         self.run_with(BuyThenLeave(), make_bars())
         with self.assertRaises(RuntimeError):
@@ -222,6 +268,18 @@ class TestActiveSpecs(unittest.TestCase):
         self.assertEqual([s["symbol"] for s in specs], ["A/USDT", "B/USDT", "C/USDT"])
         self.assertEqual(specs[1]["capital"], 2000.0)
 
+    def test_spec_carries_the_measured_risk_profile(self):
+        self.write("alpha", evidence={
+            "risk_per_trade": 0.05, "max_position_pct": 0.5, "max_drawdown_stop": 0.1,
+        })
+        self.write("beta")
+        specs = {s["strategy"]: s for s in active_specs("paper", base=self.base)}
+        self.assertEqual(specs["alpha"]["risk_per_trade"], 0.05)
+        self.assertEqual(specs["alpha"]["max_position_pct"], 0.5)
+        self.assertEqual(specs["alpha"]["max_drawdown_stop"], 0.1)
+        # an older manifest states nothing: the runner keeps its own flags
+        self.assertNotIn("risk_per_trade", specs["beta"])
+
 
 class TestRunSpecs(unittest.TestCase):
     SPEC = {"strategy": "s", "symbol": "A/USDT", "timeframe": "4h",
@@ -237,6 +295,35 @@ class TestRunSpecs(unittest.TestCase):
         self.assertEqual(cycle.call_count, 1)
         self.assertEqual(len(results), 2)
         self.assertIn("boom", results[0]["error"])
+
+    def test_manifest_profile_wins_over_the_service_flags(self):
+        fake = SimpleNamespace(name="s", params={})
+        spec = dict(self.SPEC, risk_per_trade=0.05, max_position_pct=0.5,
+                    max_drawdown_stop=0.1)
+        with mock.patch("bot.forward.build", return_value=fake), \
+                mock.patch("bot.forward.run_cycle", return_value={}) as cycle, \
+                mock.patch("bot.forward.format_status", return_value="ok"), \
+                mock.patch("sys.stdout"):
+            run_specs([spec], risk_per_trade=0.03, max_position_pct=0.95,
+                      max_drawdown_stop=0.99)
+        kwargs = cycle.call_args.kwargs
+        self.assertEqual(kwargs["risk_per_trade"], 0.05)
+        self.assertEqual(kwargs["max_position_pct"], 0.5)
+        self.assertEqual(kwargs["max_drawdown_stop"], 0.1)
+        self.assertEqual(kwargs["profile_source"], "manifest")
+
+    def test_manifest_without_a_profile_uses_the_flags(self):
+        fake = SimpleNamespace(name="s", params={})
+        with mock.patch("bot.forward.build", return_value=fake), \
+                mock.patch("bot.forward.run_cycle", return_value={}) as cycle, \
+                mock.patch("bot.forward.format_status", return_value="ok"), \
+                mock.patch("sys.stdout"):
+            run_specs([self.SPEC], risk_per_trade=0.03, max_position_pct=0.95,
+                      max_drawdown_stop=0.99)
+        kwargs = cycle.call_args.kwargs
+        self.assertEqual(kwargs["risk_per_trade"], 0.03)
+        self.assertEqual(kwargs["max_drawdown_stop"], 0.99)
+        self.assertEqual(kwargs["profile_source"], "flags")
 
     def test_hash_mismatch_is_refused_before_replaying(self):
         fake = SimpleNamespace(name="s", params={})

@@ -24,6 +24,7 @@ in the CSV but excluded from the tables.
     python research/broad_sweep.py --refresh   # rebuild universe, run sweep
     python research/broad_sweep.py             # run sweep from the CSV
     python research/broad_sweep.py --report    # tables from broad_stage1.csv
+python research/broad_sweep.py --tag 1y --report   # ... from broad_stage1_1y.csv
 """
 
 from __future__ import annotations
@@ -130,7 +131,14 @@ def main() -> None:
         keep = int(u.skip.fillna("").eq("").sum())
         print(f"universe rebuilt: {len(u)} coins >= $1B, {keep} with a Binance spot pair")
     if "--report" in args:
-        report(pd.read_csv(STAGE1_CSV))
+        # --tag selects the CSV the report reads, exactly like the sweep that
+        # writes it; reading STAGE1_CSV here silently reported the 2y table
+        # for a --tag 1y run.
+        if not stage1.exists():
+            print(f"no sweep CSV at {stage1}; run the sweep first", file=sys.stderr)
+            return 2
+        print(f"report     {stage1.name}", flush=True)
+        report(pd.read_csv(stage1))
         return
     pairs = universe_pairs()
     print(f"{len(pairs)} pairs, charts 4h+1d, window {window}d", flush=True)

@@ -20,6 +20,10 @@ ROOT = Path(__file__).resolve().parents[2]
 PROMOTIONS = ROOT / "promotions"
 ENVS = ("paper", "prod")
 DEFAULT_CAPITAL = 1000.0
+# The three knobs that define the book a sleeve was measured on.  A manifest
+# carries them in its evidence so a replayer can reproduce the measured book
+# instead of silently lending it someone else's risk profile.
+RISK_PROFILE_KEYS = ("risk_per_trade", "max_position_pct", "max_drawdown_stop")
 
 
 class PromotionError(RuntimeError):
@@ -58,6 +62,19 @@ class Manifest:
     demoted_at: str = ""
     demote_reason: str = ""
     path: Path | None = None
+
+    def risk_profile(self) -> dict[str, float]:
+        """The measured risk profile carried in the evidence, key by key.
+
+        Only keys the evidence actually states are returned: an older manifest
+        without them keeps the caller's defaults rather than guessing 0.0.
+        """
+        out: dict[str, float] = {}
+        for key in RISK_PROFILE_KEYS:
+            value = _num(self.evidence, key)
+            if value is not None:
+                out[key] = value
+        return out
 
     def to_json(self) -> dict[str, Any]:
         payload = {

@@ -6,7 +6,7 @@ through the same :class:`bot.backtest.Engine` used by backtests (next-open
 fills, intrabar stop-first, take-profit, strategy time exits) and pins the
 deploy equity on the first cycle.  No exchange keys, no orders and no order
 state: because the replay is deterministic, a restart cannot corrupt the
-record, and ``live since deploy`` is measured against the pin rather than
+record, and ``since deploy`` is measured against the pin rather than
 against the start of the historical window.
 
 State is one folder per sleeve - ``runs/<env>/<strategy>/forward/status.json``
@@ -247,6 +247,7 @@ def run_cycle(
     now: datetime | None = None,
     bars: Sequence[Bar] | None = None,
     notifier: Notifier | None = None,
+    profile_source: str = "flags",
 ) -> dict[str, Any]:
     """One cycle: load bars, replay the sleeve, pin/read the deploy mark, write state."""
     now = now or datetime.now(timezone.utc)
@@ -271,6 +272,12 @@ def run_cycle(
             f"warmup {strategy.warmup} + 5"
         )
 
+    profile = {
+        "risk_per_trade": float(risk_per_trade),
+        "max_position_pct": float(max_position_pct),
+        "max_drawdown_stop": float(max_drawdown_stop),
+        "source": profile_source,
+    }
     config = BotConfig(
         initial_cash=capital,
         costs=CostConfig(fee_bps=fee_bps, slippage_bps=slippage_bps),
@@ -305,7 +312,19 @@ def run_cycle(
     key = runner_key(symbol)
     prev = previous.get(key, {}) if isinstance(previous.get(key), dict) else {}
     prev_window = str((prev.get("window") or {}).get("start") or "")
-    moved = bool(prev_window and _window_moved(prev_window, window_start))
+    # A different risk profile sizes every trade differently, so it is a
+    # different book: comparing it to the old pin would invent a return.
+    # A status file written before the profile was recorded cannot prove the
+    # book is unchanged, so it re-pins once.
+    prev_risk = prev.get("risk") if isinstance(prev.get("risk"), dict) else {}
+    profile_moved = bool(prev) and (
+        not prev_risk
+        or any(
+            abs(float(prev_risk.get(key, profile[key])) - profile[key]) > 1e-12
+            for key in ("risk_per_trade", "max_position_pct", "max_drawdown_stop")
+        )
+    )
+    moved = bool(prev_window and _window_moved(prev_window, window_start)) or profile_moved
     prev_deploy = prev.get("deploy") if isinstance(prev.get("deploy"), dict) else {}
 
     if prev_deploy.get("deploy_equity") and not moved:
@@ -341,9 +360,12 @@ def run_cycle(
     history = _stats(engine.broker.trades, curve, capital)
     history["wins"] = len([t for t in engine.broker.trades if t.pnl > 0])
     forward = _stats(forward_trades, [(deploy_dt, deploy_equity), (now, equity)], capital)
-    forward["equity"] = equity
+    # The public wallet is capital-normalised: deploy_equity lives on the full
+    # history curve, so exposing it here made `forward.equity` look like the
+    # two-year history equity while return_pct was measured since deploy.
+    forward["equity"] = capital * (1.0 + live_return)
     forward["return_pct"] = live_return
-    forward["wallet"] = capital * (1.0 + live_return)
+    forward["wallet"] = forward["equity"]
     forward["trades"] = len(forward_trades)
 
     # Alerts are a side effect of the replay, never a reason for it to fail.
@@ -379,6 +401,7 @@ def run_cycle(
         "symbol": symbol,
         "params": dict(strategy.params),
         "capital": capital,
+        "risk": profile,
         "window": {"start": window_start, "end": last_bar, "bars": len(df)},
         "deploy": {
             "deployed_at": deployed_at,
@@ -465,6 +488,15 @@ def format_status(payload: Mapping[str, Any]) -> str:
             int(history.get("trades", 0)), float(history.get("win_rate", 0.0)) * 100,
             float(history.get("max_drawdown", 0.0)) * 100)),
     ]
+    risk = payload.get("risk")
+    if isinstance(risk, dict) and risk:
+        lines.append(
+            "  risk      %4.1f%%/trade  cap %3.0f%%  brake %3.0f%%  (%s)"
+            % (float(risk.get("risk_per_trade", 0.0)) * 100,
+               float(risk.get("max_position_pct", 0.0)) * 100,
+               float(risk.get("max_drawdown_stop", 0.0)) * 100,
+               risk.get("source") or "flags")
+        )
     pos = payload.get("position")
     if pos:
         lines.append("  holding   %10.6f @ %8.4f  stop %s  target %s  upnl $%+7.2f"
@@ -488,13 +520,17 @@ def active_specs(env: str | None = None, base: Path | None = None) -> list[dict[
     manifests = promo.active_manifests(env, base=base).values()
     for manifest in sorted(manifests, key=lambda m: m.strategy):
         for symbol in manifest.symbols:
-            specs.append({
+            spec = {
                 "strategy": manifest.strategy,
                 "symbol": symbol,
                 "timeframe": manifest.timeframe,
                 "capital": manifest.capital,
                 "params_hash": manifest.params_hash,
-            })
+            }
+            # The manifest states the book it was measured on; the runner must
+            # reproduce that book, not lend it the service's flags.
+            spec.update(manifest.risk_profile())
+            specs.append(spec)
     return specs
 
 
@@ -504,13 +540,29 @@ def run_specs(
     notifier: Notifier | None = None,
     **kwargs: Any,
 ) -> list[dict[str, Any]]:
-    """One pass over every sleeve; a broken runner is logged, not fatal."""
-    from . import promotions as promo
+    """One pass over every sleeve; a broken runner is logged, not fatal.
 
+    The three risk knobs are resolved per sleeve: the manifest's measured
+    profile wins, the caller's flags (or run_cycle defaults) fill the gaps.
+    """
+    from . import promotions as promo
+    from .promotions import RISK_PROFILE_KEYS
+
+    defaults = {key: kwargs.pop(key, None) for key in RISK_PROFILE_KEYS if key in kwargs}
     results: list[dict[str, Any]] = []
     for spec in specs:
         name = str(spec.get("strategy") or "")
         symbol = str(spec.get("symbol") or "")
+        profile: dict[str, float] = {}
+        source: list[str] = []
+        for key in RISK_PROFILE_KEYS:
+            if spec.get(key) is not None:
+                profile[key] = float(spec[key])
+                source.append("manifest")
+            elif defaults.get(key) is not None:
+                profile[key] = float(defaults[key])
+                source.append("flags")
+        profile_source = "+".join(sorted(set(source))) or "default"
         try:
             strategy = build(name)
             expected = str(spec.get("params_hash") or "")
@@ -523,6 +575,8 @@ def run_specs(
                 strategy, symbol, str(spec.get("timeframe") or "4h"),
                 capital=float(spec.get("capital") or 1_000.0),
                 notifier=notifier,
+                profile_source=profile_source,
+                **profile,
                 **kwargs,
             )
             print(format_status(payload), flush=True)
