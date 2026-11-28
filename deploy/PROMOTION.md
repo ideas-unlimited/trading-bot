@@ -47,7 +47,8 @@ Paper capital is **$1,000 per bot/strategy**. It is simulated money; the point
 is that every strategy is measured on the same stake.
 
 Start the paper record with the forward runner (outside `BOT_LAB` it refuses
-to start without the active manifest and runs that manifest's parameters):
+to start without the active manifest and refuses a parameter hash that does
+not match it):
 
     python -m bot forward --strategy <name> --symbol <PAIR>/USDT \
       --interval 4h --risk-per-trade 0.05 --max-position-pct 0.5 --poll 900

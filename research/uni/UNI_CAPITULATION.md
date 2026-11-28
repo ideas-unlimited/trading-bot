@@ -112,6 +112,57 @@ between entries is 30 days and the longest was 6 months, so two weeks of paper
 trading will usually contain **zero trades**; budget ~6 weeks for the first
 fill and a year for a dozen.
 
+## Trailing instead of the 1.5R target (tested, rejected)
+
+The natural challenge is that 1.5R caps the upside. A Chandelier trail
+(`trail_atr` ATRs under the highest high since entry) is the obvious
+alternative: remove the target, let the stop follow the move, and hold until
+the trail is hit. The engine now supports that plus an optional
+`trail_after_r` delay; `uni_trail.py` runs 62 configurations on the same
+window, costs, 5% risk and 50% cap (`uni_trail.csv`).
+
+| Exit rule | Full | Max DD | Sharpe | Trades | Win | Test | Test DD |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **1.5R target / 18 bars (shipped)** | **+67.82%** | **-5.27%** | **2.13** | 19 | 89.5% | +19.27% | -3.46% |
+| No target / 18 bars | +55.21% | -7.09% | 1.75 | 19 | 89.5% | +17.11% | -3.46% |
+| No target / 2.5 ATR trail / no time exit | +53.11% | -9.03% | 1.46 | 22 | 63.6% | +19.79% | -5.95% |
+| No target / 3.0 ATR trail / 18 bars | +55.87% | -7.09% | 1.75 | 20 | 90.0% | +16.22% | -3.46% |
+| No target / 2.5 ATR trail armed at 1R / no time exit | +57.07% | -16.22% | 1.20 | 20 | 70.0% | +16.74% | -13.51% |
+| 1.5R target + 3.0 ATR trail / 18 bars | +67.93% | -5.12% | 2.14 | 20 | 90.0% | +19.27% | -3.46% |
+
+Six-month folds (return / max DD):
+
+| Exit rule | F1 | F2 | F3 | F4 |
+|---|---:|---:|---:|---:|
+| 1.5R / 18 bars | +24.6% / -5.3% | +10.0% / -3.4% | +5.6% / -3.5% | +12.9% / -2.3% |
+| No target / 2.5 ATR trail / no time exit | +22.0% / -8.8% | +0.9% / -6.6% | **-0.3% / -5.3%** | +20.1% / -6.0% |
+| No target / 2.5 ATR trail armed at 1R | +25.6% / -8.9% | +9.5% / -7.1% | +6.9% / -8.1% | +9.2% / -13.5% |
+
+The arithmetic explains it. At the 1.5R target the peak is 3.75 ATR above
+entry; a 2.5 ATR trail at that peak locks only 1.25 ATR = **0.5R**, not 1.5R.
+To lock 1.5R with that trail, the peak must reach 6.25 ATR = **2.5R**. UNI's
+median bounce does not get there; one trade did (+55.8% notional), but one
+runner did not pay for the 21 smaller exits.
+
+The best no-target trail made **+0.52pp** more than the fixed target in the
+holdout (+19.79% vs +19.27%) but gave back **14.7pp** over the full window
+(+53.11% vs +67.82%), with a drawdown nearly twice as deep (-9.03% vs
+-5.27%), Sharpe 1.46 vs 2.13, CAGR 23.7% vs 29.6%, Calmar 2.63 vs 5.61,
+and one negative six-month fold. Win rate fell from 89.5% to 63.6%; all 22
+exits were stops. It did not ride a trend - it gave back the snapback.
+
+Delaying the trail until 1R does not rescue it: it holds through the first
+pullback, then the trail sits below entry and the drawdown goes to -16.22%.
+Keeping the 1.5R target and adding a trail is a rounding difference
+(+67.93% vs +67.82%), not a new edge, and adds one more exit to manage.
+
+**Verdict: keep the 1.5R target for UNI.** This is a mean-reversion
+capitulation bounce, not a trend continuation: 13 of 19 exits are the 18-bar
+clock, and the five clean targets are the reliable part. Trailing belongs in
+a trend sleeve; on this one it turns winners into scratches and holds losers
+longer. The test-slice gain is inside the noise of seven trades and is not
+worth the extra drawdown.
+
 ## Risk scaling (same trades, 50% position cap)
 
 | Risk per trade | Return | Max DD | Sharpe |
@@ -250,32 +301,31 @@ crash events.
 
 ## Deployment status
 
-The module is registered and backtests through the normal CLI, but it is not
-running forward yet. "Forward" here means one of two runners:
+Promoted to **paper** on 2026-11-28:
+`promotions/paper/capitulation_dip_uni.json`, params hash
+`sha256:3520143553854675`, $1,000 wallet. The paper record is kept by the
+forward runner (`bot forward`), not by `bot live`:
 
-- **`bot live`** places real (demo) orders through the exchange client and
-  tracks one symbol per bot.
-- **A forward book runner** is the `bot auto` pattern applied to one sleeve:
-  each cycle replays the sleeve over closed bars with simulated fills, persists
-  equity and trades, and reports "live since deploy". No keys, no order state,
-  restart-safe because it re-replays history. The book engine currently
-  supports a stop and a trail but not a strategy's take-profit, so wiring this
-  sleeve in needs the same target/time-exit support as `bot live`.
+```bash
+python -m bot forward --strategy capitulation_dip_uni --symbol UNI/USDT \
+  --interval 4h --risk-per-trade 0.05 --max-position-pct 0.5 --poll 900
+```
 
-- **`bot auto` is hardcoded to SmaCross.** The 15-minute paper books replay a
-  multi-coin SMA/trail book; there is no generic strategy hook for this
-  single-symbol sleeve. A paper runner that reuses the backtest engine's exit
-  logic (stop, target, time) is the missing piece.
-- **`bot live` ignores take-profit on spot.** `submit_order` accepts
-  `take_profit` for interface parity, but the caller only keeps the stop in
-  its state file. Pointing `bot live` at rr=1.5 would silently drop the
-  target and change the trade. The live-compatible variant is `rr=None`:
-  +55.2%, -7.1% max DD, 19 trades, Sharpe 1.75 at the same 5% risk /
-  50% position cap.
-- **A restart while holding resets the hold clock.** The stop survives in the
-  state file, the time exit does not. The paper book replay does not have
-  this problem because it replays history deterministically, but it cannot
-  run this strategy yet.
+- It replays the sleeve through the same `Engine` as the backtest, so the
+  2.5 ATR stop, the 1.5R target and the 18-bar time exit all fire; the
+  deploy equity is pinned on the first cycle and state lives in
+  `runs/paper/forward/status.json`.
+- **`bot live` is not used for this sleeve.** It is stop-only on spot and
+  resets the hold clock on restart, so it would silently run a different
+  strategy. Its live-compatible variant was `rr=None`: +55.2%, -7.1% max DD,
+  19 trades, Sharpe 1.75 at the same 5% risk / 50% position cap.
+- **`bot auto` is not used either.** The 15-minute books are a multi-coin
+  SMA/trail book hardcoded to SmaCross.
+
+What to expect: 19 trades in two years is 0.79/month, so the paper record
+will be flat most weeks and the first forward fill can take a month or more.
+Judge it on the forward trades only, and do not read a 0-trade first month as
+a failure of the rule.
 - **A drawdown stop is a brake, not a floor.** It stops new entries after
   the account is down; it does not cap the loss at 25%. The slow-bleed test
   still lost ~27% before the switch.

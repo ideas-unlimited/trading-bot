@@ -111,9 +111,9 @@ when you hit a new environment quirk and solve it, add it here and commit.
   `bot forward --strategy <sleeve> --symbol <pair> --interval 4h` runs one
   sleeve through `Engine` (stop, target and time exit included), pins deploy
   equity in `runs/<env>/forward/status.json`, and refuses to start outside
-  `BOT_LAB` without an active manifest (then it uses the manifest's params).
-  Use it to validate a target-bearing sleeve; `bot live` still drops
-  `take_profit`.
+  `BOT_LAB` without an active manifest, and refuses a parameter set whose
+  hash differs from the promoted one.  Use it to validate a target-bearing
+  sleeve; `bot live` still drops `take_profit`.
 - **The pin is per window.** If the replay window's start moves by more than
   two days (history cap changed, a coin delisted, backfill), the pin is
   re-taken at the current equity and `repinned_at` records the old deploy
