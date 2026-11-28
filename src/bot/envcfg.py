@@ -16,6 +16,7 @@ from .envdot import load_env
 
 ENVS = ("paper", "prod")
 DEFAULT_ENV = "paper"
+LAB_VAR = "BOT_LAB"
 DB_COMMON = "trading_common"
 DB_NAMES = {"paper": "trading_paper", "prod": "trading_prod"}
 WEB_PORTS = {"paper": 9000, "prod": 9001}
@@ -28,6 +29,18 @@ def env_name() -> str:
     if raw not in ENVS:
         raise ValueError(f"BOT_ENV must be one of {ENVS}, got {raw!r}")
     return raw
+
+
+def lab_mode() -> bool:
+    """True on the research laptop, where the whole registry is open.
+
+    The server never sets BOT_LAB, so paper and prod there show only the
+    strategies their promotion manifests activate. Lab is the one place
+    an unpromoted strategy may appear, because that is where ideas live.
+    """
+    load_env()
+    raw = (os.environ.get(LAB_VAR) or "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
 
 
 def database_name(kind: str = "env") -> str:
@@ -94,6 +107,7 @@ def describe() -> dict:
     name = env_name()
     return {
         "env": name,
+        "lab": lab_mode(),
         "database": database_name(name),
         "common_database": DB_COMMON,
         "state_dir": str(state_dir(name)),

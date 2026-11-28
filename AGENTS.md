@@ -176,6 +176,13 @@ when you hit a new environment quirk and solve it, add it here and commit.
   `trading_prod`. The paper role must not be able to write prod rows.
 - A strategy runs only if an active manifest names it; the loader must fail
   loud, never trade flat and silent.
+- **The dashboards list only promoted strategies.** `/api/strategies`
+  returns the active manifests for that env; code that merely exists is
+  invisible in paper/prod. `BOT_LAB=1` (set by `start_trader.cmd`) restores
+  the full registry on the laptop, where the whole point is trying ideas.
+  Bot and preset creation require an active manifest outside lab, and a bot
+  must use a promoted symbol/timeframe. To make a strategy visible, promote
+  it (`bot promote ...`), commit `promotions/<env>/<name>.json`, deploy.
 - **Team workspaces:** one per person is fine. Sync by `git pull` on master,
   read this file and `docs/DECISIONS.md`, experiment on `lab`, promote as a
   path-guarded package. Do not edit another agent's `research/` notes.

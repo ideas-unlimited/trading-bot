@@ -14,6 +14,9 @@ REM ============================================================
 setlocal
 cd /d "%~dp0"
 set PYTHONPATH=%~dp0src
+REM lab mode: this laptop's dashboard lists every strategy, promoted or not.
+REM The server never sets this, so paper/prod there list only promoted ones.
+set BOT_LAB=1
 
 set HOST=127.0.0.1
 set PORT=9000

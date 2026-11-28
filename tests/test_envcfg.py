@@ -67,6 +67,12 @@ class PathsTests(unittest.TestCase):
             self.assertEqual(envcfg.log_dir().name, "prod")
             self.assertNotEqual(envcfg.state_dir("paper"), envcfg.state_dir("prod"))
 
+    def test_lab_mode_is_opt_in(self):
+        with mock.patch.dict(os.environ, {"BOT_LAB": "1"}):
+            self.assertTrue(envcfg.lab_mode())
+        with mock.patch.dict(os.environ, {"BOT_LAB": ""}):
+            self.assertFalse(envcfg.lab_mode())
+
     def test_describe(self):
         with mock.patch.dict(os.environ, {"BOT_ENV": "paper", "DATABASE_URL": BASE}):
             info = envcfg.describe()

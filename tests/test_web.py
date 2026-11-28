@@ -1,9 +1,13 @@
 """Offline tests for the web terminal API (no network, no Postgres)."""
 
+import json
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
+from bot import promotions as promo
 from bot.web import (
     SYMBOLS,
     _jsonify,
@@ -31,8 +35,9 @@ class JsonifyTests(unittest.TestCase):
 
 
 class ApiBasicsTests(unittest.TestCase):
-    def test_strategies_registry(self) -> None:
-        data = api_strategies()
+    def test_strategies_registry_in_lab(self) -> None:
+        with patch.dict(os.environ, {"BOT_LAB": "1"}):
+            data = api_strategies()
         self.assertIn("sma_cross", data)
         self.assertIn("fast", data["sma_cross"]["params"])
 
@@ -68,6 +73,76 @@ class ApiBasicsTests(unittest.TestCase):
         self.assertIn("rows", result)
         self.assertEqual(len(result["rows"]), 2)
         self.assertIn("sharpe", result["rows"][0])
+
+
+class StrategyCatalogueTests(unittest.TestCase):
+    """Paper and prod list promoted strategies only; lab lists the registry."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+        self._env = patch.dict(os.environ, {"BOT_ENV": "paper", "BOT_LAB": ""})
+        self._env.start()
+        self.addCleanup(self._env.stop)
+        self._promos = patch.object(promo, "PROMOTIONS", self.base)
+        self._promos.start()
+        self.addCleanup(self._promos.stop)
+
+    def _manifest(self, name: str = "sma_cross", *, env: str = "paper",
+                  active: bool = True, symbols: tuple[str, ...] = ("BTC/USDT",),
+                  timeframe: str = "4h") -> None:
+        path = self.base / env / f"{name}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            "strategy": name, "env": env, "symbols": list(symbols),
+            "timeframe": timeframe, "capital": 1000,
+            "params_hash": promo.params_hash({}), "active": active,
+            "promoted_at": "2026-11-28T00:00:00+00:00",
+        }), encoding="utf-8")
+
+    def test_paper_without_manifests_is_empty(self) -> None:
+        self.assertEqual(api_strategies(base=self.base), {})
+
+    def test_paper_lists_only_the_promoted_strategy(self) -> None:
+        self._manifest()
+        data = api_strategies(base=self.base)
+        self.assertEqual(set(data), {"sma_cross"})
+        self.assertEqual(data["sma_cross"]["symbols"], ["BTC/USDT"])
+        self.assertEqual(data["sma_cross"]["timeframe"], "4h")
+        self.assertEqual(data["sma_cross"]["capital"], 1000.0)
+
+    def test_inactive_manifest_is_hidden(self) -> None:
+        self._manifest(active=False)
+        self.assertEqual(api_strategies(base=self.base), {})
+
+    def test_unknown_manifest_name_is_ignored(self) -> None:
+        self._manifest("does_not_exist")
+        self.assertEqual(api_strategies(base=self.base), {})
+
+    def test_lab_lists_registry_regardless_of_manifests(self) -> None:
+        with patch.dict(os.environ, {"BOT_LAB": "1"}):
+            data = api_strategies(base=self.base)
+        self.assertIn("sma_cross", data)
+        self.assertNotIn("timeframe", data["sma_cross"])
+
+    def test_bot_create_requires_promotion(self) -> None:
+        out = api_bots_create({"name": "x", "symbol": "BTC/USDT",
+                               "timeframe": "4h", "kind": "sma_cross"})
+        self.assertIn("not activated for paper", out["error"])
+
+    def test_bot_create_respects_promoted_symbol_and_timeframe(self) -> None:
+        self._manifest(symbols=("ETH/USDT",), timeframe="4h")
+        wrong_symbol = api_bots_create({"name": "x", "symbol": "BTC/USDT",
+                                        "timeframe": "4h", "kind": "sma_cross"})
+        self.assertIn("ETH/USDT", wrong_symbol["error"])
+        wrong_tf = api_bots_create({"name": "x", "symbol": "ETH/USDT",
+                                    "timeframe": "1h", "kind": "sma_cross"})
+        self.assertIn("promoted on 4h", wrong_tf["error"])
+
+    def test_preset_create_requires_promotion(self) -> None:
+        out = api_presets_create({"name": "x", "kind": "sma_cross"})
+        self.assertIn("not activated for paper", out["error"])
 
 
 class EnvironmentBrandingTests(unittest.TestCase):

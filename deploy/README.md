@@ -100,7 +100,10 @@ Two hostnames, two worlds, one checkout:
 The env is rendered into the page server-side (title, a green PAPER or red
 PRODUCTION banner, matching accent), so a screenshot always says which world
 it is. Prod is read-only for bots and presets: create and tune on paper, then
-promote with a manifest (`PROMOTION.md`).
+promote with a manifest (`PROMOTION.md`). Each dashboard lists **only** the
+strategies its `promotions/<env>/` manifests activate; the laptop runs
+`BOT_LAB=1` (via `start_trader.cmd`) to see the whole registry while
+researching.
 
 Both processes bind `127.0.0.1` only; Caddy terminates TLS and basic auth,
 and only 22/80/443 are open. Render the config with:

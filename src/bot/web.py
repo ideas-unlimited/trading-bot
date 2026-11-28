@@ -21,8 +21,9 @@ from typing import Any
 from .exchange.binance import BrokerError
 from .exchange.live_client import BinanceLiveClient
 from .backtest import run_backtest
+from . import promotions as promo
 from .config import BotConfig, CostConfig, RiskConfig
-from .envcfg import describe as env_describe, env_name
+from .envcfg import describe as env_describe, env_name, lab_mode
 from .data.feed import generate_synthetic
 from .metrics import infer_bars_per_year
 from .scanlib import load_scan_bars, make_config, run_scan
@@ -66,6 +67,7 @@ def render_index() -> bytes:
         "{{ENV_NOTE}}": note,
         "{{ENV_FOOT}}": foot,
         "{{ENV_JSON}}": json.dumps(env),
+        "{{LAB_JSON}}": json.dumps(lab_mode()),
     }
     for token, value in tokens.items():
         html = html.replace(token, value)
@@ -90,12 +92,11 @@ SYMBOLS = {
         {"symbol": "BCH/USDT", "tv": "BINANCE:BCHUSDT"},
         {"symbol": "DOT/USDT", "tv": "BINANCE:DOTUSDT"},
         {"symbol": "BNB/USDT", "tv": "BINANCE:BNBUSDT"},
-        {"symbol": "HYPE/USDT", "tv": "HYPE:HYPEUSDT"},
+        {"symbol": "HYPE/USDT", "tv": "BINANCE:HYPEUSDT"},
         {"symbol": "UNI/USDT", "tv": "BINANCE:UNIUSDT"},
         {"symbol": "JUP/USDT", "tv": "BINANCE:JUPUSDT"},
         {"symbol": "PYTH/USDT", "tv": "BINANCE:PYTHUSDT"},
         {"symbol": "CAKE/USDT", "tv": "BINANCE:CAKEUSDT"},
-        {"symbol": "CC/USDC", "tv": "MEXC:CCUSDC"},
     ],
     "commodities": [
         {"symbol": "XAUT/USD", "tv": "BITFINEX:XAUTUSD", "label": "Tether Gold"},
@@ -124,11 +125,34 @@ def _jsonify(value: Any) -> Any:
     return value
 
 
-def api_strategies() -> dict[str, Any]:
-    return {
-        name: {"params": list(cls.PARAMS), "doc": (cls.__doc__ or "").strip().splitlines()[0]}
-        for name, cls in sorted(REGISTRY.items())
-    }
+def api_strategies(base: Any = None) -> dict[str, Any]:
+    """The strategies this world may run.
+
+    Lab sees the whole registry, because that is where ideas are tested.
+    Paper and prod see only what a promotion manifest activates: code that
+    merely exists is not a strategy available in that world. The dashboard
+    therefore lists exactly what could trade.
+    """
+    manifests = None if lab_mode() else promo.active_manifests(env_name(), base)
+    out: dict[str, Any] = {}
+    for name, cls in sorted(REGISTRY.items()):
+        if manifests is not None and name not in manifests:
+            continue
+        entry: dict[str, Any] = {
+            "params": list(cls.PARAMS),
+            "doc": (cls.__doc__ or "").strip().splitlines()[0],
+        }
+        if manifests is not None:
+            manifest = manifests[name]
+            entry.update({
+                "symbols": list(manifest.symbols),
+                "timeframe": manifest.timeframe,
+                "capital": manifest.capital,
+                "promoted_at": manifest.promoted_at,
+                "override": manifest.override,
+            })
+        out[name] = entry
+    return out
 
 
 def _load_bars_for_api(payload: dict[str, Any]) -> list[Any]:
@@ -400,6 +424,16 @@ def api_bots_create(payload: dict[str, Any]) -> dict[str, Any]:
         build(kind, **params)  # validate before saving
     except (TypeError, ValueError) as exc:
         return {"error": f"bad strategy parameters: {exc}"}
+    if not lab_mode():
+        try:
+            manifest = promo.require(kind, env_name())
+        except promo.PromotionError as exc:
+            return {"error": str(exc)}
+        if symbol not in manifest.symbols:
+            covered = ", ".join(manifest.symbols)
+            return {"error": f"{kind} is promoted on {covered} only; {symbol} is not covered"}
+        if timeframe != manifest.timeframe:
+            return {"error": f"{kind} is promoted on {manifest.timeframe}; this bot asks for {timeframe}"}
     config = {
         k: payload.get(k)
         for k in (
@@ -653,6 +687,11 @@ def api_presets_create(payload: dict[str, Any]) -> dict[str, Any]:
         build(kind, **params)
     except (TypeError, ValueError) as exc:
         return {"error": f"bad strategy parameters: {exc}"}
+    if not lab_mode():
+        try:
+            promo.require(kind, env_name())
+        except promo.PromotionError as exc:
+            return {"error": str(exc)}
     conn = _db_conn()
     try:
         preset = store.save_preset(conn, name, kind, params, payload.get("notes", ""))

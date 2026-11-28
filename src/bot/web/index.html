@@ -185,9 +185,9 @@
   <div class="view" id="view-strategies">
     <div class="grid cols-2">
       <div class="card">
-        <h2>Built-in strategies</h2>
+        <h2 id="builtinTitle">Strategies</h2>
         <div id="builtinList"></div>
-        <div class="hint">Built-ins live in code (src/bot/strategy/). Create presets to tune their parameters — presets are what bots use.</div>
+        <div class="hint" id="builtinHint"></div>
       </div>
       <div class="card">
         <h2>My strategy presets</h2>
@@ -331,6 +331,7 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const ENV = {{ENV_JSON}};
+const LAB = {{LAB_JSON}};
 if (ENV === "prod"){
   /* Read-only world: tune on paper, then promote the package. */
   ["btnCreateBot","btnSavePreset","btnSavePreset2"].forEach(id => {
@@ -378,20 +379,34 @@ document.querySelectorAll("nav a").forEach(a => a.onclick = () => {
 /* ================= shared controls ================= */
 async function loadStrategies(){
   S.strategies = await api("/api/strategies");
+  const names = Object.keys(S.strategies);
+  const none = names.length === 0;
   ["botStrategy","btStrategy"].forEach(id => {
-    $(id).innerHTML = Object.keys(S.strategies).map(n=>`<option value="${n}">${n}</option>`).join("");
+    $(id).innerHTML = none
+      ? `<option value="">— none promoted —</option>`
+      : names.map(n=>`<option value="${n}">${n}</option>`).join("");
+    $(id).disabled = none;
     $(id).onchange = () => renderParams(id);
   });
   renderParams("botStrategy"); renderParams("btStrategy");
   const sc = $("scStrategies");
-  sc.innerHTML = Object.keys(S.strategies).map(n =>
-    `<span class="chip${n==="sma_cross"?" on":""}" data-s="${n}">${n}</span>`).join("");
+  sc.innerHTML = names.map((n,i) =>
+    `<span class="chip${i===0?" on":""}" data-s="${n}">${n}</span>`).join("");
   [...sc.children].forEach(c => c.onclick = () => {
     c.classList.toggle("on");
-    S.scStrategies = [...sc.children].filter(x=>x.classList.contains("on")).map(x=>x.dataset.s);
-    if (!S.scStrategies.length){ c.classList.add("on"); S.scStrategies=[c.dataset.s]; }
+    let on = [...sc.children].filter(x=>x.classList.contains("on"));
+    if (!on.length){ c.classList.add("on"); on=[c]; }
+    S.scStrategies = on.map(x=>x.dataset.s);
   });
-  S.scStrategies = ["sma_cross"];
+  S.scStrategies = [...sc.children].filter(x=>x.classList.contains("on")).map(x=>x.dataset.s);
+  if (none){
+    ["btnCreateBot","btnBacktest","btnScan","btnSavePreset","btnSavePreset2"].forEach(id => {
+      const b = $(id); if (!b) return;
+      b.disabled = true; b.title = "nothing is promoted to this world yet";
+    });
+    $("sgKind").innerHTML = `<option value="">— none promoted —</option>`;
+    $("sgKind").disabled = true;
+  }
 }
 const paramDefaults = { fast:20, slow:50, atr_mult:2.5, rsi_window:14, entry:30, exit_level:55, trend_window:200 };
 function renderParams(selId){
@@ -743,11 +758,22 @@ function drawCandles(svg, ohlc, trades){
 
 async function renderStrategies(){
   const list = $("builtinList");
-  list.innerHTML = Object.entries(S.strategies).map(([n,v]) =>
-    `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
+  const names = Object.keys(S.strategies);
+  $("builtinTitle").textContent = LAB ? "Built-in strategies · lab" : `Active strategies · ${ENV.toUpperCase()}`;
+  $("builtinHint").textContent = LAB
+    ? "The lab lists every strategy in code; none of it is deployed. Promote one to paper to make it appear on the paper dashboard."
+    : `Only strategies with an active promotion manifest (promotions/${ENV}/) appear here. Everything else stays in lab until promoted.`;
+  list.innerHTML = names.length ? names.map(n => {
+    const v = S.strategies[n];
+    const where = v.timeframe
+      ? `<div class="dim">promoted: ${esc(v.symbols.join(", "))} @ ${esc(v.timeframe)} · $${Number(v.capital).toLocaleString()}${v.override?" · override":""}</div>`
+      : "";
+    return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
        <b>${esc(n)}</b> <span class="dim">· params: ${esc(v.params.join(", ")||"none")}</span>
+       ${where}
        <div class="hint">${esc(v.doc)}</div>
-     </div>`).join("");
+     </div>`;
+  }).join("") : `<div class="hint">No strategy is promoted to ${ENV.toUpperCase()} yet. Promote one from lab (<code>bot promote …</code>), commit the manifest, deploy.</div>`;
   const sel = $("sgKind");
   sel.innerHTML = Object.keys(S.strategies).map(n=>`<option>${esc(n)}</option>`).join("");
   sel.onchange = renderSgParams;

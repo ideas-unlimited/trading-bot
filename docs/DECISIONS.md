@@ -125,3 +125,19 @@ clicking "create" against the live database.
 What it commits us to: both worlds run the same master checkout; only
 `BOT_ENV` differs per systemd unit. A UI change that hides the banner, or a
 new mutating endpoint that skips the read-only guard, is a regression.
+
+## D14 - The dashboards show only promoted strategies (2026-11-28)
+
+The Strategies tab used to list the whole code registry on every env, so
+prod showed six strategies that could not run there. That was misleading:
+the catalogue must equal what can trade.
+
+`/api/strategies` now returns only the active promotion manifests for the
+env. Lab (`BOT_LAB=1`, set by `start_trader.cmd`) is the exception: it lists
+the full registry because lab is where ideas are tried. Bot and preset
+creation outside lab require an active manifest, and a bot must match the
+manifest's symbols and timeframe - the promotion package is the unit of
+trust.
+
+What it commits us to: a strategy visible on the paper dashboard has a
+manifest behind it, and prod shows nothing until paper promotes a package.
