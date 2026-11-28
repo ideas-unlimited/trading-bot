@@ -50,13 +50,15 @@ Start the paper record with the forward runner (outside `BOT_LAB` it refuses
 to start without the active manifest and refuses a parameter hash that does
 not match it):
 
-    python -m bot forward --strategy <name> --symbol <PAIR>/USDT \
-      --interval 4h --risk-per-trade 0.05 --max-position-pct 0.5 --poll 900
+    python -m bot forward --all --poll 900
 
-State is `runs/<env>/forward/status.json` plus `<name>_<SYMBOL>.trades.csv`
-and `.equity.csv`. A cycle is deterministic and idempotent; the deploy mark is
-pinned on the first cycle and re-pinned (old date kept as `repinned_at`) only
-when the two-year window start moves.
+State is one folder per sleeve: `runs/<env>/<strategy>/forward/status.json`
+plus `<SYMBOL>.trades.csv` and `<SYMBOL>.equity.csv`. `--all` serves every
+active manifest from one process and re-reads the manifests each cycle, so a
+promote/demote takes effect without editing a unit; `--strategy ... --symbol
+...` runs one sleeve by hand. A cycle is deterministic and idempotent; the
+deploy mark is pinned on the first cycle and re-pinned (old date kept as
+`repinned_at`) only when the two-year window start moves.
 
 ## 2. paper -> prod
 

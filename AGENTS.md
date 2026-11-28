@@ -108,12 +108,17 @@ when you hit a new environment quirk and solve it, add it here and commit.
   year2 table. See `research/per_symbol.py`, `research/per_symbol_knob.py`
   and `research/PER_SYMBOL.md` (peer analysis, same conclusion).
 - **The forward sleeve runner is the same replay for one strategy.**
-  `bot forward --strategy <sleeve> --symbol <pair> --interval 4h` runs one
-  sleeve through `Engine` (stop, target and time exit included), pins deploy
-  equity in `runs/<env>/forward/status.json`, and refuses to start outside
-  `BOT_LAB` without an active manifest, and refuses a parameter set whose
-  hash differs from the promoted one.  Use it to validate a target-bearing
-  sleeve; `bot live` still drops `take_profit`.
+  `bot forward --all` walks every active manifest in one loop and runs each
+  strategy/symbol through `Engine` (stop, target and time exit included),
+  with one folder per sleeve:
+  `runs/<env>/<strategy>/forward/status.json` plus `<SYMBOL>.trades.csv` and
+  `<SYMBOL>.equity.csv`. One process serves all sleeves and re-reads the
+  manifests each cycle, so promote/demote needs no unit edit; a broken
+  sleeve is logged and skipped, not fatal. `--strategy ... --symbol ...`
+  replays one sleeve by hand and refuses outside `BOT_LAB` without an
+  active manifest, and refuses a parameter set whose hash differs from the
+  promoted one. Use it to validate a target-bearing sleeve; `bot live`
+  still drops `take_profit`.
 - **The pin is per window.** If the replay window's start moves by more than
   two days (history cap changed, a coin delisted, backfill), the pin is
   re-taken at the current equity and `repinned_at` records the old deploy
@@ -322,7 +327,7 @@ when you hit a new environment quirk and solve it, add it here and commit.
   passwordless sudo, so every privileged step is `sudo ...`. The service user
   `trader` has no shell — reach the dashboard with
   `ssh -L 9000:127.0.0.1:9000 debian@139.99.236.166`.
-  Verified on the box: web returns 200, the test suite passes (331 tests
+  Verified on the box: web returns 200, the test suite passes (336 tests
   locally as of 2026-11-28),
   `load_scan_bars("BTC/USDT","4h",source="binance")` fetches 2,190 bars (no
   451), so the venue path works from this IP.

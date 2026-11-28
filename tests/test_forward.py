@@ -6,9 +6,12 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
+from bot import promotions as promo
 from bot.data.feed import Bar
-from bot.forward import run_cycle
+from bot.forward import active_specs, default_outdir, run_cycle, run_specs
 from bot.strategy.base import Action, Signal, Strategy
 
 
@@ -62,21 +65,26 @@ class TestForwardRunner(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def run_with(self, strategy, bars, outdir=None, now=None):
+    def run_with(self, strategy, bars, outdir=None, symbol="TEST/USDT", now=None):
         return run_cycle(
-            strategy, 'TEST/USDT', '4h', params={}, capital=1_000.0,
+            strategy, symbol, '4h', params={}, capital=1_000.0,
             fee_bps=0.0, slippage_bps=0.0, risk_per_trade=0.05,
             max_position_pct=0.95, max_drawdown_stop=0.9,
             outdir=outdir or self.outdir, bars=bars,
             now=now or datetime(2024, 12, 1, tzinfo=timezone.utc),
         )
 
+    def test_default_folder_is_per_strategy(self):
+        path = default_outdir('capitulation_dip_uni')
+        self.assertEqual(path.name, 'forward')
+        self.assertEqual(path.parent.name, 'capitulation_dip_uni')
+
     def test_target_exit_is_honoured(self):
         bars = make_bars(overrides={4: (100.0, 112.0, 99.0, 108.0)})
         payload = self.run_with(BuyThenLeave(), bars)
         self.assertIsNone(payload['position'])
         self.assertEqual(payload['history']['trades'], 1)
-        with (self.outdir / 'test_buy_leave_TESTUSDT.trades.csv').open() as fh:
+        with (self.outdir / 'TESTUSDT.trades.csv').open() as fh:
             rows = list(csv.DictReader(fh))
         self.assertEqual(len(rows), 1)
         self.assertEqual(float(rows[0]['exit_price']), 110.0)
@@ -88,7 +96,7 @@ class TestForwardRunner(unittest.TestCase):
         bars = make_bars(overrides={4: (100.0, 112.0, 85.0, 95.0)})
         payload = self.run_with(BuyThenLeave(), bars)
         self.assertEqual(payload['history']['trades'], 1)
-        with (self.outdir / 'test_buy_leave_TESTUSDT.trades.csv').open() as fh:
+        with (self.outdir / 'TESTUSDT.trades.csv').open() as fh:
             row = list(csv.DictReader(fh))[0]
         self.assertEqual(float(row['exit_price']), 90.0)
         self.assertTrue(row['reason_close'].startswith('stop loss'))
@@ -96,9 +104,10 @@ class TestForwardRunner(unittest.TestCase):
     def test_time_exit_sells_next_open(self):
         payload = self.run_with(BuyThenTimeExit(), make_bars())
         self.assertEqual(payload['history']['trades'], 1)
-        with (self.outdir / 'test_buy_time_TESTUSDT.trades.csv').open() as fh:
+        with (self.outdir / 'TESTUSDT.trades.csv').open() as fh:
             row = list(csv.DictReader(fh))[0]
-        self.assertEqual(row['exit_ts'], str(Bar(datetime(2024, 1, 2, 0, tzinfo=timezone.utc), 1, 1, 1, 1).ts))
+        expected = str(Bar(datetime(2024, 1, 2, 0, tzinfo=timezone.utc), 1, 1, 1, 1).ts)
+        self.assertEqual(row['exit_ts'], expected)
         self.assertEqual(float(row['exit_price']), 100.0)
         self.assertEqual(row['reason_close'], 'time test')
 
@@ -112,7 +121,7 @@ class TestForwardRunner(unittest.TestCase):
         self.assertEqual(first['deploy']['deployed_at'], second['deploy']['deployed_at'])
         self.assertEqual(second['deploy']['return_pct'], 0.0)
         self.assertIsNone(second['deploy']['repinned_at'])
-        with (self.outdir / 'test_buy_leave_TESTUSDT.equity.csv').open() as fh:
+        with (self.outdir / 'TESTUSDT.equity.csv').open() as fh:
             rows = list(csv.reader(fh))
         self.assertEqual(len(rows), 2)  # header + one distinct bar
 
@@ -125,12 +134,71 @@ class TestForwardRunner(unittest.TestCase):
         self.assertEqual(payload['deploy']['return_pct'], 0.0)
         self.assertEqual(payload['deploy']['deployed_at'][:10], '2024-12-01')
 
-    def test_status_file_keeps_other_runners(self):
-        self.run_with(BuyThenLeave(), make_bars())
-        self.run_with(BuyThenTimeExit(), make_bars())
+    def test_status_file_keeps_other_symbols(self):
+        self.run_with(BuyThenLeave(), make_bars(), symbol="A/USDT")
+        self.run_with(BuyThenLeave(), make_bars(), symbol="B/USDT")
         state = json.loads((self.outdir / 'status.json').read_text())
-        self.assertEqual(set(state['runners']),
-                         {'test_buy_leave:TEST/USDT', 'test_buy_time:TEST/USDT'})
+        self.assertEqual(state['strategy'], 'test_buy_leave')
+        self.assertEqual(set(state['runners']), {'A/USDT', 'B/USDT'})
+
+    def test_one_folder_cannot_hold_two_strategies(self):
+        self.run_with(BuyThenLeave(), make_bars())
+        with self.assertRaises(RuntimeError):
+            self.run_with(BuyThenTimeExit(), make_bars())
+
+
+class TestActiveSpecs(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self.tmp.name)
+        (self.base / "paper").mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, name, **fields):
+        payload = {
+            "strategy": name, "env": "paper", "params_hash": "sha256:x",
+            "symbols": ["A/USDT"], "timeframe": "4h", "capital": 1000.0,
+            "promoted_at": "2026-11-28T00:00:00+00:00",
+        }
+        payload.update(fields)
+        (self.base / "paper" / f"{name}.json").write_text(json.dumps(payload))
+
+    def test_reads_every_symbol_of_every_active_manifest(self):
+        self.write("beta", symbols=["B/USDT", "C/USDT"], capital=2000.0)
+        self.write("alpha", symbols=["A/USDT"])
+        self.write("dead", symbols=["D/USDT"], active=False)
+        specs = active_specs("paper", base=self.base)
+        self.assertEqual([s["strategy"] for s in specs], ["alpha", "beta", "beta"])
+        self.assertEqual([s["symbol"] for s in specs], ["A/USDT", "B/USDT", "C/USDT"])
+        self.assertEqual(specs[1]["capital"], 2000.0)
+
+
+class TestRunSpecs(unittest.TestCase):
+    SPEC = {"strategy": "s", "symbol": "A/USDT", "timeframe": "4h",
+            "capital": 1000.0, "params_hash": promo.params_hash({})}
+
+    def test_one_broken_sleeve_does_not_stop_the_rest(self):
+        fake = SimpleNamespace(name="s", params={})
+        with mock.patch("bot.forward.build", side_effect=[RuntimeError("boom"), fake]), \
+                mock.patch("bot.forward.run_cycle", return_value={}) as cycle, \
+                mock.patch("bot.forward.format_status", return_value="ok"), \
+                mock.patch("sys.stdout"):
+            results = run_specs([self.SPEC, self.SPEC])
+        self.assertEqual(cycle.call_count, 1)
+        self.assertEqual(len(results), 2)
+        self.assertIn("boom", results[0]["error"])
+
+    def test_hash_mismatch_is_refused_before_replaying(self):
+        fake = SimpleNamespace(name="s", params={})
+        bad = dict(self.SPEC, params_hash="sha256:other")
+        with mock.patch("bot.forward.build", return_value=fake), \
+                mock.patch("bot.forward.run_cycle") as cycle, \
+                mock.patch("sys.stdout"):
+            results = run_specs([bad])
+        cycle.assert_not_called()
+        self.assertIn("promote the change", results[0]["error"])
 
 
 if __name__ == '__main__':

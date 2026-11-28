@@ -1,13 +1,18 @@
 """Forward runner: replay one sleeve over closed bars with simulated money.
 
-This is the ``bot auto`` pattern for a single strategy/symbol pair: every
-cycle it loads the capped window, drops the still-forming bar, replays the
-sleeve through the same :class:`bot.backtest.Engine` used by backtests
-(next-open fills, intrabar stop-first, take-profit, strategy time exits) and
-pins the deploy equity on the first cycle.  No exchange keys, no orders and
-no order state: because the replay is deterministic, a restart cannot
-corrupt the record, and ``live since deploy`` is measured against the pin
-rather than against the start of the historical window.
+This is the ``bot auto`` pattern for a strategy/symbol pair: every cycle it
+loads the capped window, drops the still-forming bar, replays the sleeve
+through the same :class:`bot.backtest.Engine` used by backtests (next-open
+fills, intrabar stop-first, take-profit, strategy time exits) and pins the
+deploy equity on the first cycle.  No exchange keys, no orders and no order
+state: because the replay is deterministic, a restart cannot corrupt the
+record, and ``live since deploy`` is measured against the pin rather than
+against the start of the historical window.
+
+State is one folder per sleeve - ``runs/<env>/<strategy>/forward/status.json``
+with ``<SYMBOL>.trades.csv`` and ``<SYMBOL>.equity.csv`` beside it - so two
+sleeves can never overwrite each other's deploy pin.  ``bot forward --all``
+walks the active manifests in one process and re-reads them every cycle.
 
 The window is hard-capped by :data:`bot.scanlib.MAX_HISTORY_DAYS`; if the
 window start moves by more than two days the pin is re-taken and the old
@@ -34,14 +39,19 @@ from .strategy import build
 from .strategy.base import Strategy
 
 
-def default_outdir() -> Path:
-    """Paper and prod must never share a status file."""
-    return envcfg.state_dir() / "forward"
+def default_outdir(strategy: str) -> Path:
+    """One folder per sleeve: runs/<env>/<strategy>/forward/status.json.
+
+    Paper and prod never share a folder (state_dir carries the env), and two
+    sleeves never share a status file, so a promote/demote cannot delete
+    another sleeve's deploy pin.
+    """
+    return envcfg.state_dir() / strategy / "forward"
 
 
-def runner_key(strategy: str, symbol: str) -> str:
-    """Stable key for one sleeve/symbol pair."""
-    return f"{strategy}:{symbol}"
+def runner_key(symbol: str) -> str:
+    """Status key for one symbol inside a sleeve folder."""
+    return symbol
 
 
 def _window_moved(prev_start: str, start: str, tolerance_days: float = 2.0) -> bool:
@@ -107,7 +117,7 @@ def run_cycle(
     slippage_bps: float = 5.0,
     risk_per_trade: float = 0.05,
     max_position_pct: float = 0.5,
-    max_drawdown_stop: float = 0.5,
+    max_drawdown_stop: float = 0.25,
     days: int = scanlib.MAX_HISTORY_DAYS,
     source: str = "binance",
     outdir: str | Path | None = None,
@@ -116,8 +126,6 @@ def run_cycle(
 ) -> dict[str, Any]:
     """One cycle: load bars, replay the sleeve, pin/read the deploy mark, write state."""
     now = now or datetime.now(timezone.utc)
-    outdir = Path(outdir) if outdir is not None else default_outdir()
-    outdir.mkdir(parents=True, exist_ok=True)
     # Accept a name (the CLI path, always a fresh instance) or an instance
     # (tests and unregistered research sleeves).  An instance is used as given,
     # so the caller must not reuse a stateful one across cycles.
@@ -126,6 +134,8 @@ def run_cycle(
     else:
         strategy = build(strategy_name, **dict(params or {}))
     name = strategy.name
+    outdir = Path(outdir) if outdir is not None else default_outdir(name)
+    outdir.mkdir(parents=True, exist_ok=True)
 
     if bars is None:
         bars = scanlib.load_scan_bars(symbol, timeframe, source=source,
@@ -162,8 +172,13 @@ def run_cycle(
 
     state_path = outdir / "status.json"
     state = _load_state(state_path)
+    owner = str(state.get("strategy") or "")
+    if owner and owner != name:
+        raise RuntimeError(
+            f"{state_path} belongs to {owner}, not {name}; use one folder per sleeve"
+        )
     previous = state.get("runners") if isinstance(state.get("runners"), dict) else {}
-    key = runner_key(name, symbol)
+    key = runner_key(symbol)
     prev = previous.get(key, {}) if isinstance(previous.get(key), dict) else {}
     prev_window = str((prev.get("window") or {}).get("start") or "")
     moved = bool(prev_window and _window_moved(prev_window, window_start))
@@ -236,6 +251,7 @@ def run_cycle(
     previous[key] = payload
     state = {
         "updated_at": now.isoformat(),
+        "strategy": name,
         "timeframe": timeframe,
         "source": source,
         "runners": previous,
@@ -247,7 +263,7 @@ def run_cycle(
     os.replace(tmp_path, state_path)
 
     # Trades CSV: the whole replay, with a flag for what opened after deploy.
-    trades_path = outdir / f"{name}_{symbol.replace('/', '')}.trades.csv"
+    trades_path = outdir / f"{symbol.replace('/', '')}.trades.csv"
     with trades_path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
         writer.writerow([
@@ -264,7 +280,7 @@ def run_cycle(
 
     # Equity CSV: one row per distinct closed bar, so a manual re-run of the
     # same cycle does not duplicate a point.
-    equity_path = outdir / f"{name}_{symbol.replace('/', '')}.equity.csv"
+    equity_path = outdir / f"{symbol.replace('/', '')}.equity.csv"
     existing: list[list[str]] = []
     if equity_path.exists():
         with equity_path.open(newline="", encoding="utf-8") as fh:
@@ -311,6 +327,69 @@ def format_status(payload: Mapping[str, Any]) -> str:
     if payload.get("halted_reason"):
         lines.append(f"  halted    {payload['halted_reason']}")
     return "\n".join(lines)
+
+
+def active_specs(env: str | None = None, base: Path | None = None) -> list[dict[str, Any]]:
+    """One spec per promoted strategy/symbol pair in this environment."""
+    from . import promotions as promo
+
+    env = env or envcfg.env_name()
+    specs: list[dict[str, Any]] = []
+    manifests = promo.active_manifests(env, base=base).values()
+    for manifest in sorted(manifests, key=lambda m: m.strategy):
+        for symbol in manifest.symbols:
+            specs.append({
+                "strategy": manifest.strategy,
+                "symbol": symbol,
+                "timeframe": manifest.timeframe,
+                "capital": manifest.capital,
+                "params_hash": manifest.params_hash,
+            })
+    return specs
+
+
+def run_specs(specs: Sequence[Mapping[str, Any]], **kwargs: Any) -> list[dict[str, Any]]:
+    """One pass over every sleeve; a broken runner is logged, not fatal."""
+    from . import promotions as promo
+
+    results: list[dict[str, Any]] = []
+    for spec in specs:
+        name = str(spec.get("strategy") or "")
+        symbol = str(spec.get("symbol") or "")
+        try:
+            strategy = build(name)
+            expected = str(spec.get("params_hash") or "")
+            digest = promo.params_hash(strategy.params)
+            if expected and digest != expected:
+                raise RuntimeError(
+                    f"params hash {digest} != promoted {expected}; promote the change first"
+                )
+            payload = run_cycle(
+                strategy, symbol, str(spec.get("timeframe") or "4h"),
+                capital=float(spec.get("capital") or 1_000.0),
+                **kwargs,
+            )
+            print(format_status(payload), flush=True)
+            results.append(payload)
+        except Exception as exc:  # noqa: BLE001 - isolate one sleeve from the rest
+            print(f"[forward] {name}:{symbol} failed: {type(exc).__name__}: {exc}", flush=True)
+            traceback.print_exc()
+            results.append({"strategy": name, "symbol": symbol, "error": str(exc)})
+    return results
+
+
+def run_all_forever(interval: float, *, env: str | None = None, **kwargs: Any) -> None:
+    """Poll loop over the active manifests; re-read them every cycle."""
+    while True:
+        try:
+            specs = active_specs(env)
+            if not specs:
+                print("[forward] no active sleeves in this environment", flush=True)
+            run_specs(specs, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - the loop must outlive one cycle
+            print(f"[forward] cycle failed: {type(exc).__name__}: {exc}", flush=True)
+            traceback.print_exc()
+        time.sleep(max(30.0, float(interval)))
 
 
 def run_forever(interval: float, **kwargs: Any) -> None:

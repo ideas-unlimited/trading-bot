@@ -215,24 +215,35 @@ python -m bot live --symbol BTC/USDT --interval 1d --strategy sma_cross --once  
 State (last processed bar, local stops) lives in `runs/live_state.json`.
 
 **Forward sleeve runner** — the per-symbol counterpart of `bot auto`.  It
-replays one sleeve over the cached window through the same `Engine` as the
+replays each sleeve over the cached window through the same `Engine` as the
 backtest (next-open fills, stop-first, take-profit, time exit), pins the
-deploy equity and writes `runs/<env>/forward/status.json` plus trades and
-equity CSVs.  No key, no order, no position the demo account could close:
+deploy equity and writes one folder per sleeve:
 
-```bash
-python -m bot forward --strategy capitulation_dip_uni --symbol UNI/USDT \
-  --interval 4h --risk-per-trade 0.05 --max-position-pct 0.5 --poll 900
-python -m bot forward --strategy capitulation_dip_uni --symbol UNI/USDT --once  # one cycle
+```
+runs/<env>/<strategy>/forward/status.json
+runs/<env>/<strategy>/forward/<SYMBOL>.trades.csv
+runs/<env>/<strategy>/forward/<SYMBOL>.equity.csv
 ```
 
-Outside `BOT_LAB` it refuses to run unless an active manifest names the
-strategy, symbol and timeframe, and it checks the sleeve's parameter hash
-against that manifest - the replay measures exactly what was promoted.
-`start_forward.cmd [seconds]` launches the loop detached on Windows, logging
-to `logs/forward_<ts>.log`.  `live since deploy` starts at the first cycle
-and is re-pinned only if the two-year window start moves, so a history cap
-change cannot show up as a phantom loss.
+No key, no order, no position the demo account could close.  `--all` walks
+every active manifest in one loop, re-reading them each cycle, so promoting
+or demoting a sleeve changes the next cycle without editing a unit:
+
+```bash
+python -m bot forward --all --poll 900            # every promoted sleeve
+python -m bot forward --all --once               # one pass, e.g. Task Scheduler
+python -m bot forward --strategy capitulation_dip_uni --symbol UNI/USDT --once
+```
+
+Without `--all` it runs one sleeve by hand and refuses outside `BOT_LAB`
+unless an active manifest names the strategy, symbol and timeframe; it also
+checks the sleeve's parameter hash against that manifest, so the replay
+measures exactly what was promoted.  A failed sleeve is logged and skipped,
+never fatal to the others.  `start_forward.cmd [seconds]` launches the
+all-sleeve loop detached on Windows, logging to `logs/forward_<ts>.log`.
+`live since deploy` starts at the first cycle and is re-pinned only if the
+two-year window start moves, so a history cap change cannot show up as a
+phantom loss.
 
 ## TradingView (optional companion)
 
@@ -291,7 +302,7 @@ src/bot/
   scanlib.py       bars cache + incremental Binance sync under the 2-year cap
   web.py           dashboard and JSON API (env-branded, promotion-aware)
   db.py            Postgres schema: bots, trades, equity, events, promotions
-tests/             331 unittest cases, no network
+tests/             336 unittest cases, no network
 ```
 
 `research/` is the lab (`research/README.md` is the map), `config/` holds the
@@ -456,13 +467,12 @@ PASS/FAIL line per check; `--force --reason "..."` overrides it and records
 the reason in the manifest.  Then start its forward record:
 
 ```bash
-python -m bot forward --strategy capitulation_dip_uni --symbol UNI/USDT \
-  --interval 4h --risk-per-trade 0.05 --max-position-pct 0.5 --poll 900
+python -m bot forward --all --poll 900   # one loop for every active manifest
 ```
 
-It writes `runs/<env>/forward/status.json`; the deploy mark is pinned on the
-first cycle, so "live since deploy" is the honest forward number and not a
-re-slice of the backtest.
+It writes `runs/<env>/<strategy>/forward/status.json`; the deploy mark is
+pinned on the first cycle, so "live since deploy" is the honest forward
+number and not a re-slice of the backtest.
 why. `bot promotions` lists what is active, `bot demote` drains it. The full
 contract, including the paper -> prod gate, is `deploy/PROMOTION.md`.
 

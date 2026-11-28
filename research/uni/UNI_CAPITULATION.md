@@ -307,14 +307,14 @@ Promoted to **paper** on 2026-11-28:
 forward runner (`bot forward`), not by `bot live`:
 
 ```bash
-python -m bot forward --strategy capitulation_dip_uni --symbol UNI/USDT \
-  --interval 4h --risk-per-trade 0.05 --max-position-pct 0.5 --poll 900
+python -m bot forward --all --poll 900
 ```
 
 - It replays the sleeve through the same `Engine` as the backtest, so the
   2.5 ATR stop, the 1.5R target and the 18-bar time exit all fire; the
   deploy equity is pinned on the first cycle and state lives in
-  `runs/paper/forward/status.json`.
+  `runs/paper/capitulation_dip_uni/forward/status.json` (one folder per
+  sleeve; `--all` also picks up any sleeve promoted later).
 - **`bot live` is not used for this sleeve.** It is stop-only on spot and
   resets the hold clock on restart, so it would silently run a different
   strategy. Its live-compatible variant was `rr=None`: +55.2%, -7.1% max DD,
