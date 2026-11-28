@@ -253,9 +253,14 @@ The finalists held up on the longer window: ENA 4h breakout **+123.2% /
    The module is written and tested
    (`src/bot/strategy/swing_breakout_ena.py`, `tests/test_swing_breakout_ena.py`)
    and the harness reproduces +43.0% / -16.6% / 24 trades from it unchanged.
-   It has **no promotion manifest** and ENA is not one of the 18 targets in
-   `docs/TARGETS.md`, so shipping it is an owner decision: add the target,
-   promote, deploy.
+   **Shipped on 2026-11-28** at the owner's instruction: ENA is target 19 in
+   `docs/TARGETS.md`, `promotions/paper/swing_breakout_ena.json` passed the
+   paper gate 5/5 at the measured 3%/95%/0.99 profile, and both halves are
+   live on the box - the forward sleeve (replaying +107.9% / -16.6% / 45 trades
+   on its 730-day window) and `tradingbot@swing_breakout_ena-paper` on the
+   demo account. The bot half waited for the live loop to gain the Chandelier
+   trail (commit 3c8c68e) so the live exit matches the measured one; it is flat
+   at $1,000 until the next 4h breakout.
 3. **A second one is defensible: `swing_breakout_tao`** on 1d (s2 t3), small
    but positive in both years with a 0.90 bootstrap.
 4. **Do not ship ZEC momentum, JST dip or QNT breakout.**  The first two are
