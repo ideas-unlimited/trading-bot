@@ -106,6 +106,10 @@
           border-top-color: #fff; border-radius: 50%; animation: r .9s linear infinite; vertical-align: -2px; }
   @keyframes r { to { transform: rotate(360deg); } }
   .hint { font-size: 11.5px; color: var(--muted); margin-top: 7px; }
+label.dust { display: flex; align-items: center; gap: 6px; margin-top: 9px;
+  font-size: 11.5px; color: var(--muted); cursor: pointer; user-select: none; }
+label.dust input { accent-color: var(--accent); margin: 0; }
+tr.dim td { opacity: .55; }
   /* a button inside a .row keeps its own width, even when .ghost/.small says otherwise */
   .row > button.small.ghost, .row > button.small { width: auto; flex: 0 0 auto; margin-top: 0; }
   /* ---- bots: one card per loop, everything about it in one place ---- */
@@ -504,14 +508,24 @@ const WIDGETS = {
       if (!a || a.error)
         return `<div class="empty">${a && a.venue === "live" ? "no live venue is wired in this build — real-money routing has to be added deliberately and reviewed" : esc((a && a.error) || "account unreadable")}</div>`;
       if (!a.assets.length) return `<div class="empty">no balances reported</div>`;
-      return `<table><tr><th>asset</th><th>qty</th><th>value</th><th style="width:84px">alloc</th></tr>` +
-        a.assets.map(x => {
+      const dust = a.dust || { threshold_usd: 1, count: 0, usd: 0 };
+      const hidden = hideDust ? a.assets.filter(x => x.dust) : [];
+      const shown = hideDust ? a.assets.filter(x => !x.dust) : a.assets;
+      const table = shown.length ? `<table><tr><th>asset</th><th>qty</th><th>value</th><th style="width:84px">alloc</th></tr>` +
+        shown.map(x => {
           const share = Math.min(100, Math.max(0, Number(x.share||0)*100));
-          return `<tr><td><b>${esc(x.asset)}</b></td><td>${qtyFmt(x.total)}</td>
+          return `<tr${x.dust ? ' class="dim"' : ""}><td><b>${esc(x.asset)}</b></td><td>${qtyFmt(x.total)}</td>
             <td>${x.value == null ? "—" : money(x.value)}</td>
             <td><div class="alloc"><i style="width:${share.toFixed(1)}%"></i></div></td></tr>`;
-        }).join("") + `</table>
-        <div class="hint">priced in USDT${a.as_of ? ` · ${dt(a.as_of)}` : ""}</div>`;
+        }).join("") + `</table>`
+        : `<div class="empty">every balance is a leftover under ${money(dust.threshold_usd)}</div>`;
+      const note = dust.count
+        ? `${dust.count} leftover${dust.count === 1 ? "" : "s"} worth ${money(dust.usd)} ${hideDust ? "hidden" : "shown"}`
+        : "";
+      return table + `<label class="dust"><input type="checkbox" ${hideDust ? "checked" : ""}
+        onchange="window.setHideDust(this.checked)"> hide under ${money(dust.threshold_usd)}</label>`
+        + (note ? `<div class="hint">${note}</div>` : "")
+        + `<div class="hint">priced in USDT${a.as_of ? ` · ${dt(a.as_of)}` : ""}</div>`;
     } },
 
   fills: { icon: "⇅", title: "Recent fills", w: 4,
@@ -565,6 +579,18 @@ try { layout = JSON.parse(localStorage.getItem(LS_KEY)); } catch { layout = null
 if (!Array.isArray(layout) || !layout.every(x => x && WIDGETS[x.id]))
   layout = DEFAULT_LAYOUT.slice();
 const saveLayout = () => { try { localStorage.setItem(LS_KEY, JSON.stringify(layout)); } catch {} };
+
+/* Leftover balances (dust) are hidden by default, the way Binance's own
+   wallet hides small assets: a crumb stranded below the pair's lot step is
+   not a position and has no action behind it.  The preference is per
+   browser, like the layout, and the full list is one tick away. */
+const LS_DUST = "tb.dash.hidedust.v1";
+let hideDust = localStorage.getItem(LS_DUST) !== "0";
+window.setHideDust = on => {
+  hideDust = !!on;
+  try { localStorage.setItem(LS_DUST, hideDust ? "1" : "0"); } catch {}
+  paintBoard();
+};
 
 const board = $("board");
 function widgetEl(item){

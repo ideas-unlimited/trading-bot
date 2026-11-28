@@ -431,5 +431,82 @@ class EnvironmentBrandingTests(unittest.TestCase):
             self.assertIn("read-only", result["error"])
 
 
+
+class AccountDustTests(unittest.TestCase):
+    """Every balance is listed; the leftovers are flagged, never dropped."""
+
+    class _Broker:
+        def __init__(self, balances):
+            self._balances = balances
+
+        def balances(self):
+            return self._balances
+
+    class _Client:
+        def __init__(self, balances, prices):
+            self.broker = AccountDustTests._Broker(balances)
+            self._prices = prices
+
+        def get_account(self):
+            return {"account_number": 7001, "status": "ENABLED", "equity": 10001.0,
+                    "cash": 9662.24, "buying_power": 9662.24}
+
+        def get_positions(self):
+            return []
+
+        def _price(self, asset):
+            return self._prices[asset]
+
+    def _account(self, balances, prices):
+        from bot.web import api_account
+
+        client = self._Client(balances, prices)
+        with patch("bot.web.BinanceLiveClient", return_value=client):
+            return api_account()
+
+    def test_the_crumb_is_flagged_and_real_books_are_not(self) -> None:
+        from bot.exchange import Balance
+
+        data = self._account(
+            {"USDT": Balance("USDT", 9662.24),
+             "XRP": Balance("XRP", 360.4392),
+             "JUP": Balance("JUP", 0.0949)},
+            {"USDT": 1.0, "XRP": 0.94, "JUP": 0.24},
+        )
+        flags = {a["asset"]: a["dust"] for a in data["assets"]}
+        self.assertEqual(flags, {"USDT": False, "XRP": False, "JUP": True})
+        self.assertAlmostEqual(data["dust"]["usd"], 0.022776, places=9)
+        self.assertEqual(data["dust"]["count"], 1)
+        self.assertEqual(data["dust"]["threshold_usd"], 1.0)
+
+    def test_an_unpriced_asset_is_unknown_not_dust(self) -> None:
+        from bot.exchange import Balance
+
+        data = self._account({"USDT": Balance("USDT", 10.0),
+                              "ZZZ": Balance("ZZZ", 5.0)}, {"USDT": 1.0})
+        zzz = [a for a in data["assets"] if a["asset"] == "ZZZ"][0]
+        self.assertIsNone(zzz["value"])
+        self.assertFalse(zzz["dust"])
+        self.assertEqual(data["dust"]["count"], 0)
+        self.assertEqual(data["dust"]["usd"], 0.0)
+
+    def test_an_unreadable_venue_still_reports_the_cutoff(self) -> None:
+        from bot.exchange.binance import BrokerError
+        from bot.web import api_account
+
+        with patch.dict(os.environ, {"BOT_ENV": "paper"}), \
+                patch("bot.web.BinanceLiveClient", side_effect=BrokerError("no key")):
+            data = api_account()
+        self.assertEqual(data["assets"], [])
+        self.assertEqual(data["dust"], {"threshold_usd": 1.0, "count": 0, "usd": 0.0})
+
+    def test_the_page_hides_dust_until_unticked(self) -> None:
+        with patch.dict(os.environ, {"BOT_ENV": "paper"}):
+            html = render_index().decode("utf-8")
+        self.assertIn("localStorage.getItem(LS_DUST)", html)
+        self.assertIn("window.setHideDust", html)
+        self.assertIn("hide under", html)
+
+
 if __name__ == "__main__":
     unittest.main()

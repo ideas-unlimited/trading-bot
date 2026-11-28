@@ -404,6 +404,15 @@ def run_scan_rows(
     return sorted(rows, key=sort_key, reverse=True)
 
 
+#: Assets worth less than this are leftovers, not a book.  Binance's own
+#: "hide small balances" box uses the same $1 cutoff, and the leftovers this
+#: project actually produces (0.0949 JUP stranded by an exit that floors to
+#: the pair's lot step, about two cents) are exactly what it exists to hide.
+#: The payload still carries every asset, flagged "dust"; a page hides them
+#: by default but can always ask for the full list.
+DUST_USD = 1.0
+
+
 def api_account() -> dict[str, Any]:
     """Wallet value per asset, priced in USDT, plus open positions.
 
@@ -426,6 +435,7 @@ def api_account() -> dict[str, Any]:
             "status": "NOT_CONFIGURED" if venue == "live" else "ERROR",
             "assets": [],
             "positions": [],
+            "dust": {"threshold_usd": DUST_USD, "count": 0, "usd": 0.0},
         }
     equity = float(acct.get("equity") or 0)
     assets: list[dict[str, Any]] = []
@@ -443,8 +453,12 @@ def api_account() -> dict[str, Any]:
             "price": price,
             "value": value,
             "share": (value / equity) if (value is not None and equity > 0) else None,
+            # Unpriced by USDT means unknown, not worthless: only a measured
+            # value under the cutoff is dust.
+            "dust": value is not None and value < DUST_USD,
         })
     assets.sort(key=lambda a: a["value"] or 0.0, reverse=True)
+    dust = [a for a in assets if a["dust"]]
     return _jsonify(
         {
             "account_number": acct.get("account_number"),
@@ -457,6 +471,11 @@ def api_account() -> dict[str, Any]:
             "buying_power": float(acct.get("buying_power") or 0),
             "unrealized_pl": sum(float(p.get("unrealized_pl") or 0) for p in positions),
             "assets": assets,
+            "dust": {
+                "threshold_usd": DUST_USD,
+                "count": len(dust),
+                "usd": sum(float(a["value"] or 0.0) for a in dust),
+            },
             "positions": [
                 {
                     "symbol": p.get("symbol"),
