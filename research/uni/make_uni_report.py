@@ -141,7 +141,7 @@ html_doc=f'''<!doctype html>
 {trades_html}
 </tbody></table>
 
-<div class="caveat"><strong>Honest caveats.</strong> 19 trades in one crash-and-rebound regime; 89.5% win is a small-sample number. The 180/180 plateau is the main defence against cell-picking, not a guarantee. A monotonic -1.2%/bar bleed loses ~27% before the 25% kill switch. Gap risk through the stop can exceed 5% per trade. Paper only — no live order path is wired.</div>
+<div class="caveat"><strong>Honest caveats.</strong> 19 trades in one crash-and-rebound regime; 89.5% win is a small-sample number. The 180/180 plateau is the main defence against cell-picking, not a guarantee. A monotonic -1.2%/bar bleed loses ~27% before the 25% kill switch. Gap risk through the stop can exceed 5% per trade. Demo only — no live order path is wired.</div>
 
 </div></body></html>'''
 open(ROOT / 'research' / 'uni' / 'uni_report.html','w',encoding='utf-8').write(html_doc)

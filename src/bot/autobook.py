@@ -1,6 +1,6 @@
-'''Live paper books: the shipped rules, forward, on real bars.
+'''Demo books: the shipped rules, replayed, on real bars.
 
-Three independent $1,000 paper wallets, one per book from the research:
+Three independent $1,000 demo wallets, one per book from the research:
 
 * **A** trend gated - 4h SMA 30/50 cross, Damiani + STC gate, 3% risk
 * **B** trend max   - the same signals at 5% risk (the most dollars)
@@ -16,7 +16,7 @@ account.
 The replay is deterministic, so equity can never drift from the backtest -
 if the bot was restarted, the numbers are the same.  'Since deploy' figures
 are measured from the equity the book had on the first run, which is the
-honest forward number.
+honest dry-run number.
 '''
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ def default_books() -> tuple[BookSpec, ...]:
         BookSpec("B", "trend max 5%",
                  BookConfig(risk_per_trade=0.05, damiani_filter=True, stc_min=50.0)),
         BookSpec("C", "plain cross 3%", BookConfig(risk_per_trade=0.03)),
-        # forward test: the measured-move 'room' gate on a median channel
+        # dry-run test: the measured-move 'room' gate on a median channel
         # across pivot spans, so the span is not a tuned parameter
         BookSpec("D", "room gate 3%",
                  BookConfig(risk_per_trade=0.03, structure_gate="room",
@@ -227,7 +227,7 @@ def _load_state(path: Path) -> dict[str, Any]:
 
 
 def default_outdir() -> Path:
-    """Paper and prod must never share a status file."""
+    """Demo and live must never share a status file."""
     from . import envcfg
 
     return envcfg.state_dir() / "autobooks"
@@ -329,8 +329,8 @@ def format_status(payload: Mapping[str, Any]) -> str:
     for key, b in payload.get('books', {}).items():
         started = str(b.get('deployed_at', ''))[:10]
         lines.append("")
-        lines.append(f"[{key}] {b['label']}   live since {started}")
-        lines.append("  live      $%8.2f   %+6.1f%% since deploy" % (
+        lines.append(f"[{key}] {b['label']}   deployed since {started}")
+        lines.append("  deploy    $%8.2f   %+6.1f%% since deploy" % (
             b['wallet'], b['since_deploy'] * 100))
         lines.append("  history   $%8.2f   %+7.1f%% over the window  (%d trades, %4.0f%% win, dd %5.1f%%)" % (
             b['equity'], b['total_return'] * 100, b['trades'],

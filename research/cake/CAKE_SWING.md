@@ -88,7 +88,7 @@ intrabar noise producing entries the 4h close smooths away.
   1h is too slow to catch the dip (16 trades, ~flat).
 - Not a shippable sleeve: it fails the IS screen, its P&L is 99% three trades,
   the exit is a cliff, and it has never seen a second CAKE rally.
-- The honest next step is a paper forward test of `dip / 120h / 50-day gate /
+- The honest next step is a dry-run demo test of `dip / 120h / 50-day gate /
   3 ATR stop / 5 ATR trail / 72h` on 30m at 3% risk, run beside the -36%
   buy-and-hold, and re-read after a rally it did not train on.
 - What would change the verdict: the same rule positive on a second coin and a

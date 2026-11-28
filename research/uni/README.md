@@ -11,7 +11,7 @@ The scripts here import that class; there is no second strategy copy in
 `research/`. The symbol suffix is part of the name so a UNI-fitted parameter
 set can never be mistaken for a pooled rule.
 
-- `UNI_CAPITULATION.md` - findings, limits, paper configuration
+- `UNI_CAPITULATION.md` - findings, limits, demo configuration
 - `uni_final.py` - full/train/test/fold/risk/cost/trade/bootstrap tables
 - `uni_walkforward.py` - 180-config walk-forward grid
 - `uni_walkforward.csv` - grid output

@@ -1,4 +1,4 @@
-"""Binance **spot** broker — demo trading rehearsal first, production later.
+"""Binance **spot** broker — demo trading rehearsal first, live later.
 
 Two base URLs, one contract:
 
@@ -68,7 +68,7 @@ def _default_transport(method: str, url: str, headers: dict[str, str],
 
 
 class BinanceSpotBroker:
-    """Spot-only client. Defaults to demo trading; production is opt-in."""
+    """Spot-only client. Defaults to demo trading; live routing is opt-in."""
 
     def __init__(
         self,

@@ -3,21 +3,21 @@
 What was agreed, why, and what it commits us to. Peers: read this before
 touching environments, branches or promotions; `AGENTS.md` has the short form.
 
-**Names (2026-11-28).** Older entries below say *forward* and *live*. The
-current user-facing names are **dry-run bot** (`bot forward`) and **trading
-bot** (`bot live`). Historical wording is left as written; commands, units,
-paths and API keys keep the old spellings because they are identifiers.
+**Names (2026-11-28).** Older entries below used *forward*, *paper* and *prod*; the
+current names are **dry-run bot** (`bot dryrun`), **trading bot** (`bot deploy`)
+and **demo**/**live** for the two worlds. **Live means real money**; there is
+no live venue yet, so live stays visibly unconfigured.
 
 ## D1 - One repo, two branches (2026-11-27)
 
 `master` is the deployable line: reviewed core plus strategies that earned a
-paper slot. `lab` is where ideas live and die; it is never deployed. Core
-fixes land on master once and propagate to paper and prod on the next pull.
+demo slot. `lab` is where ideas live and die; it is never deployed. Core
+fixes land on master once and propagate to demo and live on the next pull.
 
-Rejected: separate repos per environment (code drift, paper stops predicting
-prod), and prod tracking an unpinned branch (a lab commit would reach money).
+Rejected: separate repos per environment (code drift, demo stops predicting
+live), and live tracking an unpinned branch (a lab commit would reach money).
 
-## D2 - paper and prod are deployments, not branches
+## D2 - demo and live are deployments, not branches
 
 Both boxes run master. What differs is which strategies are activated: the
 loader imports only modules named in `promotions/<env>/*.json`, so a module
@@ -28,37 +28,37 @@ can be present on a box and inert there. Never fork code per environment.
 | DB | Holds |
 | --- | --- |
 | `trading_common` | `bars` only (market data, environment-agnostic) |
-| `trading_paper` | bots, bot_trades, equity_snapshots, events, runs, promotions |
-| `trading_prod`  | same schema, real money, its own promotions audit |
+| `trading_demo` | bots, bot_trades, equity_snapshots, events, runs, promotions |
+| `trading_live` | same schema, real money, its own promotions audit |
 
-Separate databases, not schemas, so the paper role physically cannot write
-prod rows. One schema file applied to both env DBs so they cannot drift.
+Separate databases, not schemas, so the demo role physically cannot write
+live rows. One schema file applied to both env DBs so they cannot drift.
 
 ## D4 - Activation is a manifest
 
-`promotions/paper/<name>.json` and `promotions/prod/<name>.json` carry
+`promotions/demo/<name>.json` and `promotions/live/<name>.json` carry
 strategy, params hash, symbols, timeframe, capital, evidence, promoter.
 Unlisted strategies are never imported. Startup fails loud rather than
 trading flat and silent.
 
 ## D5 - Promotion is a package, path-guarded
 
-lab -> paper package: strategy module, its tests, its paper manifest. Nothing
+lab -> demo package: strategy module, its tests, its demo manifest. Nothing
 else. Framework edits take the core route (branch from master, full suite
 green). `bot promote` writes the manifest; keeping the diff to those three
 paths is enforced by review, not by a script.
 
-## D6 - Paper gate: 2 weeks, $1,000, execution checks
+## D6 - Demo gate: 2 weeks, $1,000, execution checks
 
-- 2 weeks live on paper, at least one completed fill (plumbing proof).
+- 2 weeks running on demo, at least one completed fill (plumbing proof).
 - No round-trip count gate.
-- $1,000 paper capital per bot/strategy.
+- $1,000 demo capital per bot/strategy.
 - Zero duplicate orders, zero unexplained rejects.
-- Fills within 30 bps of the signal bar's close (the live market-order
+- Fills within 30 bps of the signal bar's close (the real market-order
   reference); the backtest's next-open fill is a separate, expected difference.
 - Fees + slippage within 10% of the 10 bps model.
 - Unbroken heartbeat, no manual intervention.
-- Paper outperforming its own backtest blocks promotion (lookahead smell).
+- Demo outperforming its own backtest blocks promotion (lookahead smell).
 - Divergence and drawdown are reported, enforced only at 30+ round trips.
 
 ## D7 - Gates are defaults: override and demote are first-class
@@ -68,20 +68,20 @@ operator, and badges the bot while it is the reason it is live.
 `demote` drains by default (no new entries, stop still managed, exits on its
 own signal) or `--flatten` closes at market. History is append-only.
 Hard invariants are never overridable: spot only, long only, demo keys cannot
-point at production, kill switch.
+point at live, kill switch.
 
 ## D8 - Logging
 
-Runtime logs are production artifacts, not workspace scratch:
-`/var/log/tradingbot/{paper,prod}/<bot>.log`, JSON lines, rotated, plus
+Runtime logs are deployment artifacts, not workspace scratch:
+`/var/log/tradingbot/{demo,live}/<bot>.log`, JSON lines, rotated, plus
 journald per unit. The `events` table carries signals, orders, rejects, fills,
 stops and errors into the UI. Never log keys or signatures - only
 `clientOrderId` and the venue error code.
 
 ## D9 - Two dashboards, unmistakable
 
-Paper on :9000, prod on :9001. Persistent banner and title (PAPER - simulated
-fills / PRODUCTION - REAL MONEY), env on every card. Prod UI is read-only
+Demo on :9000, live on :9001. Persistent banner and title (DEMO - simulated
+fills / LIVE - REAL MONEY), env on every card. Live UI is read-only
 except the kill switch: no create/delete endpoints there.
 
 ## D10 - Bot lifecycle is data
@@ -92,15 +92,15 @@ PnL, closed_by), `equity_snapshots` (bot_id, ts, equity, cash, position),
 `events`. Without these there is no start time, no PnL curve and no way to
 debug a fill.
 
-## D11 - Prod deploys are tagged
+## D11 - Live deploys are tagged
 
-Every prod deployment is tagged `prod-vN` and records the commit sha, so
+Every live deployment is tagged `live-vN` and records the commit sha, so
 "what is trading money right now" is answerable from `git describe`. A daily
-drift check alerts when prod is behind master on live/risk/exchange paths.
+drift check alerts when live is behind master on live/risk/exchange paths.
 
 ## D12 - One venue: Binance spot (2026-11-28)
 
-Alpaca is gone. Signals, backtests, scans, the live loop and the dashboard all
+Alpaca is gone. Signals, backtests, scans, the deploy loop and the dashboard all
 read Binance spot klines from `api.binance.com` (public, no key, cached in
 `trading_common.bars`); orders exist only on `demo-api.binance.com` with demo
 keys. There is no stock, futures, margin or short path, and no second venue to
@@ -112,20 +112,20 @@ moved the gated book from +581.6% to +184.5% because one cross landed a bar
 early.
 
 What it commits us to: any new instrument must be a Binance spot pair; a new
-venue is a new decision, not a config flag. `BinanceLiveClient` is the only
+venue is a new decision, not a config flag. `BinanceOrderClient` is the only
 adapter the loop, CLI and web may use, and every order carries a deterministic
 `clientOrderId`.
 
 ## D13 - Two public hostnames, one per world (2026-11-28)
 
-`paper.139-99-236-166.sslip.io` -> :9000 (`trading_paper`) and
-`prod.139-99-236-166.sslip.io` -> :9001 (`trading_prod`) are the only public
-dashboards; the old bare hostname 302s to paper so an old bookmark cannot
+`demo.139-99-236-166.sslip.io` -> :9000 (`trading_demo`) and
+`live.139-99-236-166.sslip.io` -> :9001 (`trading_live`) are the only public
+dashboards; the old bare hostname 302s to demo so an old bookmark cannot
 land on the wrong world.
 
 The env is injected server-side into the same HTML (title, green/red banner,
-`body.paper|prod`, accent colour), not by a client-side switch: a cached page
-can never claim the wrong world. Prod rejects bot and preset create/delete
+`body.demo|live`, accent colour), not by a client-side switch: a cached page
+can never claim the wrong world. Live rejects bot and preset create/delete
 with a read-only error - strategies arrive by promotion package, never by
 clicking "create" against the live database.
 
@@ -136,7 +136,7 @@ new mutating endpoint that skips the read-only guard, is a regression.
 ## D14 - The dashboards show only promoted strategies (2026-11-28)
 
 The Strategies tab used to list the whole code registry on every env, so
-prod showed six strategies that could not run there. That was misleading:
+live showed six strategies that could not run there. That was misleading:
 the catalogue must equal what can trade.
 
 `/api/strategies` now returns only the active promotion manifests for the
@@ -146,39 +146,39 @@ creation outside lab require an active manifest, and a bot must match the
 manifest's symbols and timeframe - the promotion package is the unit of
 trust.
 
-What it commits us to: a strategy visible on the paper dashboard has a
-manifest behind it, and prod shows nothing until paper promotes a package.
+What it commits us to: a strategy visible on the demo dashboard has a
+manifest behind it, and live shows nothing until demo promotes a package.
 
-## D15 - One credential file per world; prod refuses demo balances (2026-11-28)
+## D15 - One credential file per world; live refuses demo balances (2026-11-28)
 
 Both web units shared `/opt/trading-bot/.env`, and the venue client only
-ever read `BINANCE_DEMO_KEY`. So the prod dashboard displayed the demo
-wallet as if it were prod's account. No code path could reach real money
+ever read `BINANCE_DEMO_KEY`. So the live dashboard displayed the demo
+wallet as if it were live's account. No code path could reach real money
 yet (the order path is demo-only), which made the display harmless today
-and dangerous as a habit: a production banner on virtual numbers teaches
+and dangerous as a habit: a live banner on virtual numbers teaches
 the operator to trust the wrong screen.
 
 Rails, in order of severity:
 
-1. `BinanceLiveClient` loads `.env.<env>` (per-world) before `.env`, and a
+1. `BinanceOrderClient` loads `.env.<env>` (per-world) before `.env`, and a
    process environment variable always wins over both. Demo keys now live
-   in `/opt/trading-bot/.env.paper`; `.env` holds only shared settings.
-2. `BOT_ENV=prod` makes the client raise before it reads any key or
-   returns any balance. Prod cannot show a demo wallet, cannot place a
+   in `/opt/trading-bot/.env.demo`; `.env` holds only shared settings.
+2. `BOT_ENV=live` makes the client raise before it reads any key or
+   returns any balance. Live cannot show a demo wallet, cannot place a
    demo order, and cannot be given one by configuration. The dashboard
    says *live venue not configured* and explains why.
 3. `/api/account` labels every payload with `venue` (`demo` or `live`) and
    returns per-asset quantities, USDT price and value, so the screen can
    never show an unlabelled balance.
 4. A real-money venue is a deliberate build (keys, endpoint, review), not
-   a flag flip. Until it exists, prod trading is impossible by design.
+   a flag flip. Until it exists, live trading is impossible by design.
 
 What it commits us to: adding live trading means new code and a new
 review, and the demo rail stays in place regardless.
 
 ## D16 - Run rate is measured over a window, never extrapolated from two points (2026-11-28)
 
-The dashboard shows each live bot's equity, return since start, heartbeat age
+The dashboard shows each trading bot's equity, return since start, heartbeat age
 and a run rate. Run rate is defined as P&L per day over the last seven days
 of `equity_snapshots`, reported with its window and sample count, plus the
 monthly equivalent at that rate.
@@ -186,7 +186,7 @@ monthly equivalent at that rate.
 Rules: fewer than two snapshots or under ~70 minutes of history shows an
 em dash, not a number. A row whose heartbeat is older than five minutes
 reads *no heartbeat* even if its status still says running - the database
-does not get to pretend a dead process is alive. `bot live` records equity
+does not get to pretend a dead process is alive. `bot deploy` records equity
 and heartbeat every poll (opt-in via `record=True`, so tests never touch a
 database), and bookkeeping failures never stop trading.
 
@@ -236,7 +236,7 @@ Bots page showed no position and the owner reasonably read that as a missing
 step. Waiting for the next signal can also miss an entry that fired on the
 bar just before release.
 
-With `STARTUP_REPLAY=1` (the `run_bot.sh` default; a manual `bot live` keeps
+With `STARTUP_REPLAY=1` (the `run_bot.sh` default; a manual `bot deploy` keeps
 flat as its default) a fresh state replays the fetched closed bars through the
 same `Engine` and inspects the model's stance. If the model is long, or has a
 pending BUY for the next open, the bot buys at the newest closed bar's close

@@ -1,6 +1,6 @@
 """Chart-structure gates (ported from the pasted pattern indicator).
 
-Does any of it beat the live book?  Same engine (bot.book), same window,
+Does any of it beat the deployed book?  Same engine (bot.book), same window,
 long only, costs both sides.  Scratch research.
 """
 

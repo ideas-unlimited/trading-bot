@@ -14,7 +14,7 @@ each side, long only):
 The measured UNI config (window=20, drop_pct=0.20, stop_atr=2.5, rr=1.5,
 max_hold=18) produced +67.8% at 5% risk / 50% max position, -5.3% max
 drawdown, 19 trades and 89.5% wins over the two years.  That is a small
-sample from one crash-and-rebound regime, so it is a paper candidate, not a
+sample from one crash-and-rebound regime, so it is a demo candidate, not a
 promise.  The edge is the *event*, not a permanent uptrend: the same rule
 loses in a monotonic bleed, and it sits in cash most of the time.
 
@@ -103,7 +103,7 @@ class CapitulationDipUni(Strategy):
             if self._entry_ts is None:
                 self._entry_ts = ts
             # Locate the entry bar by timestamp, not by a saved integer:
-            # live polls rebuild the frame with a rolling start, so an index
+            # deploy polls rebuild the frame with a rolling start, so an index
             # would drift by one bar per poll.
             pos = (df["ts"] == self._entry_ts).to_numpy().nonzero()[0]
             entry_i = int(pos[0]) if len(pos) else i

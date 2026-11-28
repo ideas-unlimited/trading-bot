@@ -24,7 +24,7 @@ class LiveRefusesDemoTests(unittest.TestCase):
             with self.assertRaises(lc.BrokerError):
                 lc.BinanceOrderClient(broker=object())
 
-    def test_paper_still_uses_the_demo_venue(self):
+    def test_demo_env_uses_the_demo_venue(self):
         env = {"BOT_ENV": "demo", "BINANCE_DEMO_KEY": "k", "BINANCE_DEMO_SECRET": "s"}
         with mock.patch.dict(os.environ, env):
             client = lc.BinanceOrderClient()

@@ -239,7 +239,7 @@ def simulate_book(bars_by_symbol: Mapping[str, Sequence[Bar]],
     '''Replay the rule over the bars.
 
     'close_at_end' force-closes whatever is still open at the last bar - the
-    backtest's convention.  A live paper book passes False so the open
+    backtest's convention.  A demo book passes False so the open
     position survives between polls.
 
     'symbol_configs' gives individual coins their own parameters (see

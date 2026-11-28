@@ -17,7 +17,7 @@ positive on 71 of 72 parameter neighbours, the strongest plateau in the five.
 The trail is the profit engine here: removing the time exit still returns
 +55.3%, while a fixed 2R target cuts the result to +28.3%.
 
-Both `bot forward` and `bot live` now run the same 2.5 ATR trail: the live
+Both `bot dryrun` and `bot deploy` now run the same 2.5 ATR trail: the deploy
 loop persists the peak and ratchets the local stop after each closed bar's
 exit check, so a restart cannot reset or lower it. A parameter set belongs
 to one coin - do not reuse these numbers on another symbol.

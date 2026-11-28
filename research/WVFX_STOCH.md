@@ -153,7 +153,7 @@ $env:PYTHONPATH='src'
   --initial-cash 1000 --risk-per-trade 0.01 --max-position-pct 0.34
 ```
 
-The CLI now caps every backtest/paper run to the last 2 years (`--max-years`
+The CLI now caps every backtest/demo run to the last 2 years (`--max-years`
 defaults to 2; `0` disables it for explicit research).
 
 ## Honest caveats
@@ -164,4 +164,4 @@ defaults to 2; `0` disables it for explicit research).
   be run on 4h only.
 - The filter is long-only and counter-trend: it buys capitulation below the
   200-day SMA. In a strong uptrend it sits out, which is intentional.
-- No live broker path; paper/backtest only.
+- No live broker path; demo/backtest only.

@@ -159,8 +159,8 @@ class _Response:
         return False
 
 
-class ForwardSilenceTests(unittest.TestCase):
-    def test_forward_unit_cannot_read_live_alert_channels(self):
+class DryrunSilenceTests(unittest.TestCase):
+    def test_dryrun_unit_cannot_read_trading_alert_channels(self):
         root = Path(__file__).resolve().parents[1]
         unit = root / "deploy" / "tradingbot-dryrun.service"
         text = unit.read_text(encoding="utf-8")

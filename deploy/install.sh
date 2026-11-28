@@ -71,7 +71,8 @@ SRC=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 if [[ "$SRC" != "$APP_DIR" ]]; then
   mkdir -p "$APP_DIR"
   rsync -a --delete \
-    --exclude .venv --exclude .git --exclude runs --exclude logs --exclude data --exclude .env \
+    --exclude .venv --exclude .git --exclude runs --exclude logs --exclude data \
+    --exclude .env --exclude '.env.*' \
     "$SRC"/ "$APP_DIR"/
 fi
 mkdir -p "$APP_DIR/runs" "$APP_DIR/logs"
@@ -109,14 +110,20 @@ else
   DB_PASS=$(openssl rand -hex 16)
   runuser -u postgres -- psql -qc "ALTER ROLE tradingbot PASSWORD '$DB_PASS'"
   cat > "$APP_DIR/.env" <<EOF
-BINANCE_DEMO_KEY=replace-me
-BINANCE_DEMO_SECRET=replace-me
 DATABASE_URL=postgresql://tradingbot:$DB_PASS@127.0.0.1:5432/trading_common
 EOF
-  grep -q '^BINANCE_DEMO_KEY=replace-me' "$APP_DIR/.env" && NEED_KEYS=1 || NEED_KEYS=0
 fi
-chown "$SVC_USER:$SVC_USER" "$APP_DIR/.env"
-chmod 600 "$APP_DIR/.env"
+# Credentials are per world.  The demo pair lives in .env.demo so the live
+# dashboard can never inherit it; .env holds only shared settings.
+if [[ ! -f "$APP_DIR/.env.demo" ]]; then
+  cat > "$APP_DIR/.env.demo" <<'EOF'
+BINANCE_DEMO_KEY=replace-me
+BINANCE_DEMO_SECRET=replace-me
+EOF
+fi
+grep -q '^BINANCE_DEMO_KEY=replace-me' "$APP_DIR/.env.demo" && NEED_KEYS=1 || NEED_KEYS=0
+chown "$SVC_USER:$SVC_USER" "$APP_DIR/.env" "$APP_DIR/.env.demo"
+chmod 600 "$APP_DIR/.env" "$APP_DIR/.env.demo"
 
 log "bot configs"
 write_bot() {
@@ -170,7 +177,7 @@ systemctl enable --now tradingbot-watchdog.timer
 systemctl enable --now tradingbot-backup.timer
 
 if [[ "${NEED_KEYS:-0}" == "1" ]]; then
-  echo "WARNING: $APP_DIR/.env still has placeholder Binance demo keys."
+  echo "WARNING: $APP_DIR/.env.demo still has placeholder Binance demo keys."
   echo "         Bots are NOT enabled yet.  Fill it in, then run:"
   for b in $BOTS; do echo "           systemctl enable --now tradingbot@$b"; done
 else

@@ -1,4 +1,4 @@
-"""JUP multi-timeframe demand-zone sleeve, 15m execution (paper probe).
+"""JUP multi-timeframe demand-zone sleeve, 15m execution (demo probe).
 
 Researched on JUP/USDT Binance spot, 4h decisions with 15m execution,
 2025-11-28 .. 2026-11-27 UTC (last 12 months; sub-4h cap).  The researched
@@ -13,13 +13,13 @@ The production Engine supports one weighted-average position and a trail,
 not a partial sale.  This sleeve therefore runs the strongest researched
 exit (no sale at target; arm the trail when price touches the target).
 Each tranche is 1/3 of the normal order and Signal.size_fraction is scaled
-to 0.4, so the forward service default 5% risk becomes at most 2% total when
+to 0.4, so the deploy service default 5% risk becomes at most 2% total when
 all three tranches fill.  JUP's tight stops often hit the 50% notional cap
 first; the measured production replay therefore carries about 1% total risk,
 not 2%.  The sleeve never uses more than the last 12 months of 15m data even
 when the loader hands it a longer window.
 
-This is a paper probe, not a promise: one year, one symbol, 55 trades, and
+This is a demo probe, not a promise: one year, one symbol, 55 trades, and
 top-3 trades carry 80% of the research P&L.  See research/jup/.
 """
 

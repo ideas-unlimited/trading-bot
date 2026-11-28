@@ -22,12 +22,12 @@ when you hit a new environment quirk and solve it, add it here and commit.
 
 - Credentials are **per world**: `.env.<env>` is loaded before `.env`, and
   the process environment beats both. On the server the demo pair lives in
-  `/opt/trading-bot/.env.paper`; `.env` holds only shared settings
+  `/opt/trading-bot/.env.demo`; `.env` holds only shared settings
   (`DATABASE_URL`, heartbeat). The Binance pair is a *demo trading* key: it
   authenticates against `demo-api.binance.com` only and holds virtual
   balances.
-- **Prod refuses demo credentials outright** (`BinanceLiveClient` raises
-  before reading a key). There is no live venue wired, so prod cannot show a
+- **Live refuses demo credentials outright** (`BinanceOrderClient` raises
+  before reading a key). There is no live venue wired, so live cannot show a
   balance or place an order; the dashboard says *live venue not configured*.
   Adding real-money routing is a deliberate code change plus review, never a
   config flip.
@@ -46,9 +46,9 @@ when you hit a new environment quirk and solve it, add it here and commit.
 - **Three databases** (agreed 2026-11-27), app user `tradingbot`, credentials
   in `DATABASE_URL` (the base URL; only the database name is swapped):
   - `trading_common` — `bars`, `book_snapshots` (market data, both envs)
-  - `trading_paper` — bots, bot_trades, equity_snapshots, events, runs, promotions
-  - `trading_prod` — same schema, real money, plus its own promotions audit
-  `BOT_ENV=paper|prod` picks the world; `db.connect_common()` reaches the data
+  - `trading_demo` — bots, bot_trades, equity_snapshots, events, runs, promotions
+  - `trading_live` — same schema, real money, plus its own promotions audit
+  `BOT_ENV=demo|live` picks the world; `db.connect_common()` reaches the data
   DB. The app user cannot create databases: bootstrap once with
   `psql -U postgres -f deploy/create_databases.sql`. Legacy `trading_bot`
   still holds the pre-split bars; they were copied into `trading_common`.
@@ -70,14 +70,14 @@ when you hit a new environment quirk and solve it, add it here and commit.
   2026-11-28). Pass payloads through `bot.web._jsonify`, which also turns
   NaN into null; `_send_json` keeps `_json_default` as the backstop.
 
-## Dry-run and trading paper books (`bot auto`)
+## Dry-run and trading demo books (`bot auto`)
 
-- **Names.** A **dry-run bot** is the internal `forward` replay
-  (`bot forward`, `tradingbot-forward.service`, `/api/forward`): no orders, no
-  Bots row. A **trading bot** is the internal `live` loop
+- **Names.** A **dry-run bot** is the `dryrun` replay
+  (`bot dryrun`, `tradingbot-dryrun.service`, `/api/dryrun`): no orders, no
+  Bots row. A **trading bot** is the `deploy` loop
   (`tradingbot@<name>.service`): demo orders, fills, alerts, Bots row. Commands,
-  units, paths and API keys keep the old spellings; they are identifiers.
-- `start_bots.cmd [seconds]` runs the five research books as $1,000 paper
+  units, paths and API keys use the new spellings; `live` means real money.
+- `start_bots.cmd [seconds]` runs the five research books as $1,000 demo
   wallets (A gated 3%, B gated 5%, C plain 3%, D room-gated 3%, E gated
   entries + 1.5 ATR trail) every 15 minutes, detached,
   logging to `logs\bots_<ts>.log`. `python -m bot auto --once` is the same
@@ -120,16 +120,16 @@ when you hit a new environment quirk and solve it, add it here and commit.
   year2 table. See `research/per_symbol.py`, `research/per_symbol_knob.py`
   and `research/PER_SYMBOL.md` (peer analysis, same conclusion).
 - **The dry-run sleeve runner is the same replay for one strategy.**
-  `bot forward --all` walks every active manifest in one loop and runs each
+  `bot dryrun --all` walks every active manifest in one loop and runs each
   strategy/symbol through `Engine` (stop, target, trailing stop and time
   exit included), with one folder per sleeve:
-  `runs/<env>/<strategy>/forward/status.json` plus `<SYMBOL>.trades.csv` and
+  `runs/<env>/<strategy>/dryrun/status.json` plus `<SYMBOL>.trades.csv` and
   `<SYMBOL>.equity.csv`. One process serves all sleeves and re-reads the
   manifests each cycle, so promote/demote needs no unit edit; a broken
   sleeve is logged and skipped, not fatal. `--strategy ... --symbol ...`
   replays one sleeve by hand and refuses outside `BOT_LAB` without an
   active manifest, and refuses a parameter set whose hash differs from the
-  promoted one. Use it to validate a target-bearing sleeve. `bot live` now
+  promoted one. Use it to validate a target-bearing sleeve. `bot deploy` now
   manages the stop, the fixed-R target and the Chandelier trail locally
   (Binance spot has no brackets), checked against each closed bar with the
   stop first, so a bar that touches both is booked as a loss exactly like
@@ -145,22 +145,22 @@ when you hit a new environment quirk and solve it, add it here and commit.
   default) reconstructs the strategy's current stance on a fresh state and
   opens that side as a **new** position at the newest closed bar's close; it
   never copies the historical entry price or credits that P&L. A manual
-  `bot live` keeps the conservative anchor-and-stay-flat default. The dry-run
+  `bot deploy` keeps the conservative anchor-and-stay-flat default. The dry-run
   fills at the next bar's open, while the trading bot fills at the signal
   bar's close. The dry-run has one independent $1,000 wallet per sleeve that
   compounds; all trading bots share one demo account, size from
   `min(account equity, CAPITAL)` and stop compounding at `CAPITAL`. A backlog
-  beyond `max_catchup` is skipped live but replayed dry-run. Compare since the
-  same bar, never history equity against the trading wallet. The 2026-11-28
-  XRP mismatch (dry-run long from 25 November, bot released flat) is what
-  startup replay addresses: the bot can now join the same side, but its entry
-  price, entry time and P&L start at the release.
+  beyond `max_catchup` is skipped by the deploy loop but replayed dry-run.
+  Compare since the same bar, never history equity against the trading wallet.
+  The 2026-11-28 XRP mismatch (dry-run long from 25 November, bot released
+  flat) is what startup replay addresses: the bot can now join the same side,
+  but its entry price, entry time and P&L start at the release.
 
 - **Each sleeve replays the risk profile its manifest was measured at.**
-  `bot forward --all` reads `risk_per_trade`, `max_position_pct` and
+  `bot dryrun --all` reads `risk_per_trade`, `max_position_pct` and
   `max_drawdown_stop` from each manifest's evidence; the unit's `--risk-*`
   flags are only the fallback for older manifests that omit them (or when
-  `--profile flags` deliberately asks for a what-if). Most paper sleeves are
+  `--profile flags` deliberately asks for a what-if). Most demo sleeves are
   3% / 95% / no brake (`0.99`), but `capitulation_dip_uni` and
   `jup_liquidity_15m` are 5% / 50% / a 10% brake. A profile change is a
   different book: the deploy pin is re-taken and `repinned_at` keeps the old
@@ -169,7 +169,7 @@ when you hit a new environment quirk and solve it, add it here and commit.
   runner profile produced phantom moves (UNI read +38.5% instead of its
   measured +67.8%). Left at 5%/50%/10%, ARB, RENDER and NEAR halted on their
   own 10-13% historical drawdown and their history stopped matching evidence
-  (NEAR read -9.6% instead of +86%). `bot live` applies the drawdown brake to
+  (NEAR read -9.6% instead of +86%). `bot deploy` applies the drawdown brake to
   new entries and persists the peak in `state["risk"]`, so a restart cannot
   reset the protection.
 - **A balance below the venue's lot step is dust, not a position.** Binance
@@ -188,7 +188,7 @@ when you hit a new environment quirk and solve it, add it here and commit.
   `tradingbot@<name>` bot reads `/etc/tradingbot/alerts.env` (template
   `deploy/alerts.env.example`) and sends one email/Telegram/ntfy message per
   entry and exit, subject `strategy:side:price: entry/sl/tp`. The dry-run is
-  a shadow replay, so its unit does not read that file; `bot forward --alerts`
+  a shadow replay, so its unit does not read that file; `bot dryrun --alerts`
   opts in manually, and its fill-key cursor then prevents history replay.
   Verify with `bot notify-test --env-file ...`; alerts off by default, and an
   alert failure is logged, never fatal.
@@ -198,15 +198,15 @@ when you hit a new environment quirk and solve it, add it here and commit.
   date. Without that, a 3y-to-2y cap change showed every wallet at -78%
   "since deploy" while its history was +50% - a phantom loss from comparing
   two different books.
-- **The trading loop writes to the database.** `bot live` registers itself once
+- **The trading loop writes to the database.** `bot deploy` registers itself once
   (name `<SYMBOL>-<strategy>`) and records equity plus a heartbeat every poll,
   so the dashboard can answer "what is running and at what rate" from
   `bots`/`equity_snapshots` rather than from the log. Failures are logged
   once and never stop trading. Run rate = P&L/day over the last 7 days, with
   its window shown; under ~70 minutes it is blank, not extrapolated.
 - `simulate_book` force-closes open positions at the last bar by default (the
-  backtest convention); live books pass `close_at_end=False`. Keep that flag
-  when touching the engine or the live books will look permanently flat.
+  backtest convention); demo books pass `close_at_end=False`. Keep that flag
+  when touching the engine or the demo books will look permanently flat.
 - Poll just after a 4h close (00/04/08/12/16/20 UTC). The replay fills at the
   next bar's true open whenever it runs, so a late poll is exact against the
   backtest but optimistic against a real order; prompt polling keeps it honest.
@@ -218,7 +218,7 @@ when you hit a new environment quirk and solve it, add it here and commit.
   REST, no key, cached in `bars` like everything else). There is no second
   feed to reconcile — a 0.04% price difference from another venue once moved
   the gated book from +581.6% to +184.5% because one cross landed a bar early.
-- Orders exist only on `demo-api.binance.com` via `BinanceLiveClient`; no
+- Orders exist only on `demo-api.binance.com` via `BinanceOrderClient`; no
   stock, futures, margin or short path exists, and none should be added.
 - **Spot only (rule restated 2026-11-27).** Cash spot balances: no futures
   (`/fapi`), no margin (`/sapi` margin endpoints), no leverage, no shorts.
@@ -250,10 +250,10 @@ when you hit a new environment quirk and solve it, add it here and commit.
 
 - **Dry-run sleeves are not bots.** They have no `bots` row, heartbeat or
   kill switch; one process replays every active manifest and writes
-  `<state>/<strategy>/forward/status.json`. The Dashboard's **Dry-run bots**
-  card reads `/api/forward` and is the place to see them. The Bots page stays
-  empty unless a real `bot live` loop is registered.
-- Bots are **created and promoted from lab**; paper and prod do not have a
+  `<state>/<strategy>/dryrun/status.json`. The Dashboard's **Dry-run bots**
+  card reads `/api/dryrun` and is the place to see them. The Bots page stays
+  empty unless a real `bot deploy` loop is registered.
+- Bots are **created and promoted from lab**; demo and live do not have a
   create form. The Bots page is a monitor: per loop it shows state, equity,
   run rate, the position (entry, mark, unrealized P&L), the **local stop and
   target**, any resting venue orders (normally none — entries and exits are
@@ -275,13 +275,13 @@ when you hit a new environment quirk and solve it, add it here and commit.
 - **The kill switch** is `bots.halted`, written by `POST /api/bots/<id>/halt`.
   The loop reads it every poll, closes any open position at market and skips
   new entries while halted; it keeps heartbeating, so a killed bot reads
-  `halted`, not `dead`. Halting is deliberately allowed in prod: stopping
+  `halted`, not `dead`. Halting is deliberately allowed in live: stopping
   trading must never wait for a promotion.
 - **Retiring a bot is a step, not just a demotion.** `bot demote` makes the
   dry-run runner drop the sleeve on its next pass, but the trading bot's env
-  file in `/etc/tradingbot` survives, so `reconcile_paper.sh` keeps expecting
+  file in `/etc/tradingbot` survives, so `reconcile_demo.sh` keeps expecting
   an active manifest for a bot that is gone — retiring the 15m JUP ladder
-  produced three failures on its own. `deploy/retire_paper.sh <strategy>` is
+  produced three failures on its own. `deploy/retire_demo.sh <strategy>` is
   the counterpart of release: it refuses while the bot still holds a position
   (drain it, or `bot demote --flatten` first), then disables the unit and
   archives the env file under `/etc/tradingbot/retired/`, which reconcile does
@@ -362,7 +362,7 @@ when you hit a new environment quirk and solve it, add it here and commit.
   `web/index.html`, `strategy/__init__.py` and this file are edited by several
   agents at once, so one of them can hold someone else's uncommitted work.
   `git add <file>` then sweeps it in (happened 2026-11-28: a peer's finished
-  forward-card work rode along in a favicon commit). Read `git diff <file>`
+  dry-run-card work rode along in a favicon commit). Read `git diff <file>`
   first, stage with `git add -p`, and never `git add -A` or `git commit -a`.
 - `src/bot/strategy/__init__.py` is a **shared file** (strategy registry) —
   always re-read it immediately before editing; another agent may have added
@@ -371,30 +371,30 @@ when you hit a new environment quirk and solve it, add it here and commit.
   coordinated peer changes that pass tests) and push to
   `ideas-unlimited/trading-bot` on GitHub.
 - Honesty rules of this codebase: no lookahead (signals fill next bar open),
-  costs on both sides by default, paper trading only, no live-broker path.
+  costs on both sides by default, demo trading only, no live-broker path.
   Do not weaken these.
 
 ## Environments & promotion (agreed 2026-11-27)
 
-- **`master` = deployable line** (reviewed core + paper-grade strategies);
+- **`master` = deployable line** (reviewed core + demo-grade strategies);
   **`lab` = experiments, never deployed.** Core fixes land on master once and
-  reach both boxes on the next pull.
-- **paper and prod are deployments of master**, separated by activation
-  manifests (`promotions/paper/*.json`, `promotions/prod/*.json`), env files,
+  reach the box on the next pull.
+- **demo and live are deployments of master**, separated by activation
+  manifests (`promotions/demo/*.json`, `promotions/live/*.json`), env files,
   state dirs and databases — never by branches or forked code.
 - Gates, override/demote semantics: `deploy/PROMOTION.md`. Rationale:
   `docs/DECISIONS.md`.
-- **Three databases:** `trading_common` (bars only), `trading_paper`,
-  `trading_prod`. The paper role must not be able to write prod rows.
+- **Three databases:** `trading_common` (bars only), `trading_demo`,
+  `trading_live`. The demo role must not be able to write live rows.
 - A strategy runs only if an active manifest names it; the loader must fail
   loud, never trade flat and silent.
-- **The venue is part of the world.** Paper is demonstrably virtual; prod
+- **The venue is part of the world.** Demo is demonstrably virtual; live
   refuses demo credentials before reading a key. Each `/api/account` payload
   carries `venue` and every asset with its USDT value, so no screen can show
   an unlabelled balance.
 - **The dashboards list only promoted strategies.** `/api/strategies`
   returns the active manifests for that env; code that merely exists is
-  invisible in paper/prod. `BOT_LAB=1` (set by `start_trader.cmd`) restores
+  invisible in demo/live. `BOT_LAB=1` (set by `start_trader.cmd`) restores
   the full registry on the laptop, where the whole point is trying ideas.
   Bot and preset creation require an active manifest outside lab, and a bot
   must use a promoted symbol/timeframe. To make a strategy visible, promote
@@ -405,7 +405,7 @@ when you hit a new environment quirk and solve it, add it here and commit.
 
 ## Server rules (the OVH box is production)
 
-- **Production from day one.** Paper trading on the box is production: that
+- **Production from day one.** Demo trading on the box is production: that
   loop, that schedule and that state file are the real thing, so a careless
   change there is a production incident even though no money moves.
 - **All research and all testing happen locally.** No probes, sweeps,
@@ -419,11 +419,11 @@ when you hit a new environment quirk and solve it, add it here and commit.
 ## Deployment (VPS)
 
 - `deploy/` holds the server bundle: `install.sh` (Debian 13 / Ubuntu 24.04),
-  `run_bot.sh`, `backup.sh`, and five systemd units. See `deploy/README.md`.
+  `run_bot.sh`, `backup.sh`, and the systemd units. See `deploy/README.md`.
 - Production layout: code in `/opt/trading-bot`, per-bot env files in
   `/etc/tradingbot/<name>.env`, state in `/var/lib/tradingbot/*.json`,
   dumps in `/var/backups/tradingbot`. Services run as the `trader` user,
-  web binds 127.0.0.1:9000 only (reach it over SSH or Tailscale).
+  the web binds 127.0.0.1:9000/9001 only (reach it over SSH or Tailscale).
 - One bot per symbol: every bot shares one demo account, so two bots on the
   same symbol would close each other's position.
 - **Heartbeat is two layers, and only the second names the bot.**
@@ -434,7 +434,7 @@ when you hit a new environment quirk and solve it, add it here and commit.
   pings the dead-man URL in `/etc/tradingbot/watchdog.env` **only when no
   running bot is stale**. Episodes are deduped in
   `/var/lib/tradingbot/<env>/watchdog.json`.
-  **Two checks, never one.** `forward.env` owns the dry-run *process* check
+  **Two checks, never one.** `dryrun.env` owns the dry-run *process* check
   (one process, all sleeves, pings unconditionally after every pass);
   `watchdog.env` owns the *book* check (only green when no bot is stale).
   Pointing both at one check makes the gate meaningless, because the dry-run
@@ -443,17 +443,17 @@ when you hit a new environment quirk and solve it, add it here and commit.
   loop is invisible — exactly the bug the watchdog exists to remove.
   The per-poll ping (`HEARTBEAT_URL` in a bot env file, throttled 30 min)
   still works and is only for a bot you want paged on its own URL. A failed
-  ping must never stop the loop. `tradingbot-forward.service` runs
-  `bot forward --all` with state in `/var/lib/tradingbot/paper/`.
+  ping must never stop the loop. `tradingbot-dryrun.service` runs
+  `bot dryrun --all` with state in `/var/lib/tradingbot/demo/`.
 - **Trading host (bought 2026-11-27): OVH VPS, Sydney** — 4 vCPU, 8 GB RAM,
   75 GB local disk, 6 months prepaid, automated backup (1 rotation), Linux.
   This is the only box that can reach Binance: `api.binance.com` answers US
   IPs with HTTP 451, so exchange calls must originate outside the US.
-- **Paper/prod host = the OVH Sydney box, one for both worlds** (cleaned up
-  2026-11-28). An earlier plan split paper/UI onto a separate "CometVPS,
+- **Demo/live host = the OVH Sydney box, one for both worlds** (cleaned up
+  2026-11-28). An earlier plan split demo/UI onto a separate "CometVPS,
   Seattle" box; that was dropped — both dashboards and the dry-run runner run
   on the OVH box, which is also the only one that reaches Binance. Never run
-  the venue-matching bot or its data sync from a US-located box; a paper book
+  the venue-matching bot or its data sync from a US-located box; a demo book
   fed elsewhere does not validate a Binance execution venue.
 - Measured requirement is ~90 MB per bot/web process and a 28 MB database, so
   the OVH box runs the whole book with >10x headroom and stays under ~3 GB of
@@ -464,8 +464,8 @@ when you hit a new environment quirk and solve it, add it here and commit.
   passwordless sudo, so every privileged step is `sudo ...`. The service user
   `trader` has no shell — reach the dashboard with
   `ssh -L 9000:127.0.0.1:9000 debian@139.99.236.166`.
-  Verified on the box: web returns 200, the test suite passes (363 tests
-  locally as of 2026-11-28),
+  Verified on the box: web returns 200, the test suite passes (457 tests
+  locally as of 2026-11-29),
   `load_scan_bars("BTC/USDT","4h",source="binance")` fetches 2,190 bars (no
   451), so the venue path works from this IP.
 - **Server layout (agreed 2026-11-27).** `/opt/trading-bot` is a git
@@ -477,14 +477,14 @@ when you hit a new environment quirk and solve it, add it here and commit.
   read it and it belongs to the box backup; the repo holds the template
   (`deploy/Caddyfile.template`) and the renderer that writes it.
 - **Public dashboards (two hostnames, one per world):**
-  `https://paper.139-99-236-166.sslip.io` -> 127.0.0.1:9000 (`trading_paper`),
-  `https://prod.139-99-236-166.sslip.io` -> 127.0.0.1:9001 (`trading_prod`);
-  the bare hostname 302s to paper. Caddy terminates TLS (Let's Encrypt,
+  `https://demo.139-99-236-166.sslip.io` -> 127.0.0.1:9000 (`trading_demo`),
+  `https://live.139-99-236-166.sslip.io` -> 127.0.0.1:9001 (`trading_live`);
+  the bare hostname 302s to demo. Caddy terminates TLS (Let's Encrypt,
   auto-renewing) and basic auth; only 22/80/443 are open. Each page is
-  branded at render time (green PAPER / red PRODUCTION banner, distinct
-  title, `body.paper|prod`), and prod rejects bot/preset create+delete:
+  branded at render time (green DEMO / red LIVE banner, distinct
+  title, `body.demo|live`), and live rejects bot/preset create+delete:
   strategies arrive by promotion package. The app has **no auth of its
   own**, so Caddy is the only thing protecting it — never bind it to
   0.0.0.0 or open 9000/9001. Render with `deploy/public_web.sh` (reuses the
   existing login and hash); the hash lives in `/etc/caddy/Caddyfile`, never
-  the plaintext. Logs: `/var/log/caddy/{paper,prod}.log`.
+  the plaintext. Logs: `/var/log/caddy/{demo,live}.log`.

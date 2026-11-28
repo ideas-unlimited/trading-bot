@@ -1,4 +1,4 @@
-"""Real trading client for Binance spot: production signals, demo orders.
+"""Order client for Binance spot: market signals, demo orders.
 
 The deploy loop needs five things from a venue: bars, equity, position size,
 an order, and a flatten.  This module is that surface for Binance spot:
@@ -7,7 +7,7 @@ an order, and a flatten.  This module is that surface for Binance spot:
   the demo book is thin and its candles must never drive a signal;
 * **orders** always go to the demo endpoint (``demo-api.binance.com``) with
   ``BINANCE_DEMO_KEY`` / ``BINANCE_DEMO_SECRET``.  There is no code path to
-  production order routing here - the broker itself refuses non-``/api/v3``
+  live order routing here - the broker itself refuses non-``/api/v3``
   paths and defaults to the demo base URL.
 
 Spot has no bracket orders, so stops are managed by the caller (DeployTrader

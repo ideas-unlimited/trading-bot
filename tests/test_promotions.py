@@ -45,16 +45,16 @@ class ParamsHashTests(unittest.TestCase):
 
 
 class GateTests(unittest.TestCase):
-    def test_paper_gate_passes_on_real_evidence(self):
+    def test_demo_gate_passes_on_real_evidence(self):
         evidence = {**GOOD_DEMO, "params_hash": promo.params_hash({})}
         checks = promo.demo_entry_checks(evidence, params_hash_expected=promo.params_hash({}))
         self.assertTrue(all(c["ok"] for c in checks), checks)
 
-    def test_paper_gate_blocks_missing_evidence(self):
+    def test_demo_gate_blocks_missing_evidence(self):
         checks = promo.demo_entry_checks({})
         self.assertTrue(any(not c["ok"] for c in checks))
 
-    def test_paper_gate_rejects_window_over_cap(self):
+    def test_demo_gate_rejects_window_over_cap(self):
         checks = promo.demo_entry_checks({**GOOD_DEMO, "window_days": 1000})
         self.assertFalse(next(c for c in checks if c["name"] == "backtest_window")["ok"])
 
@@ -71,7 +71,7 @@ class GateTests(unittest.TestCase):
         checks = promo.live_entry_checks({**GOOD_LIVE, "weeks_demo": 1})
         self.assertFalse(next(c for c in checks if c["name"] == "weeks_demo")["ok"])
 
-    def test_prod_gate_blocks_paper_beating_backtest(self):
+    def test_live_gate_blocks_demo_beating_backtest(self):
         checks = promo.live_entry_checks({**GOOD_LIVE, "demo_over_backtest_pct": 90})
         self.assertFalse(next(c for c in checks if c["name"] == "not_beating_backtest")["ok"])
 

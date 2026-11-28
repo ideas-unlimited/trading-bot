@@ -1,18 +1,18 @@
-# Promotion: lab -> paper -> prod
+# Promotion: lab -> demo -> live
 
 One repo, one code line. What changes between environments is **which
 strategies are activated**, never which code runs. A core fix merged to
-`master` reaches paper and prod on the next pull; a strategy reaches them only
+`master` reaches demo and live on the next pull; a strategy reaches them only
 when a manifest names it.
 
     lab      experiments, dead ends. Never deployed.
       |
-      |  promote a package: strategy module + tests + promotions/paper/<name>.json
+      |  promote a package: strategy module + tests + promotions/demo/<name>.json
       v
-    master   reviewed core + paper-grade strategies. Deployed to both boxes.
+    master   reviewed core + demo-grade strategies. Deployed to both worlds.
       |
-      +--> paper box: activates promotions/paper/*.json   (demo keys, $1,000 per bot)
-      +--> prod box:  activates promotions/prod/*.json    (live keys)
+      +--> demo world: activates promotions/demo/*.json   (demo keys, $1,000 per bot)
+      +--> live world: activates promotions/live/*.json    (live keys)
 
 The loader imports nothing that a manifest does not name, so a strategy module
 can sit on a box and be completely inert there.
@@ -20,23 +20,23 @@ can sit on a box and be completely inert there.
 ## Names used here
 
 - **Dry-run bot** (also *dry-run sleeve*): the replay process. It reads bars,
-  writes `.../forward/status.json`, and never sends an order.
+  writes `.../dryrun/status.json`, and never sends an order.
 - **Trading bot**: the demo-order loop started as
   `tradingbot@<strategy>-<env>`. It is the only half that can fill, alert or
   appear on the Bots page.
 
-The historical words survive in commands, units, paths and API keys:
-`bot forward`, `tradingbot-forward.service`, `/etc/tradingbot/forward.env`,
-`/api/forward`, and `.../forward/status.json`. Those are identifiers, not the
-user-facing names. Read `forward` as dry-run and `live` as trading below.
+Names are canonical everywhere:
+`bot dryrun`, `tradingbot-dryrun.service`, `/etc/tradingbot/dryrun.env`,
+`/api/dryrun`, and `.../dryrun/status.json`. A trading bot runs on demo
+orders; `live` is reserved for real money, which has no venue yet.
 
-## 1. lab -> paper
+## 1. lab -> demo
 
 Package contents, and nothing else:
 
     src/bot/strategy/<name>.py
     tests/test_<name>.py
-    promotions/paper/<name>.json
+    promotions/demo/<name>.json
 
 `bot promote` writes the manifest, computes its `params_hash` and prints one
 PASS/FAIL line per gate check; commit it with the module and the test. There
@@ -51,36 +51,36 @@ Entry requirements:
   1 year), strategy params hash, symbols, timeframe, and the run's metrics -
   the gate reads `bars`, `window_days`, `trades`, `fee_bps`,
   `slippage_bps` and `params_hash` (the hash of `--params`);
-- the dry-run runner reproduces the backtest's exits: `bot forward` replays
+- the dry-run runner reproduces the backtest's exits: `bot dryrun` replays
   the same `Engine`, so the stop, take-profit, trailing stop and time exit
-  are the measured ones. `bot live` manages the same stop, fixed-R target
+  are the measured ones. `bot deploy` manages the same stop, fixed-R target
   and Chandelier trail locally on each closed bar (stop checked first, then
   the trail is raised for the next bar), so it no longer drops either one.
 
-Paper capital is **$1,000 per bot/strategy**. It is simulated money; the point
+Demo capital is **$1,000 per bot/strategy**. It is simulated money; the point
 is that every strategy is measured on the same stake.
 
-Start the paper record with the dry-run runner (`bot forward`; outside `BOT_LAB` it refuses
+Start the demo record with the dry-run runner (`bot dryrun`; outside `BOT_LAB` it refuses
 to start without the active manifest and refuses a parameter hash that does
 not match it):
 
-    python -m bot forward --all --poll 900
+    python -m bot dryrun --all --poll 900
 
-State is one folder per sleeve: `runs/<env>/<strategy>/forward/status.json`
+State is one folder per sleeve: `runs/<env>/<strategy>/dryrun/status.json`
 plus `<SYMBOL>.trades.csv` and `<SYMBOL>.equity.csv`. `--all` serves every
 active manifest from one process and re-reads the manifests each cycle, so a
 promote/demote takes effect without editing a unit; `--strategy ... --symbol
 ...` runs one sleeve by hand. A cycle is deterministic and idempotent; the
 deploy mark is pinned on the first cycle and re-pinned (old date kept as
 `repinned_at`) only when the two-year window start moves. On the server one
-systemd unit runs it: `tradingbot-forward.service`, state under
-`/var/lib/tradingbot/paper/<strategy>/forward/`.
+systemd unit runs it: `tradingbot-dryrun.service`, state under
+`/var/lib/tradingbot/demo/<strategy>/dryrun/`.
 
 **Each sleeve replays the risk profile recorded in its own manifest.**
-`bot forward --all` reads `risk_per_trade`, `max_position_pct` and
+`bot dryrun --all` reads `risk_per_trade`, `max_position_pct` and
 `max_drawdown_stop` from the manifest evidence; the unit's `--risk-*` flags
 are only the fallback for an older manifest that omits them (or when
-`--profile flags` deliberately asks for a what-if). Most paper sleeves are
+`--profile flags` deliberately asks for a what-if). Most demo sleeves are
 3% / 95% / no brake, but `capitulation_dip_uni` and `jup_liquidity_15m` are
 5% / 50% / a 10% brake. A profile change is a different book, so the deploy
 mark is re-taken and `repinned_at` keeps the old date; the status payload
@@ -90,26 +90,26 @@ profile made UNI read +38.5% in history instead of its measured +67.8%.
 ### Release steps on the box (the step that was missed for UNI)
 
 A promotion only **authorizes** a strategy. Nothing runs until two different
-things are live on the box, and confusing them is how UNI sat flat for hours
+things are running on the box, and confusing them is how UNI sat flat for hours
 on 2026-11-28 while its dry-run sleeve replayed and the Bots page stayed
 empty:
 
-- **`tradingbot-forward.service`** (the dry-run runner, already running) picks the new manifest
+- **`tradingbot-dryrun.service`** (the dry-run runner, already running) picks the new manifest
   up on its next cycle and replays the sleeve as a simulated wallet. This is
   the measurement harness - no orders, never on the Bots page.
-- **`tradingbot@<strategy>-paper`** is the actual bot. Until it is started,
+- **`tradingbot@<strategy>-demo`** is the actual bot. Until it is started,
   the owner's question "where is my bot?" has the honest answer "nowhere".
 
 **Naming convention: every bot is `<strategy>-<env>`.**
-`/etc/tradingbot/capitulation_dip_uni-paper.env`, systemd instance
-`tradingbot@capitulation_dip_uni-paper`, state
-`/var/lib/tradingbot/paper/capitulation_dip_uni-paper.json`. Never a bare
+`/etc/tradingbot/capitulation_dip_uni-demo.env`, systemd instance
+`tradingbot@capitulation_dip_uni-demo`, state
+`/var/lib/tradingbot/demo/capitulation_dip_uni-demo.json`. Never a bare
 symbol or a bare strategy name: one symbol may carry several strategies,
-and this one box hosts both paper and prod, so only `<strategy>-<env>` is
+and this one box hosts both demo and live, so only `<strategy>-<env>` is
 unambiguous (the same strategy may run in both worlds at different capital).
 
-**The standard: a paper promotion is complete only when BOTH halves are
-live** - the dry-run sleeve replaying and the `tradingbot@<strategy>-paper`
+**The standard: a demo promotion is complete only when BOTH halves are
+running** - the dry-run sleeve replaying and the `tradingbot@<strategy>-demo`
 unit running. A dry-run-only sleeve is a deliberate exception (e.g. two
 sleeves on one symbol) and must say so in its manifest evidence.
 
@@ -124,7 +124,7 @@ does **not** clone the dry-run book into the trading bot:
    `run_bot.sh` default) replays the fetched closed window through `Engine`
    and opens the model's current side as a **new** position at the newest
    close; it does not copy the historical entry price or credit that P&L. A
-   manual `bot live` defaults off and anchors flat. On 2026-11-28 the XRP
+   manual `bot deploy` defaults off and anchors flat. On 2026-11-28 the XRP
    dry-run was long from 25 November while its trading bot, released on 28
    November, was flat; startup replay now joins that side, but the entry and
    its P&L start at the release. Either way the bot cannot book the old fill.
@@ -151,12 +151,12 @@ does **not** clone the dry-run book into the trading bot:
 Release is one command on the box, after commit -> push -> `sudo bash
 /opt/trading-bot/deploy/update.sh`:
 
-    sudo bash /opt/trading-bot/deploy/release_paper.sh <strategy-name>
+    sudo bash /opt/trading-bot/deploy/release_demo.sh <strategy-name>
 
-It derives the bot name as `<strategy>-paper`, reads the manifest (symbol,
+It derives the bot name as `<strategy>-demo`, reads the manifest (symbol,
 timeframe, capital and the three measured risk knobs from `evidence`),
-writes `/etc/tradingbot/<strategy>-paper.env`, starts
-`tradingbot@<strategy>-paper`, verifies the demo-account journal line, the
+writes `/etc/tradingbot/<strategy>-demo.env`, starts
+`tradingbot@<strategy>-demo`, verifies the demo-account journal line, the
 Bots-page registration and the heartbeat, and refuses any manifest whose
 evidence does not carry `risk_per_trade`, `max_position_pct` and
 `max_drawdown_stop`. It never clobbers an existing env file and is
@@ -164,17 +164,17 @@ idempotent - re-running a released bot just verifies it.
 
 After releasing (and any time the question "where is my bot?" comes up):
 
-    sudo bash /opt/trading-bot/deploy/reconcile_paper.sh
+    sudo bash /opt/trading-bot/deploy/reconcile_demo.sh
 
 Walks every released bot against the checklist below and prints PASS/FAIL.
 
 The manual steps the script performs, for understanding or when it is
 unavailable:
 
-1. **Manifest landed.** `journalctl -u tradingbot-forward -n 20` shows the
+1. **Manifest landed.** `journalctl -u tradingbot-dryrun -n 20` shows the
    new sleeve under `active runner(s)`, and
-   `/var/lib/tradingbot/paper/<strategy>/forward/status.json` exists.
-2. **Start the bot itself.** Create `/etc/tradingbot/<strategy>-paper.env`
+   `/var/lib/tradingbot/demo/<strategy>/dryrun/status.json` exists.
+2. **Start the bot itself.** Create `/etc/tradingbot/<strategy>-demo.env`
    (naming convention: `<strategy>-<env>`, never a short symbol name):
 
    ```
@@ -182,17 +182,17 @@ unavailable:
    INTERVAL=4h
    STRATEGY=capitulation_dip_uni
    CAPITAL=1000
-   STATE=/var/lib/tradingbot/paper/capitulation_dip_uni-paper.json
+   STATE=/var/lib/tradingbot/demo/capitulation_dip_uni-demo.json
    POLL=60
-   BOT_ENV=paper
+   BOT_ENV=demo
    RISK_PER_TRADE=0.05
    MAX_POSITION_PCT=0.50
    MAX_DRAWDOWN_STOP=0.10   # read this sleeve's manifest evidence
    ```
 
-   plus `HEARTBEAT_URL=` copied from `/etc/tradingbot/forward.env` (copy it
+   plus `HEARTBEAT_URL=` copied from `/etc/tradingbot/dryrun.env` (copy it
    on the box; never paste it into chat). `chmod 640 root:trader` the file.
-   Then `sudo systemctl enable --now tradingbot@<strategy>-paper`.
+   Then `sudo systemctl enable --now tradingbot@<strategy>-demo`.
 
    **The three risk knobs are not optional.** `run_bot.sh` defaults them to
    1% / 95% / a 10% brake, which is nobody's measured profile. They must
@@ -203,11 +203,11 @@ unavailable:
    drawdown because their evidence says run the brake off (0.99). The
    dry-run runner resolves each sleeve's profile from its manifest (the unit's
    `--risk-*` flags are fallback only); a trading bot carries the same three
-   knobs in its env. `bot live` enforces the drawdown brake as well as the
+   knobs in its env. `bot deploy` enforces the drawdown brake as well as the
    dry-run engine does; the remaining difference is the shared account, not
    the brake.
 3. **Verify the bot is really alive**, all four:
-   - `journalctl -u tradingbot@<strategy>-paper` shows "paper trading <SYMBOL> @ <tf>
+   - `journalctl -u tradingbot@<strategy>-demo` shows "demo trading <SYMBOL> @ <tf>
      on Binance DEMO account" and the first poll line (anchored to now,
      skipping historical bars). **A fresh bot is flat until the next bar
      close** - "position=flat" on a 4h bot at 08:30 is correct, not a fault.
@@ -224,22 +224,22 @@ unavailable:
      raised `TypeError: Object of type Decimal is not JSON serializable`
      (NUMERIC columns) and the Bots page showed no bots at all while every
      unit and heartbeat was healthy.
-   - `/var/lib/tradingbot/paper/<strategy>-paper.json` holds `last_ts`, and once the
+   - `/var/lib/tradingbot/demo/<strategy>-demo.json` holds `last_ts`, and once the
      bot is in a trade it holds `stops`, `tps` when the sleeve has a fixed-R
      target, and `trails` when it has a Chandelier exit.  A trail entry
      carries the peak, ATR distance and arming state, so a restart cannot
-     reset or lower the stop.  `bot live` checked only the stop until
+     reset or lower the stop.  `bot deploy` checked only the stop until
      2026-11-28, then added the target; a sleeve measured with a target or
-     trail therefore ran a different rule live until both landed.
+     trail therefore ran a different rule in the deploy loop until both landed.
    - the Bots page shows it running with the position, stop and target.
-4. **Trade alerts are shared, not per-bot.** Every live
-   `tradingbot@<strategy>-paper` reads `/etc/tradingbot/alerts.env`; there is no
+4. **Trade alerts are shared, not per-bot.** Every trading
+   `tradingbot@<strategy>-demo` reads `/etc/tradingbot/alerts.env`; there is no
    per-bot alert setting. Configure it once (README, "Trade alerts"), then
-   confirm this bot's startup log says `[live] trade alerts: ntfy` (or
+   confirm this bot's startup log says `[deploy] trade alerts: ntfy` (or
    `telegram` / `email`). If it says `trade alerts off`, fix the shared
    file and restart the bot. Run
    `bot notify-test --env-file /etc/tradingbot/alerts.env` to check delivery.
-   Never add alerts to `tradingbot-forward`: that is the dry-run replay.
+   Never add alerts to `tradingbot-dryrun`: that is the dry-run replay.
 5. **Box checks:** `/etc/tradingbot/` must be `root:trader 750` - the
    `trader` user has to traverse it to read its own env file (this silently
    broke every bot on 2026-11-28). One bot per symbol (they share one demo
@@ -251,7 +251,7 @@ unavailable:
    bot that already owns the symbol. `STATE` lives under `/var/lib/tradingbot/`. A sub-4h strategy
    keeps the 1-year evidence cap everywhere, including here.
 6. **Reconcile after every release.** Re-walk this checklist against what
-   is actually running - `sudo bash /opt/trading-bot/deploy/reconcile_paper.sh`
+   is actually running - `sudo bash /opt/trading-bot/deploy/reconcile_demo.sh`
    does it automatically: units active, env risk knobs equal the measured
    profile, heartbeat fresh, dry-run sleeve present, no errors in
    `journalctl`. Every incident so far was a release step done halfway, not
@@ -263,27 +263,27 @@ unavailable:
 Demotion and halting need none of this: `bot demote` and the Bots-page kill
 switch work on running units without restarting anything.
 
-## 2. paper -> prod
+## 2. demo -> live
 
-Add `promotions/prod/<name>.json`. **No code changes** -- the code has been in
-master since the lab -> paper promotion.
+Add `promotions/live/<name>.json`. **No code changes** -- the code has been in
+master since the lab -> demo promotion.
 
 Eligibility:
 
 | Requirement | Why |
 |---|---|
-| **2 weeks live** on paper | long enough for the scheduler, the data sync and a real order to happen at least once |
+| **2 weeks running** on demo | long enough for the scheduler, the data sync and a demo order to happen at least once |
 | **no duplicate orders, no unexplained rejects** | the failure that actually costs money |
 | **every fill within 30 bps of the signal bar's close** | execution fidelity against the price the bot decided at; the backtest fills next open |
 | **fees + slippage within 10% of the 10 bps model** | cost model is not fiction |
 | **unbroken heartbeat, no manual intervention** | the process was alive the whole time |
-| **paper must not beat its own backtest by a wide margin** | the best lookahead detector we have |
+| **demo must not beat its own backtest by a wide margin** | the best lookahead detector we have |
 
 Deliberately **not** gated on round-trip count. Quality metrics (divergence,
 drawdown) are **reported** on the dashboard and are only *enforced* once a
 strategy has 30+ round trips; below that they are noise, not evidence.
 
-Prod starts at **25% of paper capital** ($250) for the first four weeks, then
+Live starts at **25% of demo capital** ($250) for the first four weeks, then
 the promoted size.
 
 ## 3. Manifest fields
@@ -291,7 +291,7 @@ the promoted size.
 ```json
 {
   "strategy": "capitulation_dip_uni",
-  "env": "paper",
+  "env": "demo",
   "params_hash": "sha256:1f3c...",
   "symbols": ["UNI/USDT"],
   "timeframe": "4h",
@@ -315,7 +315,7 @@ the promoted size.
 
 **The evidence must carry the measured risk profile** (`risk_per_trade`,
 `max_position_pct`, `max_drawdown_stop`): the release script generates each
-bot's env file from it, and `deploy/reconcile_paper.sh` diffs the running
+bot's env file from it, and `deploy/reconcile_demo.sh` diffs the running
 config against it. A promotion without those three fields is unreleasable
 by the script - by design, since omitting them is how every trading bot ended
 up at `run_bot.sh` defaults on 2026-11-28.
@@ -328,7 +328,7 @@ to make the decision visible, not to refuse it.
 **Override.** 'bot promote --force --reason "..."' promotes even when a check
 fails. The manifest records override=true, the reason, the failed checks
 verbatim, and who did it. The dashboard shows an OVERRIDE badge next to that
-bot for as long as the override is the reason it is live.
+bot for as long as the override is the reason it is active.
 
 **Demote.** 'bot demote <strategy> [--flatten]':
 
@@ -341,7 +341,7 @@ Either way the bot stays running and reports 'revoked' rather than vanishing,
 so the dashboard shows why it is flat.
 
 **Hard invariants override cannot touch.** Spot only, long only, demo keys can
-never point at production, and the kill switch. Those are code, not policy; no
+never point at live, and the kill switch. Those are code, not policy; no
 manifest can enable futures, margin or shorting.
 
 ## 5. Audit
@@ -349,4 +349,4 @@ manifest can enable futures, margin or shorting.
 Every promotion, override and demotion is an append-only promotions row: who,
 when, which checks passed or failed, the reason string, and the evidence
 snapshot at that moment. Removing a strategy never deletes its history - a
-demoted strategy still shows its live statistics and its exit reason.
+demoted strategy still shows its running statistics and its exit reason.

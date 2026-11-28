@@ -1,10 +1,10 @@
-"""Deploy bot: production Binance signals, demo orders on spot.
+"""Deploy bot: Binance market signals, demo orders on spot.
 
 The loop polls production Binance klines for freshly *closed* bars, runs the
 chosen strategy on them with the same no-lookahead semantics as the
 backtester (a signal on bar *i* is acted on as bar *i+1* begins — here
 approximated by a market order), and routes orders to
-``demo-api.binance.com`` with demo keys.  There is no production order path.
+``demo-api.binance.com`` with demo keys.  There is no live-money order path.
 
 Spot has no bracket orders, so every entry's stop lives in a small state file
 and is checked on each closed bar.  The same file carries a Chandelier trail:

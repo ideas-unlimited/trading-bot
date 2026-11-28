@@ -254,12 +254,12 @@ The finalists held up on the longer window: ENA 4h breakout **+123.2% /
    (`src/bot/strategy/swing_breakout_ena.py`, `tests/test_swing_breakout_ena.py`)
    and the harness reproduces +43.0% / -16.6% / 24 trades from it unchanged.
    **Shipped on 2026-11-28** at the owner's instruction: ENA is target 19 in
-   `docs/TARGETS.md`, `promotions/paper/swing_breakout_ena.json` passed the
-   paper gate 5/5 at the measured 3%/95%/0.99 profile, and both halves are
-   live on the box - the forward sleeve (replaying +107.9% / -16.6% / 45 trades
-   on its 730-day window) and `tradingbot@swing_breakout_ena-paper` on the
-   demo account. The bot half waited for the live loop to gain the Chandelier
-   trail (commit 3c8c68e) so the live exit matches the measured one; it is flat
+   `docs/TARGETS.md`, `promotions/demo/swing_breakout_ena.json` passed the
+   demo gate 5/5 at the measured 3%/95%/0.99 profile, and both halves are
+   running on the box - the dry-run sleeve (replaying +107.9% / -16.6% / 45 trades
+   on its 730-day window) and `tradingbot@swing_breakout_ena-demo` on the
+   demo account. The bot half waited for the deploy loop to gain the Chandelier
+   trail (commit 3c8c68e) so the trading exit matches the measured one; it is flat
    at $1,000 until the next 4h breakout.
 3. **A second one is defensible: `swing_breakout_tao`** on 1d (s2 t3), small
    but positive in both years with a 0.90 bootstrap.

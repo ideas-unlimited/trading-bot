@@ -9,7 +9,7 @@
 
 This is a **two-year stability screen**, not a clean untouched out-of-sample
 test. Both years were inspected when choosing the five. The honest use of this
-note is to decide what deserves forward paper, not to claim a proven edge.
+note is to decide what deserves a demo record, not to claim a proven edge.
 
 ## Verdict
 
@@ -248,8 +248,8 @@ mean-reversion target, so 2R is the natural exit.
 Practical consequence: **TAO and AVAX are identical in this sample to
 stop + 3-day time**; INJ gives up 2.3 points if the trail is removed; only SUI
 genuinely needs the trail. So the three daily sleeves can be made
-live-compatible by dropping the inert trail, while SUI stays forward-only
-until trail support exists.
+deploy-compatible by dropping the inert trail; SUI can also deploy now that
+the loop manages the trail.
 
 ## What I rejected, and why
 
@@ -272,13 +272,13 @@ CAKE and SOL volume-climax looked strong in the first scan pass but failed the
 exact parameter-neighbour rerun; they are not in the five. HYPE was skipped
 because only 391 4h / 66 1d bars were available.
 
-## Paper deployment (2026-11-28)
+## Demo deployment (2026-11-28)
 
-The five sleeves are shipped and active on the paper dry-run runner, one
+The five sleeves are shipped and active on the demo dry-run runner, one
 $1,000 wallet each, at the measured profile (3% risk, 95% max position,
 drawdown switch off):
 
-| Sleeve | Symbol | TF | Params | Forward history | Trades | Max DD |
+| Sleeve | Symbol | TF | Params | Dry-run history | Trades | Max DD |
 |---|---|---|---|---:|---:|---:|
 | `swing_breakout_sui` | SUI/USDT | 4h | 60-bar high, 2.5 ATR trail, 18-bar cap | **+61.3%** | 30 | -13.1% |
 | `wvf_stoch_xrp` | XRP/USDT | 4h | 2R target, 2 ATR stop, 240-bar cap | **+49.3%** | 18 | -7.3% |
@@ -287,7 +287,7 @@ drawdown switch off):
 | `swing_breakout_avax` | AVAX/USDT | 1d | 12-bar high, 2 ATR stop, 3 ATR trail, 3-bar cap | **+13.3%** | 20 | -6.1% |
 
 The dry-run sleeves are **shadow replays**; the matching trading bots place
-demo orders. `bot live` manages the stop, target and trail locally, so SUI can
+demo orders. `bot deploy` manages the stop, target and trail locally, so SUI can
 run there faithfully. The dry-run runner re-reads the manifests each cycle,
 and `since deploy` starts at $1,000 on the first cycle; with `STARTUP_REPLAY=1`
 a fresh bot joins the model's current side at the newest close as a new entry,
@@ -297,13 +297,13 @@ The strict two-year evidence for SUI is **+61.3% / -13.1% / 30 trades**
 (2024-11-28 .. 2026-11-28). The +57.8% figure elsewhere in this report comes
 from the 740-day alignment load used during research and is conservative;
 both are the same rule and the difference is one boundary trade. XRP's
-forward history reads 18 trades because the still-forming last 4h bar is
+dry-run history reads 18 trades because the still-forming last 4h bar is
 dropped; the evidence replay has 19 closed trades.
 
 ## Deployment notes — read before promoting
 
 - The five manifests are active, each with a dry-run sleeve and a
-  `tradingbot@<strategy>-paper` unit placing demo orders.
+  `tradingbot@<strategy>-demo` unit placing demo orders.
 
 - The research harness `SwingLab` is still in `research/cake/cake_swing.py`;
   the deployable port is `src/bot/strategy/swing_sleeve.py` plus the four
@@ -313,7 +313,7 @@ dropped; the evidence replay has 19 closed trades.
   peak and ATR distance persist in `trails`, the stop ratchets up only, and the
   trail is applied after each bar's exit check. SUI, INJ, TAO and AVAX run the
   same Chandelier exit their backtest measured; XRP WVF is stop + fixed 2R
-  target + its own time exit. Before that date `bot live` ignored the trail and
+  target + its own time exit. Before that date `bot deploy` ignored the trail and
   target, so a trading bot could not reproduce its evidence.
 - It is now running at 3% risk, 95% cap and the account drawdown switch off.
   Poll the 4h sleeves at 00/04/08/12/16/20 UTC and the 1d sleeves just after
@@ -321,7 +321,7 @@ dropped; the evidence replay has 19 closed trades.
 - Add a **portfolio-level -15% kill switch** as an overlay. The measured max
   portfolio DD was only -3.0%, so -15% is ~5× the sample; if it hits, the
   regime is outside the sample and the book should stop.
-- One bot per symbol; the existing live sleeves are UNI, JUP, RENDER, ARB and
+- One bot per symbol; the existing demo sleeves are UNI, JUP, RENDER, ARB and
   NEAR, so none of these five collide.
 
 ## Files

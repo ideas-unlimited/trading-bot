@@ -5,17 +5,17 @@
 #
 # Example base hostname without a domain: 139-99-236-166.sslip.io.  Two
 # site blocks are rendered from that same base:
-#   paper.<base> -> 127.0.0.1:9000   (PAPER - simulated fills)
-#   prod.<base>  -> 127.0.0.1:9001   (PRODUCTION - real money)
-# and <base> itself redirects to paper.  sslip.io resolves those subdomains
+#   demo.<base> -> 127.0.0.1:9000   (DEMO - simulated fills)
+#   live.<base>  -> 127.0.0.1:9001   (LIVE - real money, venue not configured)
+# and <base> itself redirects to demo.  sslip.io resolves those subdomains
 # to the same IP, so Let's Encrypt issues real certificates for both.
 set -euo pipefail
 trap 'echo "public_web.sh failed at line $LINENO" >&2' ERR
 
 BASE=${1:?usage: public_web.sh <hostname> [username]}
 BASE=${BASE#http://}; BASE=${BASE#https://}; BASE=${BASE%/}
-PAPER_DOMAIN="paper.$BASE"
-PROD_DOMAIN="prod.$BASE"
+DEMO_DOMAIN="demo.$BASE"
+LIVE_DOMAIN="live.$BASE"
 LEGACY_DOMAIN="$BASE"
 
 # Keep the login already published; only mint a password on first run or
@@ -59,8 +59,8 @@ if [[ ! -f "$TEMPLATE" ]]; then
   echo "missing $TEMPLATE" >&2
   exit 1
 fi
-sed -e "s|{{PAPER_DOMAIN}}|$PAPER_DOMAIN|" \
-    -e "s|{{PROD_DOMAIN}}|$PROD_DOMAIN|" \
+sed -e "s|{{DEMO_DOMAIN}}|$DEMO_DOMAIN|" \
+    -e "s|{{LIVE_DOMAIN}}|$LIVE_DOMAIN|" \
     -e "s|{{LEGACY_DOMAIN}}|$LEGACY_DOMAIN|" \
     -e "s|{{USER}}|$USER_NAME|" \
     -e "s|{{HASH}}|$HASH|" \
@@ -72,7 +72,7 @@ ufw allow 80/tcp >/dev/null 2>&1 || true
 ufw allow 443/tcp >/dev/null 2>&1 || true
 
 echo "== waiting for certificates"
-for domain in "$PAPER_DOMAIN" "$PROD_DOMAIN"; do
+for domain in "$DEMO_DOMAIN" "$LIVE_DOMAIN"; do
   for _ in $(seq 1 20); do
     code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "https://$domain/" 2>/dev/null || echo 000)
     [[ "$code" == "200" || "$code" == "401" ]] && break
@@ -81,14 +81,14 @@ for domain in "$PAPER_DOMAIN" "$PROD_DOMAIN"; do
 done
 
 echo
-echo "PAPER : https://$PAPER_DOMAIN/"
-echo "PROD  : https://$PROD_DOMAIN/"
-echo "legacy: https://$LEGACY_DOMAIN/  -> redirects to paper"
+echo "DEMO  : https://$DEMO_DOMAIN/"
+echo "LIVE  : https://$LIVE_DOMAIN/"
+echo "legacy: https://$LEGACY_DOMAIN/  -> redirects to demo"
 echo "user  : $USER_NAME"
 if [[ -n "$SHOWN_PASS" ]]; then
   echo "pass  : $SHOWN_PASS"
-  CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -u "$USER_NAME:$SHOWN_PASS" "https://$PAPER_DOMAIN/" || echo 000)
-  echo "check : paper HTTP $CODE"
+  CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -u "$USER_NAME:$SHOWN_PASS" "https://$DEMO_DOMAIN/" || echo 000)
+  echo "check : demo HTTP $CODE"
 else
   echo "pass  : unchanged"
 fi

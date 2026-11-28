@@ -159,7 +159,7 @@ symbol-half-years; the 3-sleeve in all six means and 24/30; WVF-only in
    sleeve kill-switch, no leverage. Rebalancing quarterly or not at all;
    do not optimize weights on 2 years.
 4. **Validate forward before calling it a strategy:** pre-register the
-   mix, run a 3-fold walk-forward (6-month OOS segments), then paper for
+   mix, run a 3-fold walk-forward (6-month OOS segments), then demo for
    at least 3 months / 20 trades per sleeve. The mix above was chosen
    after seeing the 2026 OOS, so it is a hypothesis, not proof.
 5. If BNB remains the weak sleeve, test replacing its trend sleeve with
@@ -182,7 +182,7 @@ symbol-half-years; the 3-sleeve in all six means and 24/30; WVF-only in
   certainty. If 70% is mandatory, the earlier `rr=0.5` tight-target
   variant is the only one that showed ~76% win rate, and that is a target
   artifact, not a stronger forecast.
-* Paper only, long-only spot. No short/margin path.
+* Demo only, long-only spot. No short/margin path.
 
 ## 7. Reproduce
 

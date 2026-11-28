@@ -1,4 +1,4 @@
-'''Live paper books: one replay per wallet, no orders, no lookahead.'''
+'''Demo books: one replay per wallet, no orders, no lookahead.'''
 
 from __future__ import annotations
 
@@ -147,7 +147,7 @@ class RunOnceTests(unittest.TestCase):
 
 
 class OpenPositionTests(unittest.TestCase):
-    def test_live_book_keeps_the_open_position(self):
+    def test_demo_book_keeps_the_open_position(self):
         closes = [100.0] * 20 + [100.0 + 2.0 * i for i in range(1, 40)]
         bars = make_bars(closes)
         cfg = BookConfig(fast=2, slow=3, fee_bps=0.0, slippage_bps=0.0, atr_mult=5.0)

@@ -161,7 +161,7 @@ def fetch_depth(
 
 
 def fetch_book_ticker(symbol: str, *, base_url: str = BASE_URL, transport: Callable[[str, float], Any] | None = None, timeout: float = 10.0) -> dict[str, float]:
-    """Best bid/ask only - the cheap call for prod-vs-demo comparison."""
+    """Best bid/ask only - the cheap call for live-vs-demo comparison."""
     sym = normalize_symbol(symbol)
     payload = _get(base_url, BOOK_TICKER_PATH, {"symbol": sym}, transport or _default_transport, timeout)
     if not isinstance(payload, dict):

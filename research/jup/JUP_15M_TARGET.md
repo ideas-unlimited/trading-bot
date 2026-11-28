@@ -124,7 +124,7 @@ What the numbers support:
 6. If the trail cannot be automated, the hard target at the band center is still positive: on exact 2 TF, +14.4R, PF 1.40, 2% risk +31.7%, max DD -9.3%.
 7. Never trail from entry. That book loses -9.0R; the target filter is the edge.
 
-Do not deploy on this evidence. Forward-paper the exact rule for at least 20-30 trades, then re-check win rate and average R. Also test the same rule on another coin before treating it as a JUP sleeve; one year of one symbol with 55 trades is not enough for capital.
+Do not deploy on this evidence. Dry-run the exact rule on demo for at least 20-30 trades, then re-check win rate and average R. Also test the same rule on another coin before treating it as a JUP sleeve; one year of one symbol with 55 trades is not enough for capital.
 
 Reproduce:
 

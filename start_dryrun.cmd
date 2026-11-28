@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM  forward sleeve runner  (usage: start_forward.cmd [interval_seconds])
+REM  dry-run sleeve runner  (usage: start_dryrun.cmd [interval_seconds])
 REM
 REM  Replays EVERY active promotion manifest as a $1,000 simulated
 REM  wallet on closed 4h bars, one folder per sleeve.  Same Engine as
@@ -9,9 +9,9 @@ REM  NO ORDERS: no exchange key is read.
 REM
 REM  The set of sleeves follows promotions/<env>/*.json: promoting or
 REM  demoting one changes the next cycle without editing this script.
-REM  Default poll is 15 minutes; risk/cap live in the bot defaults.
+REM  Default poll is 15 minutes; each sleeve reads its manifest risk profile.
 REM
-REM  State: runs/<env>/<strategy>/forward/status.json
+REM  State: runs/<env>/<strategy>/dryrun/status.json
 REM         plus <SYMBOL>.trades.csv and <SYMBOL>.equity.csv.
 REM  The replay is deterministic, so restarting is safe: deploy
 REM  equity stays pinned to the first cycle.
@@ -31,26 +31,26 @@ if not exist "%PY%" (
 
 if not exist logs mkdir logs
 
-REM ---- one loop is enough: stop an existing forward run -------
+REM ---- one loop is enough: stop an existing dry-run run -------
 set RUNNING=0
-for /f "tokens=*" %%P in ('powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'python.exe' -and $_.CommandLine -like '*bot forward*' } | Select-Object -ExpandProperty ProcessId"') do (
+for /f "tokens=*" %%P in ('powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'python.exe' -and $_.CommandLine -like '*bot dryrun*' } | Select-Object -ExpandProperty ProcessId"') do (
     set RUNNING=1
-    echo [restart] stopping old forward loop, PID %%P
+    echo [restart] stopping old dry-run loop, PID %%P
     taskkill /PID %%P /F >nul 2>&1
 )
 if "%RUNNING%"=="1" powershell -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>&1
 
 for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set TS=%%i
-set LOGFILE=%~dp0logs\forward_%TS%.log
+set LOGFILE=%~dp0logs\dryrun_%TS%.log
 
-powershell -NoProfile -Command "$f = Get-ChildItem '%~dp0logs' -Filter 'forward_*.log' | Sort-Object Name -Descending; if ($f.Count -gt 10) { $f | Select-Object -Skip 10 | Remove-Item -Force }" >nul 2>&1
+powershell -NoProfile -Command "$f = Get-ChildItem '%~dp0logs' -Filter 'dryrun_*.log' | Sort-Object Name -Descending; if ($f.Count -gt 10) { $f | Select-Object -Skip 10 | Remove-Item -Force }" >nul 2>&1
 
 echo [start] active manifests  4h  binance, $1,000 simulated per sleeve
 echo [start] every %INTERVAL%s  log: %LOGFILE%
 
-powershell -NoProfile -Command "Start-Process -FilePath '%PY%' -ArgumentList '-u','-m','bot','forward','--all','--poll','%INTERVAL%' -WorkingDirectory '%~dp0' -WindowStyle Hidden -RedirectStandardOutput '%LOGFILE%' -RedirectStandardError '%LOGFILE%.err'"
+powershell -NoProfile -Command "Start-Process -FilePath '%PY%' -ArgumentList '-u','-m','bot','dryrun','--all','--poll','%INTERVAL%' -WorkingDirectory '%~dp0' -WindowStyle Hidden -RedirectStandardOutput '%LOGFILE%' -RedirectStandardError '%LOGFILE%.err'"
 
 powershell -NoProfile -Command "Start-Sleep -Seconds 6" >nul 2>&1
-echo [ok] status: runs\%BOT_ENV%\<strategy>\forward\status.json
+echo [ok] status: runs\%BOT_ENV%\<strategy>\dryrun\status.json
 
 endlocal

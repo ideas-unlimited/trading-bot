@@ -1,4 +1,4 @@
-"""Offline tests for the Binance live client helpers and the live loop."""
+"""Offline tests for the Binance order client helpers and the deploy loop."""
 
 import io
 import json
@@ -160,7 +160,7 @@ class TrailBuy(Strategy):
         return None
 
 
-class LiveClientHelpersTests(unittest.TestCase):
+class OrderClientHelpersTests(unittest.TestCase):
     def test_interval_aliases(self) -> None:
         self.assertEqual(interval_for("4h"), ("4h", 1))
         self.assertEqual(interval_for("1w"), ("1w", 1))
@@ -459,8 +459,8 @@ class DeployTraderTests(unittest.TestCase):
             self.assertLessEqual(buys[0]["qty"] * entry, 1_000.0 * 1.01)
 
 
-class LiveTrailTests(unittest.TestCase):
-    """Chandelier trail in the live loop, with the engine's ordering."""
+class DeployTrailTests(unittest.TestCase):
+    """Chandelier trail in the deploy loop, with the engine's ordering."""
 
     def _trader(self, tmp: Path, client: _TrackingClient, strategy=None) -> DeployTrader:
         return DeployTrader(
@@ -682,7 +682,7 @@ class LiveTrailTests(unittest.TestCase):
             self.assertEqual(exit_mock.call_args.args[1], 90.0)
 
 
-class LiveAlertTests(unittest.TestCase):
+class DeployAlertTests(unittest.TestCase):
     def _trader(self, tmp: Path, notifier) -> tuple[DeployTrader, _FakeClient]:
         client = _FakeClient(_rows())
         trader = DeployTrader(
@@ -759,7 +759,7 @@ class LiveAlertTests(unittest.TestCase):
             self.assertIn("trade alerts failed", trader.stream.getvalue())
 
 
-class LiveAnchorTests(unittest.TestCase):
+class DeployAnchorTests(unittest.TestCase):
     """A fresh state file must not replay months of history, and a long gap
     must not be acted on as a backlog."""
 
@@ -868,7 +868,7 @@ class LiveAnchorTests(unittest.TestCase):
             self.assertEqual(len(client.orders), 1)
             self.assertIn("pending entry", trader.stream.getvalue())
 
-    def test_live_refetches_when_warmup_needs_more_bars(self) -> None:
+    def test_deploy_refetches_when_warmup_needs_more_bars(self) -> None:
         class SlicingClient(_FakeClient):
             def fetch_bars(self, symbol, timeframe, limit=400, **kwargs):
                 return _bars(self.rows[-limit:])

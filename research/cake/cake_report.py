@@ -313,7 +313,7 @@ TEMPLATE = """<!doctype html>
     <li>15m loses money at 107 trades even with the same rule &mdash; costs and chop, not signal.</li>
     <li>The same rule on 4h or 1d over two years takes 0&ndash;2 trades: on a coarser chart the
         dip never coincides with the gate, so the 30m result depends on intrabar noise.</li>
-    <li>Therefore: not a shippable sleeve. It is a candidate to forward-test on paper, sized at
+    <li>Therefore: not a shippable sleeve. It is a candidate to dry-run on demo, sized at
         the 3% the lab used, and it must survive a second CAKE rally it did not see.</li>
   </ul>
 </div>

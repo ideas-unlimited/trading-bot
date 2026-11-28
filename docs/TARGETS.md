@@ -40,19 +40,19 @@ audit. They are not targets and must not be tuned or traded.
 | 4 | XRP/USDT | Binance spot | untuned |
 | 5 | HYPE/USDT | Binance spot | untuned |
 | 6 | LINK/USDT | Binance spot | untuned |
-| 7 | UNI/USDT | Binance spot | sleeve: `capitulation_dip_uni`, paper |
+| 7 | UNI/USDT | Binance spot | sleeve: `capitulation_dip_uni`, demo |
 | 8 | AVAX/USDT | Binance spot | untuned |
 | 9 | SUI/USDT | Binance spot | untuned |
 | 10 | TAO/USDT | Binance spot | untuned |
 | 11 | ONDO/USDT | Binance spot | untuned |
-| 12 | JUP/USDT | Binance spot | sleeve: `capitulation_dip_jup`, paper |
+| 12 | JUP/USDT | Binance spot | sleeve: `capitulation_dip_jup`, demo |
 | 13 | RENDER/USDT | Binance spot | untuned |
 | 14 | INJ/USDT | Binance spot | untuned |
 | 15 | CAKE/USDT | Binance spot | untuned |
 | 16 | PYTH/USDT | Binance spot | untuned |
 | 17 | FET/USDT | Binance spot | untuned |
 | 18 | XAUT/USDT | Binance spot | untuned |
-| 19 | ENA/USDT | Binance spot | sleeve: `swing_breakout_ena`, paper |
+| 19 | ENA/USDT | Binance spot | sleeve: `swing_breakout_ena`, demo |
 
 ENA was added on 2026-11-28 with the owner's approval, after it was found by
 the broad $1B-coin sweep (`research/BROAD_UNIVERSE.md`) and the sleeve passed
@@ -68,7 +68,7 @@ trading bot shares the demo account, so they would close each other's JUP
 position. The 4h dip sleeve is the keeper (7.4x the return at a similar
 drawdown) and the only one whose stance a fresh start can reconstruct, since
 it enters at the close of a bar; the 15m sleeve rests a three-tranche limit
-ladder at demand bands and its live loop never places resting limit orders.
+ladder at demand bands and its deploy loop never places resting limit orders.
 `jup_liquidity_15m` is demoted and its trading bot is stopped: JUP now has
 one dry-run sleeve and one trading bot, both `capitulation_dip_jup`.
 
@@ -106,8 +106,8 @@ out-of-sample dates. The numbers live in that module, not in this file.
 
 UNI shipped `capitulation_dip_uni` (4h, 2024-11-28 .. 2026-11-28, +67.8% /
 -5.3% drawdown / 19 trades at 5% risk and 50% position cap, researched in
-`research/uni/`) and is **promoted to paper** (`promotions/paper/`, hash
-`sha256:3520143553854675`). The paper record runs through `bot forward`, which
+`research/uni/`) and is **promoted to demo** (`promotions/demo/`, hash
+`sha256:3520143553854675`). The demo record runs through `bot dryrun`, which
 replays the same Engine and therefore executes the 1.5R target and the 18-bar
-hold clock; `bot live` remains stop-only and is not used for this sleeve
-(`research/uni/UNI_CAPITULATION.md`, "Deployment status").
+hold clock; `bot deploy` manages the target and trail locally too, so both
+books follow the same exits (`research/uni/UNI_CAPITULATION.md`, "Deployment status").

@@ -480,7 +480,7 @@ def format_status(payload: Mapping[str, Any]) -> str:
         f"{payload.get('strategy')}  {payload.get('symbol')}  {payload.get('timeframe')}"
         f"  bars {payload.get('window', {}).get('bars')}"
         f"  as of {str(payload.get('updated_at', ''))[:19].replace('T', ' ')} UTC",
-        ("  live      $%8.2f   %+6.1f%% since %s  (%d trades)"
+        ("  deploy    $%8.2f   %+6.1f%% since %s  (%d trades)"
          % (deploy.get("wallet", 0.0), float(deploy.get("return_pct", 0.0)) * 100,
             str(deploy.get("deployed_at", ""))[:10], int(deploy.get("trades", 0)))),
         ("  history   $%8.2f   %+7.1f%% over the window  (%d trades, %4.0f%% win, dd %5.1f%%)"

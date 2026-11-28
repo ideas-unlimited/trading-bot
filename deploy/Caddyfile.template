@@ -1,11 +1,11 @@
 # Rendered by deploy/public_web.sh into /etc/caddy/Caddyfile.
 # Two hostnames so the world is unmistakable:
-#   {{PAPER_DOMAIN}} -> 127.0.0.1:9000  (paper: simulated fills)
-#   {{PROD_DOMAIN}}  -> 127.0.0.1:9001  (production: real money)
-# The legacy hostname redirects to paper, so old bookmarks cannot be ambiguous.
+#   {{DEMO_DOMAIN}} -> 127.0.0.1:9000  (demo: simulated fills)
+#   {{LIVE_DOMAIN}} -> 127.0.0.1:9001  (live: real money, venue not configured)
+# The bare hostname redirects to demo, so old bookmarks cannot be ambiguous.
 # {{USER}} / {{HASH}} are the basic-auth login and its bcrypt hash.
 
-{{PAPER_DOMAIN}} {
+{{DEMO_DOMAIN}} {
 	basic_auth {
 		{{USER}} {{HASH}}
 	}
@@ -17,14 +17,14 @@
 	}
 	reverse_proxy 127.0.0.1:9000
 	log {
-		output file /var/log/caddy/paper.log {
+		output file /var/log/caddy/demo.log {
 			roll_size 5MB
 			roll_keep 5
 		}
 	}
 }
 
-{{PROD_DOMAIN}} {
+{{LIVE_DOMAIN}} {
 	basic_auth {
 		{{USER}} {{HASH}}
 	}
@@ -36,7 +36,7 @@
 	}
 	reverse_proxy 127.0.0.1:9001
 	log {
-		output file /var/log/caddy/prod.log {
+		output file /var/log/caddy/live.log {
 			roll_size 5MB
 			roll_keep 5
 		}
@@ -44,5 +44,5 @@
 }
 
 {{LEGACY_DOMAIN}} {
-	redir https://{{PAPER_DOMAIN}}{uri} 302
+	redir https://{{DEMO_DOMAIN}}{uri} 302
 }

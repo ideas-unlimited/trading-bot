@@ -4,7 +4,7 @@ Public REST endpoint, no key, no account - read-only market data.  Any
 other venue's feed tracks the same market but from a different book, and the
 4h prices differ by a fraction of a percent.  That fraction is enough to move a
 SMA-cross fill by one bar, and one bar is the difference between +372% and
-+184% over three years, so the live books must read the same venue the
++184% over three years, so the deployed books must read the same venue the
 research read.
 '''
 

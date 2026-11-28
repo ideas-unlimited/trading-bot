@@ -83,7 +83,7 @@ class UptimeTests(unittest.TestCase):
         bot.update(over)
         return bot
 
-    def test_live_bot_reports_its_uptime(self) -> None:
+    def test_deploy_bot_reports_its_uptime(self) -> None:
         from datetime import datetime, timezone
 
         from bot.web import _decorate_bot
@@ -348,7 +348,7 @@ class EquityCurveTests(unittest.TestCase):
         self.assertEqual(data["contributors"], 1)
         self.assertEqual(data["series"][-1]["equity"], 1005.0)
 
-    def test_live_ignores_the_dryrun_csvs(self) -> None:
+    def test_live_env_ignores_the_dryrun_csvs(self) -> None:
         from types import SimpleNamespace
 
         state = self.base / "state"

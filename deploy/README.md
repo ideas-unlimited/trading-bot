@@ -1,9 +1,9 @@
 # Deploy (Debian 13 / Ubuntu 24.04)
 
-Promotion flow (lab -> paper -> prod): see `PROMOTION.md`.
+Promotion flow (lab -> demo -> live): see `PROMOTION.md`.
 
-**The trading box is production from day one — paper trading counts as
-production.** It is not a research machine:
+**The trading box is operational from day one — demo trading counts as a
+real workload.** It is not a research machine:
 
 - No experiments, probes, sweeps or test runs on the server. Research and
   testing happen on the laptop, where a mistake costs nothing.
@@ -17,11 +17,11 @@ No live broker path exists: orders only ever go to the Binance demo account.
 
 Target hosts:
 
-- **Trading (Binance), paper and prod:** OVH VPS, **Sydney** — 4 vCPU, 8 GB
+- **Trading (Binance), demo and live:** OVH VPS, **Sydney** — 4 vCPU, 8 GB
   RAM, 75 GB local disk, automated backup with 1 rotation. Binance returns
   HTTP 451 to US IPs, so the exchange-connected bots can only run here. Both
-  dashboards and the dry-run runner live on this one box (an earlier plan
-  split paper onto a separate "CometVPS Seattle" host; that was dropped
+  dashboards and the dry-run runner run on this one box (an earlier plan
+  split demo onto a separate "CometVPS Seattle" host; that was dropped
   2026-11-28).
 
 The box needs ~1 GB of RAM and ~3 GB of disk for the whole book (measured
@@ -57,7 +57,7 @@ bash deploy/install.sh
 ```
 
 Installs Python venv + Postgres, creates the three databases
-(`trading_common`, `trading_paper`, `trading_prod`), writes
+(`trading_common`, `trading_demo`, `trading_live`), writes
 `/opt/trading-bot/.env`, installs the bot and both web units, the dry-run
 sleeve runner and the backup timer, enables the dashboards and the dry-run
 loop, opens UFW (SSH only), starts fail2ban, and schedules a nightly `pg_dump`.
@@ -66,18 +66,18 @@ Re-running is safe; it never overwrites `.env`.
 ## 4. Add the Binance demo keys
 
 Credentials are **per world**: the app loads `.env.<env>` first, then `.env`.
-The demo pair belongs in `.env.paper` only.
+The demo pair belongs in `.env.demo` only.
 
 ```bash
-sudo install -m 600 -o trader -g trader /dev/null /opt/trading-bot/.env.paper
-sudo vi /opt/trading-bot/.env.paper   # BINANCE_DEMO_KEY / BINANCE_DEMO_SECRET
+sudo install -m 600 -o trader -g trader /dev/null /opt/trading-bot/.env.demo
+sudo vi /opt/trading-bot/.env.demo   # BINANCE_DEMO_KEY / BINANCE_DEMO_SECRET
 sudo systemctl enable --now tradingbot@btc tradingbot@eth tradingbot@sol
 ```
 
 Until the placeholders are replaced the bots stay disabled on purpose; the
 web terminal runs regardless.
 
-**Prod refuses demo credentials** (`BinanceLiveClient` raises before reading
+**Live refuses demo credentials** (`BinanceOrderClient` raises before reading
 a key), so the 9001 dashboard shows *live venue not configured* rather than
 a virtual balance. There is no live order path; adding one is a deliberate
 code change with review, not a config flip or a copied key.
@@ -94,6 +94,26 @@ It fast-forwards `origin`, reinstalls the package, restarts the web service,
 any running bot unit and the dry-run runner. Hand-editing files inside `/opt/trading-bot` is
 what breaks this: change code locally, `git commit`, `git push`, pull here.
 
+### Updating a box installed before the demo/live rename
+
+The 2026-11-29 rename moved databases (`trading_paper` -> `trading_demo`,
+`trading_prod` -> `trading_live`), the `paper_trades` table, state
+directories, env files and unit names. `update.sh` refuses to run while it
+sees the old layout. Migrate once, in this order:
+
+```bash
+cd /opt/trading-bot
+git pull
+sudo bash deploy/migrate_terms.sh
+sudo bash deploy/update.sh
+sudo bash deploy/public_web.sh 139-99-236-166.sslip.io
+```
+
+`migrate_terms.sh` is idempotent. It stops the old loops before renaming
+the databases, copies state rather than deleting it, moves any demo keys out
+of the shared `.env` into `.env.demo`, and restarts only the units that were
+active. Re-render Caddy last so the old hostnames disappear.
+
 Editorial config stays outside the clone — `/etc/caddy/Caddyfile` (rendered
 from `deploy/Caddyfile.template`) and `/etc/tradingbot/*.env` — because root
 daemons read them and they belong to the box, not to the repository.
@@ -104,13 +124,13 @@ Two hostnames, two worlds, one checkout:
 
 | URL | World | Port | Database |
 |---|---|---|---|
-| `https://paper.139-99-236-166.sslip.io/` | PAPER - simulated fills | 9000 | `trading_paper` |
-| `https://prod.139-99-236-166.sslip.io/` | PRODUCTION - real money | 9001 | `trading_prod` |
-| `https://139-99-236-166.sslip.io/` | redirects to paper | - | - |
+| `https://demo.139-99-236-166.sslip.io/` | DEMO - simulated fills | 9000 | `trading_demo` |
+| `https://live.139-99-236-166.sslip.io/` | LIVE - real money | 9001 | `trading_live` |
+| `https://139-99-236-166.sslip.io/` | redirects to demo | - | - |
 
-The env is rendered into the page server-side (title, a green PAPER or red
-PRODUCTION banner, matching accent), so a screenshot always says which world
-it is. Prod is read-only for bots and presets: create and tune on paper, then
+The env is rendered into the page server-side (title, a green DEMO or red
+LIVE banner, matching accent), so a screenshot always says which world
+it is. Live is read-only for bots and presets: create and tune on demo, then
 promote with a manifest (`PROMOTION.md`). Each dashboard lists **only** the
 strategies its `promotions/<env>/` manifests activate; the laptop runs
 `BOT_LAB=1` (via `start_trader.cmd`) to see the whole registry while
@@ -127,8 +147,8 @@ Re-running reuses the existing login and password hash, so it cannot lock you
 out; pass `WEB_PASSWORD='new-pass'` to rotate. Certificates are issued per
 hostname (sslip.io resolves the subdomains to the same IP).
 
-For a tunnel instead: `ssh -L 9000:127.0.0.1:9000 <user>@<ip>` (paper) or
-`ssh -L 9001:127.0.0.1:9001 <user>@<ip>` (prod).
+For a tunnel instead: `ssh -L 9000:127.0.0.1:9000 <user>@<ip>` (demo) or
+`ssh -L 9001:127.0.0.1:9001 <user>@<ip>` (live).
 
 ## Heartbeat (is the bot alive?)
 
@@ -161,10 +181,10 @@ the env file, restart the unit.
 
 | Check | URL in | Pings | Green means |
 |---|---|---|---|
-| dry-run runner | `/etc/tradingbot/forward.env` | after every pass, every 30 min, even a failed one | the sleeve replay process is turning |
+| dry-run runner | `/etc/tradingbot/dryrun.env` | after every pass, every 30 min, even a failed one | the sleeve replay process is turning |
 | book | `/etc/tradingbot/watchdog.env` | every 5 min, **only while no running bot is stale** | every trading loop is beating |
 
-The dry-run check is about one process: `tradingbot-forward` replays every
+The dry-run check is about one process: `tradingbot-dryrun` replays every
 promoted sleeve in a single loop, and when it dies the record simply stops
 advancing - indistinguishable from a quiet market. The book check is about
 the `tradingbot@*` loops, read per bot from the database, which is also
@@ -197,7 +217,7 @@ exit reason.  The subject is compact, e.g.
 `strategy:side:price: entry/sl/tp` — and the body carries the details.
 
 The dry-run runner is deliberately **silent by default**: it is a shadow
-replay, not a trade, so it would duplicate the trading message.  `bot forward
+replay, not a trade, so it would duplicate the trading message.  `bot dryrun
 --alerts` opts in for a manual check; the systemd unit does not pass it, and
 its cursor still prevents replaying history.
 
@@ -260,12 +280,13 @@ and never stops the record.
 | Task | Command |
 |---|---|
 | Follow logs | `journalctl -u 'tradingbot@*' -u tradingbot-web -f` |
-| One bot's state | `cat /var/lib/tradingbot/btc.json` |
-| Stop everything | `systemctl stop 'tradingbot@*' tradingbot-web` |
+| One bot's state | `cat /var/lib/tradingbot/demo/btc.json` |
+| Stop everything | `systemctl stop 'tradingbot@*' tradingbot-web tradingbot-web-live tradingbot-dryrun` |
 | Add a bot | new `/etc/tradingbot/<name>.env` (template below), then `systemctl enable --now tradingbot@<name>` |
 | Watchdog | `systemctl list-timers tradingbot-watchdog` · `journalctl -u tradingbot-watchdog -n 50` · `sudo -u trader /opt/trading-bot/.venv/bin/bot watchdog --dry-run` |
 | Update | `sudo bash /opt/trading-bot/deploy/update.sh` |
-| Restore a dump | `for db in trading_common trading_paper trading_prod; do zcat /var/backups/tradingbot/$db-<date>.sql.gz | runuser -u postgres -- psql $db; done` |
+| Migrate paper/prod names | `sudo bash /opt/trading-bot/deploy/migrate_terms.sh` (then update and render Caddy) |
+| Restore a dump | `for db in trading_common trading_demo trading_live; do zcat /var/backups/tradingbot/$db-<date>.sql.gz | runuser -u postgres -- psql $db; done` |
 
 ### Per-bot env file
 
@@ -282,7 +303,7 @@ CAPITAL=1000
 STATE=/var/lib/tradingbot/near.json
 POLL=60
 # Fresh release joins the model's current side at today's close; it never
-# copies a historical fill or credits that P&L. Manual `bot live` defaults off.
+# copies a historical fill or credits that P&L. Manual `bot deploy` defaults off.
 STARTUP_REPLAY=1
 # The sleeve's backtest profile; the defaults are 0.01 / 0.95 / 0.10.
 RISK_PER_TRADE=0.03
@@ -298,7 +319,7 @@ them behaves exactly as before.  Most per-symbol swing sleeves were measured at
 10% default they would halt mid-year (NEAR's own history draws down 12.9%
 before recovering).  `capitulation_dip_uni` and `jup_liquidity_15m` are the
 exceptions: their manifests say 5% / 50% / a 10% brake.  The dry-run runner
-reads each manifest's own profile (the `tradingbot-forward.service` flags are
+reads each manifest's own profile (the `tradingbot-dryrun.service` flags are
 fallback only), so copy the sleeve's manifest into its bot env, not this
 example.  The ATR stop on each trade is the real risk control.
 

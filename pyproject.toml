@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "trading-bot"
 version = "0.1.0"
-description = "A small, honest backtesting and paper-trading framework"
+description = "A small, honest backtesting and demo-trading framework"
 requires-python = ">=3.11"
 dependencies = ["pandas>=2.0", "numpy>=1.26"]
 

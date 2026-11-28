@@ -1,7 +1,7 @@
 """Outbound trade alerts: email, Telegram and ntfy.
 
 These are trade notifications, not a trading path.  A missing SMTP password
-or an expired Telegram token must never stop the forward runner, so every
+or an expired Telegram token must never stop the dry-run runner, so every
 channel is best-effort and Notifier never raises.  Channels are configured
 from the process environment (on the server the systemd EnvironmentFile at
 /etc/tradingbot/alerts.env), never from git: an SMTP password and a bot
@@ -73,8 +73,8 @@ def _utc(value: Any) -> str:
 def format_trade(event: Mapping[str, Any]) -> tuple[str, str]:
     """Return (subject, body) for one entry or exit fill.
 
-    event is deliberately plain data so the live loop and the optional
-    forward replay can build it without importing the engine.
+    event is deliberately plain data so the deploy loop and the optional
+    dry-run replay can build it without importing the engine.
     """
     side = str(event.get("side") or "").strip().lower()
     is_buy = side == "buy"

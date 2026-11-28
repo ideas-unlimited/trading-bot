@@ -6,7 +6,7 @@ prepare(), so the same grid asks the same economic question on each chart (a
 2-day breakout is 192 bars at 15m, 96 at 30m, 48 at 1h) instead of silently
 shrinking when the timeframe gets faster.
 
-Two deviations from the live defaults, both required for a fair comparison:
+Two deviations from the deployed defaults, both required for a fair comparison:
   * the 10% account drawdown kill switch is OFF (`max_drawdown_stop=0.99`).
     Left on, it fires inside the window and flattens the rest of the test, so
     a config that halts early would be scored on fewer decisions than one

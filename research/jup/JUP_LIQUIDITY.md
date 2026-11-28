@@ -166,7 +166,7 @@ Do **not** ship this as a JUP sleeve. The honest reading of the data:
 - Add a market-regime gate (e.g. BTC/ETH trend or breadth) and test it on
   more than one coin; JUP alone, in a -77% two-year bear, cannot distinguish
   an edge from a survivorship-shaped bounce.
-- Forward-paper a lab-only version before any promotion.
+- Dry-run a lab-only version on demo before any promotion.
 
 ## Reproduce
 

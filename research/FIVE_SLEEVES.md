@@ -24,31 +24,31 @@ PYTH is **not** shipped. Its pick is the weakest of the five (+42.6% but
 the book, so there is no `swing_pullback_pyth` sleeve.
 
 The other four ship as per-symbol sleeves in `src/bot/strategy/` (static
-modules, tuned defaults baked in, one test each), promoted to paper as $1,000
+modules, tuned defaults baked in, one test each), promoted to demo as $1,000
 wallets with the evidence below:
 
 | coin | sleeve | year | trades | win | PF | Sharpe | promoted |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| NEAR | `swing_pullback_near` | +86.0% / -12.9% | 61 | 49.2% | 1.73 | 2.23 | `promotions/paper/swing_pullback_near.json` |
-| RENDER | `swing_breakout_render` | +70.1% / -11.9% | 34 | 55.9% | 2.24 | 2.31 | `promotions/paper/swing_breakout_render.json` |
-| ARB | `swing_breakout_arb` | +67.2% / -8.4% | 30 | 56.7% | 2.33 | 2.60 | `promotions/paper/swing_breakout_arb.json` |
-| JUP | `capitulation_dip_jup` | +58.8% / -7.9% | 32 | 62.5% | 2.67 | 2.62 | `promotions/paper/capitulation_dip_jup.json` |
+| NEAR | `swing_pullback_near` | +86.0% / -12.9% | 61 | 49.2% | 1.73 | 2.23 | `promotions/demo/swing_pullback_near.json` |
+| RENDER | `swing_breakout_render` | +70.1% / -11.9% | 34 | 55.9% | 2.24 | 2.31 | `promotions/demo/swing_breakout_render.json` |
+| ARB | `swing_breakout_arb` | +67.2% / -8.4% | 30 | 56.7% | 2.33 | 2.60 | `promotions/demo/swing_breakout_arb.json` |
+| JUP | `capitulation_dip_jup` | +58.8% / -7.9% | 32 | 62.5% | 2.67 | 2.62 | `promotions/demo/capitulation_dip_jup.json` |
 
-Live as of 2026-11-28: `tradingbot@near`, `tradingbot@render`, `tradingbot@arb`
-(4h, $1,000 each, 3% risk) plus the forward replay of all four. JUP has no live
+Running as of 2026-11-28: `tradingbot@near`, `tradingbot@render`, `tradingbot@arb`
+(4h, $1,000 each, 3% risk) plus the dry-run replay of all four. JUP has no demo
 slot: `jup_liquidity_15m` already trades that symbol, and two bots on one
 symbol share one demo balance and would close each other's position. Its 4h
-sleeve therefore accrues its record in the forward replay only.
+sleeve therefore accrues its record in the dry-run replay only.
 
 `research/five_sleeves_promote.py --write` regenerates the four evidence files
 in `research/evidence/`; each one replays the *shipped default* through
 `Engine` and must reproduce the table above before a manifest is stamped. The
 honesty caveats further down are unchanged: picks are best-of-hundreds on the
-reported year, so the forward record - not this table - is the test.
+reported year, so the dry-run record - not this table - is the test.
 
 ### Cross-check: the window one year earlier
 
-The forward runner replays 730 days (2-year cap) at the same 3%/95% profile,
+The dry-run runner replays 730 days (2-year cap) at the same 3%/95% profile,
 so it also covers the year *before* the tuning window.  Split the two-year
 equity by year and the tuning year stops looking like the rule:
 
@@ -68,7 +68,7 @@ headline comes from one regime, and over two years JUP is +17.5% with a
 -33.8% drawdown and NEAR +25.6% with -36.3%.  Neither prior year was traded by
 the tuner, so this is the closest thing to an out-of-sample check these four
 have - and it says two of the four are regime bets, not edges.  They stay
-promoted (paper money, forward record decides), but the forward line is the
+promoted (demo money, dry-run record decides), but the dry-run line is the
 unflattering one and the one to quote.
 
 ## The five
@@ -143,7 +143,7 @@ long different coins at different times.
 
 ## Next step
 
-Run the five forward on paper and compare trade-by-trade against this table.
+Run the five dry runs on demo and compare trade-by-trade against this table.
 Tuning them again on the same 365 days only moves the fit.
 
 Files: `five_sleeves.py` (grid + stats), `five_sleeves.csv` (all cells),

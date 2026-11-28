@@ -409,7 +409,7 @@ def main() -> None:
                 "<li>As a book the five combine into +%s with a −%s drawdown, because the "
                 "sleeves trade different coins at different times. That is the real argument for "
                 "one rule per coin over one rule for all coins.</li>"
-                "<li>Next step that would actually settle it: run these five forward on paper "
+                "<li>Next step that would actually settle it: run these five dry runs on demo "
                 "for a quarter and compare trade-by-trade against this table, rather than "
                 "tuning them again on the same year.</li>"
                 "</ul>" % (pc(picks[picks.symbol == "PYTH/USDT"].ret.iloc[0] / 5),

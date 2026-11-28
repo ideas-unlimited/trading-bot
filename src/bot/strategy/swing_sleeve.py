@@ -8,7 +8,7 @@ never be mistaken for a pooled rule.
 
 Windows are given in **bars of the sleeve's own chart**, with the research
 value in hours in the docstring.  The 4h sleeves divide research hours by 4;
-the 1d sleeves divide by 24.  The bar count stays correct when the live loop
+the 1d sleeves divide by 24.  The bar count stays correct when the deploy loop
 rebuilds a shorter frame.
 
 Both families are long-only spot and both use the same risk skeleton:
@@ -79,7 +79,7 @@ class SwingSleeve(Strategy):
             if self._entry_ts is None:
                 self._entry_ts = ts
             # Locate the entry bar by timestamp, not by a saved integer: the
-            # live loop rebuilds the frame with a rolling start, so an index
+            # deploy loop rebuilds the frame with a rolling start, so an index
             # would drift by one bar per poll.
             pos = (df["ts"] == self._entry_ts).to_numpy().nonzero()[0]
             entry_i = int(pos[0]) if len(pos) else i

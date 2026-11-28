@@ -2,8 +2,8 @@
 import io
 from datetime import datetime, timedelta, timezone
 
-from tests.test_live import _FakeClient, _payload
-from bot.live import LiveTrader
+from tests.test_deploy import _FakeClient, _payload
+from bot.deploy import DeployTrader
 from bot.strategy import build
 from bot.config import BotConfig
 
@@ -24,7 +24,7 @@ extra = [
 ]
 client.payload = {"bars": _payload()["bars"] + extra}
 log = io.StringIO()
-trader = LiveTrader(
+trader = DeployTrader(
     client, build("sma_cross"), BotConfig(), "SPY", "1d",
     state_path="runs/state_debug.json", stream=log, clock=lambda s: None,
 )

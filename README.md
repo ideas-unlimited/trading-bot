@@ -1,7 +1,7 @@
 # trading-bot
 
 A small, honest framework for developing and evaluating a trading strategy:
-**backtest → measure → paper trade**.  Everything runs offline on simulation
+**backtest → measure → demo trade**.  Everything runs offline on simulation
 money; there is deliberately no code path that can place a real order.
 
 > **Not investment advice.** Most retail trading bots lose money after fees,
@@ -37,12 +37,12 @@ export PYTHONPATH=src          # Windows bash: same; PowerShell: $env:PYTHONPATH
 python -m bot strategies
 python -m bot gen-data --bars 5000 --out data/sample.csv
 python -m bot backtest --source csv --csv data/sample.csv --strategy sma_cross --plot
-python -m bot paper    --source synthetic --strategy rsi_meanrev --delay 0.05
+python -m bot demo     --source synthetic --strategy rsi_meanrev --delay 0.05
 python -m unittest discover -s tests
 ```
 
 `backtest` writes `runs/trades.csv` and (with `--plot`) `runs/equity.png`.
-`paper` replays bars through the same engine and narrates fills — no orders.
+`demo` replays bars through the same engine and narrates fills — no orders.
 
 ## Crypto swing / rotation playbook
 
@@ -55,7 +55,7 @@ with less history uses everything since its listing.
 > found; several measurements were taken under the previous three-year cap or
 > against books that have since changed. They are kept because they explain
 > why the rules look the way they do, and they are not reproducible under
-> today's two-year rule. The dry-run paper books (A-E) are documented at the
+> today's two-year rule. The dry-run demo books (A-E) are documented at the
 > end of this file.
 
 The rule that survived a 1,750-config search on the last 12 months and the
@@ -166,11 +166,11 @@ On the earlier three-year window the rotation core returned +119.7% with a
 -29.7% drawdown, so the 4h book is the default. All of these win less than
 half their trades - the edge is payoff asymmetry, not hit rate.
 
-## Binance spot paper trading (demo account)
+## Binance spot demo trading (demo account)
 
 Signals read **production** Binance klines (`api.binance.com`, public, no key);
 orders go to **demo trading** (`https://demo-api.binance.com`) with demo keys.
-There is no production order path in the code, and no futures, margin or
+There is no live-money order path in the code, and no futures, margin or
 shorts — spot, long only.
 
 1. Create demo-trading API keys in the Binance app (Demo Trading → API
@@ -202,38 +202,38 @@ Writes a ranked table (by Sharpe) and `runs/scan.csv`.  Bars are cached in
 Postgres and delta-synced, so repeated scans cost no API calls.  `6h` is a
 native Binance timeframe.
 
-**Trading bot (paper)** — the internal `bot live` loop polls freshly-closed
-production bars, computes signals with the same no-lookahead semantics as the
+**Trading bot (demo)** — the `bot deploy` loop polls freshly-closed
+Binance market bars, computes signals with the same no-lookahead semantics as the
 backtester, sizes from the stop distance, and sends market orders to the demo
 account at the signal bar's close.  The dry-run fills at the next bar's open,
 so the two books can differ by design.  Spot has no
 bracket orders, so the ATR stop is checked locally on each closed bar:
 
 ```bash
-python -m bot live --symbol BTC/USDT --interval 1h --strategy sma_cross --poll 60
-python -m bot live --symbol BTC/USDT --interval 1d --strategy sma_cross --once   # single poll
+python -m bot deploy --symbol BTC/USDT --interval 1h --strategy sma_cross --poll 60
+python -m bot deploy --symbol BTC/USDT --interval 1d --strategy sma_cross --once   # single poll
 ```
 
-State (last processed bar, local stops) lives in `runs/live_state.json`.
+State (last processed bar, local stops) lives in `runs/deploy_state.json`.
 On a fresh state the service bot reconstructs the strategy's current stance
 from the closed window and opens it at the newest close (`STARTUP_REPLAY=1`,
 the `run_bot.sh` default); it never copies the dry-run's historical fills or
-P&L. A manual `bot live` keeps the conservative anchor-and-stay-flat default.
+P&L. A manual `bot deploy` keeps the conservative anchor-and-stay-flat default.
 
-The names say what the book does: a **trading bot** (`bot live`) places demo
-orders and appears on the Bots page; a **dry-run bot** (`bot forward`) only
-replays. Commands, systemd units and API keys keep the old `live`/`forward`
-spellings because they are identifiers.
+The names say what the book does: a **trading bot** (`bot deploy`) places demo
+orders and appears on the Bots page; a **dry-run bot** (`bot dryrun`) only
+replays. Commands, systemd units and API keys use the new `deploy`/`dryrun`
+spellings; `live` is reserved for real money.
 
-**Dry-run sleeve runner** (command: `bot forward`) — the per-symbol counterpart
+**Dry-run sleeve runner** (command: `bot dryrun`) — the per-symbol counterpart
 of `bot auto`.  It replays each sleeve over the cached window through the same
 `Engine` as the backtest (next-open fills, stop-first, take-profit, time exit),
 pins the deploy equity and writes one folder per sleeve:
 
 ```
-runs/<env>/<strategy>/forward/status.json
-runs/<env>/<strategy>/forward/<SYMBOL>.trades.csv
-runs/<env>/<strategy>/forward/<SYMBOL>.equity.csv
+runs/<env>/<strategy>/dryrun/status.json
+runs/<env>/<strategy>/dryrun/<SYMBOL>.trades.csv
+runs/<env>/<strategy>/dryrun/<SYMBOL>.equity.csv
 ```
 
 No key, no order, no position the demo account could close.  `--all` walks
@@ -241,17 +241,17 @@ every active manifest in one loop, re-reading them each cycle, so promoting
 or demoting a sleeve changes the next cycle without editing a unit:
 
 ```bash
-python -m bot forward --all --poll 900            # every promoted sleeve
-python -m bot forward --all --once               # one pass, e.g. Task Scheduler
-python -m bot forward --strategy capitulation_dip_uni --symbol UNI/USDT --once
+python -m bot dryrun --all --poll 900            # every promoted sleeve
+python -m bot dryrun --all --once               # one pass, e.g. Task Scheduler
+python -m bot dryrun --strategy capitulation_dip_uni --symbol UNI/USDT --once
 ```
 
 Without `--all` it runs one sleeve by hand and refuses outside `BOT_LAB`
 unless an active manifest names the strategy, symbol and timeframe; it also
 checks the sleeve's parameter hash against that manifest, so the replay
 measures exactly what was promoted.  A failed sleeve is logged and skipped,
-never fatal to the others.  `start_forward.cmd [seconds]` launches the
-all-sleeve loop detached on Windows, logging to `logs/forward_<ts>.log`.
+never fatal to the others.  `start_dryrun.cmd [seconds]` launches the
+all-sleeve loop detached on Windows, logging to `logs/dryrun_<ts>.log`.
 `since deploy` starts at the first cycle and is re-pinned only if the two-year
 window start moves, so a history cap change cannot show up as a phantom loss.
 
@@ -298,20 +298,20 @@ src/bot/
   config.py        cost + risk settings (frozen dataclasses)
   backtest.py      single-symbol bar-by-bar engine, next-bar fills, intrabar stops
   book.py          one wallet across several coins, per-symbol configs, trailing stop
-  autobook.py      BookSpec definitions + the dry-run paper books
+  autobook.py      BookSpec definitions + the dry-run demo books
   broker.py        long-only fills, fees, slippage, round-trip accounting
   risk.py          stop-based sizing, position caps, drawdown kill switch
   metrics.py       return/CAGR/Sharpe/Sortino/drawdown/win-rate/profit factor
   report.py        summary text, trades csv, equity chart
-  paper.py         live-ish replay through the same engine
-  live.py          Binance production signals -> demo orders, local stops
-  cli.py           gen-data | backtest | book | auto | pool | live | scan | promote ...
+  demo.py          demo replay through the same engine
+  deploy.py        Binance market signals -> demo orders, local stops
+  cli.py           gen-data | backtest | book | auto | pool | demo | deploy | dryrun | scan ...
   data/            Bar type, csv loader, Binance/TradingView feeds, synthetic generator
   strategy/        base interface, registry, one module per rule or per-symbol sleeve
   analysis.py      shared indicators, structure, regime and volume primitives
   promotions.py    activation manifests + promotion gate checks
   symbolcfg.py     per-coin parameter validation for research and replay
-  forward.py       per-sleeve forward replay, deploy pin and status file
+  dryrun.py        per-sleeve dry-run replay, deploy pin and status file
   scanlib.py       bars cache + incremental Binance sync under the 2-year cap
   web.py           dashboard and JSON API (env-branded, promotion-aware)
   db.py            Postgres schema: bots, trades, equity, events, promotions
@@ -403,15 +403,15 @@ verify that simulated and live fills agree before scaling.
   latency. Short-horizon strategies will look far better here than in reality.
 - **Fixed slippage**: real slippage scales with size and volatility.
 - **The engine ships no parameter search**: searching and walk-forward
-  validation live in `research/`, because both are easy to do badly. A fit is
+  validation runs in `research/`, because both are easy to do badly. A fit is
   only accepted when an untouched later slice agrees (`docs/TARGETS.md`).
 - **Synthetic data is a random walk**, not a market. Do not tune against it.
 
 Next steps worth doing, in order: capital-scaled slippage, then a dry-run
-paper run for each sleeve. Walk-forward validation and an out-of-sample
+demo run for each sleeve. Walk-forward validation and an out-of-sample
 holdout already exist in `research/`; use them before shipping a fit.
 
-## Running the paper books
+## Running the demo books
 
 Five wallets of $1,000 each, replayed as dry runs on Binance 4h bars:
 
@@ -431,7 +431,7 @@ python -m bot auto --once # single cycle, for Task Scheduler
 
 Nothing is ordered. Each cycle delta-syncs the bars cache, cuts the bar that
 is still forming, replays every book over the two-year window and writes
-`runs/paper/autobooks/status.json` plus `runs/paper/autobooks/<book>/{equity,trades}.csv`.
+`runs/demo/autobooks/status.json` plus `runs/demo/autobooks/<book>/{equity,trades}.csv`.
 The replay is deterministic, so a restart cannot corrupt a wallet; the number
 that matters is **since deploy**, which starts when the book first runs. The
 `history` line is the backtest, shown for context only.
@@ -440,7 +440,7 @@ Run the cycle just after a 4h close (00:00, 04:00, 08:00, 12:00, 16:00,
 20:00 UTC). The replay always fills at the next bar's true open, so a late
 poll matches the backtest exactly - which is also its one optimism: a real
 order placed four hours late would not get that price. Prompt polling keeps
-the paper book honest rather than flattering.
+the demo book honest rather than flattering.
 
 ### Per-symbol sleeves
 
@@ -464,10 +464,10 @@ config/target_symbols.json` runs one $1,000 wallet per coin for comparison.
 ### Promotion
 
 A strategy becomes visible to the dashboard only when
-`promotions/paper/<name>.json` exists and is active:
+`promotions/demo/<name>.json` exists and is active:
 
 ```bash
-python -m bot promote capitulation_dip_uni --to paper \
+python -m bot promote capitulation_dip_uni --to demo \
   --symbols UNI/USDT --timeframe 4h \
   --params '{"window": 20, "drop_pct": 0.2, "stop_atr": 2.5, "rr": 1.5, "max_hold": 18}' \
   --evidence evidence.json
@@ -480,12 +480,12 @@ PASS/FAIL line per check; `--force --reason "..."` overrides it and records
 the reason in the manifest.  Then start its dry-run record:
 
 ```bash
-python -m bot forward --all --poll 900   # one loop for every active manifest
+python -m bot dryrun --all --poll 900   # one loop for every active manifest
 ```
 
-It writes `runs/<env>/<strategy>/forward/status.json`; the deploy mark is
+It writes `runs/<env>/<strategy>/dryrun/status.json`; the deploy mark is
 pinned on the first cycle, so "since deploy" is the honest dry-run number and
 not a re-slice of the backtest.
 why. `bot promotions` lists what is active, `bot demote` drains it. The full
-contract, including the paper -> prod gate, is `deploy/PROMOTION.md`.
+contract, including the demo -> live gate, is `deploy/PROMOTION.md`.
 

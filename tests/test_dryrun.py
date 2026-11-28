@@ -73,7 +73,7 @@ class BuyAt15(Strategy):
         return None
 
 
-class TestForwardRunner(unittest.TestCase):
+class TestDryrunRunner(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.outdir = Path(self.tmp.name)
@@ -157,7 +157,7 @@ class TestForwardRunner(unittest.TestCase):
         self.assertEqual(payload['deploy']['return_pct'], 0.0)
         self.assertEqual(payload['deploy']['deployed_at'][:10], '2024-12-01')
 
-    def test_new_forward_fill_is_alerted_once(self):
+    def test_new_dryrun_fill_is_alerted_once(self):
         class Capture:
             enabled = True
 
@@ -339,7 +339,7 @@ class TestRunSpecs(unittest.TestCase):
 
 
 
-class TestForwardLoopHeartbeat(unittest.TestCase):
+class TestDryrunLoopHeartbeat(unittest.TestCase):
     def test_all_loop_pings_once_per_pass_even_with_no_sleeves(self):
         heartbeat = mock.Mock()
         notifier = mock.Mock(enabled=False)

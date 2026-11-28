@@ -89,7 +89,7 @@ PY
 )
   [[ -z $mismatch ]] || {
     echo "refused: $conf exists with different values:$mismatch" >&2
-    echo "edit the file or demote first; the script never clobbers a live bot config" >&2
+    echo "edit the file or demote first; the script never clobbers an active bot config" >&2
     exit 1
   }
   echo "env        $conf already matches the manifest"

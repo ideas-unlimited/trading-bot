@@ -1,6 +1,6 @@
 # UNI/USDT 4h capitulation-dip sleeve
 
-**Registry: `capitulation_dip_uni`.** **Status: paper candidate, not promoted.**
+**Registry: `capitulation_dip_uni`.** **Status: promoted to demo, active.**
 One symbol, one strategy, parameters fitted on UNI only. No pooled settings.
 
 ## The rule
@@ -14,14 +14,14 @@ create its own reference.
 - Time exit: **18 bars** after entry if neither stop nor target is hit.
 - Long only, spot, one position at a time, next-bar-open fills.
 
-Production module: `src/bot/strategy/capitulation_dip_uni.py` (name
+Shipped module: `src/bot/strategy/capitulation_dip_uni.py` (name
 `capitulation_dip_uni`). It is the only implementation: the research scripts
-now import it rather than keeping a second copy. The production class
+now import it rather than keeping a second copy. The shipped class
 reproduces the 180-config grid byte-for-byte, not just the headline run.
 
 ## Data and costs
 
-- Venue: Binance spot production klines, UNI/USDT.
+- Venue: Binance spot klines, UNI/USDT.
 - Window: **2024-11-28 04:00 to 2026-11-28 00:00 UTC**, 4,381 4h bars.
 - Fills: signal on bar close, fill at next bar open.
 - Costs: **10 bps fee + 5 bps adverse slippage on both sides**.
@@ -108,7 +108,7 @@ Outcome mix: 5 targets at **+1.48R** average, 13 time exits at **+0.37R**
 (the clock closes whatever is left, including one small loss), 1 stop at
 **-0.93R** (gapped through). Expectancy **+0.59R/trade**, i.e. ~$30 per trade
 on a $1,000 wallet at 5% risk - but only **0.79 trades per month**. Median gap
-between entries is 30 days and the longest was 6 months, so two weeks of paper
+between entries is 30 days and the longest was 6 months, so two weeks of demo
 trading will usually contain **zero trades**; budget ~6 weeks for the first
 fill and a year for a dozen.
 
@@ -174,7 +174,7 @@ worth the extra drawdown.
 | 10% | +94.0% | -7.4% | 2.06 |
 
 At 10% the 50% position cap binds, so extra risk stops adding return. The
-5% row is the proposed paper setting: one stop costs about 5% of the account,
+5% row is the proposed demo setting: one stop costs about 5% of the account,
 and the realised max drawdown was essentially one stop.
 
 ## Cost stress (5% risk)
@@ -263,7 +263,7 @@ crash events.
   same trade.
 - Measured delay cost on the last 12 months' 34 -20% events: +1h average
   -0.18%, +2h +0.41%, +4h +0.53%. A one-hour delay is not a disaster, but
-  prompt is better and the live fill should be measured forward.
+  prompt is better and the actual fill should be measured against the backtest.
 - Median entry notional was 41% of equity; the 50% cap is what keeps one gap
   from becoming an account-level event.
 - The sleeve is in cash about 97% of the time. It is a single-symbol
@@ -281,12 +281,12 @@ crash events.
 3. **Selection.** The rule and parameters came from a grid on this data. The
    180/180 plateau and the year-1/year-2 split are the mitigations; they are
    not a guarantee.
-4. **No live routing.** Paper only. The Binance demo path exists; no real
+4. **No live routing.** Demo only. The Binance demo path exists; no real
    order path is wired and none should be added without a deliberate review.
 5. **No older data.** The two-year cap means this exact rule was not tested
    through 2022 or earlier UNI regimes.
 
-## Proposed paper configuration
+## Proposed demo configuration
 
 - Symbol: UNI/USDT
 - Timeframe: 4h
@@ -295,54 +295,52 @@ crash events.
 - Risk: 5% per trade
 - Max position: 50% of equity
 - Max drawdown stop: 10% (system default; never reached in the two-year run)
-- Review: after 20 forward trades or 3 months, whichever comes first; promote
-  only if the forward sample is consistent with the backtest's trade shape
+- Review: after 20 dry-run trades or 3 months, whichever comes first; promote
+  only if the dry-run sample is consistent with the backtest's trade shape
   (average winner, stop frequency, exposure), not just its return.
 
 ## Deployment status
 
-Promoted to **paper** on 2026-11-28:
-`promotions/paper/capitulation_dip_uni.json`, params hash
-`sha256:3520143553854675`, $1,000 wallet. The paper record is kept by the
-forward runner (`bot forward`), not by `bot live`:
+Promoted to **demo** on 2026-11-28:
+`promotions/demo/capitulation_dip_uni.json`, params hash
+`sha256:3520143553854675`, $1,000 wallet. The demo record is kept by the
+dry-run runner (`bot dryrun`), not by `bot deploy`:
 
 ```bash
-python -m bot forward --all --poll 900
+python -m bot dryrun --all --poll 900
 ```
 
 - It replays the sleeve through the same `Engine` as the backtest, so the
   2.5 ATR stop, the 1.5R target and the 18-bar time exit all fire; the
   deploy equity is pinned on the first cycle and state lives in
-  `runs/paper/capitulation_dip_uni/forward/status.json` (one folder per
+  `runs/demo/capitulation_dip_uni/dryrun/status.json` (one folder per
   sleeve; `--all` also picks up any sleeve promoted later).
-- **`bot live` is not used for this sleeve.** It is stop-only on spot and
-  resets the hold clock on restart, so it would silently run a different
-  strategy. Its live-compatible variant was `rr=None`: +55.2%, -7.1% max DD,
+- **`bot deploy` is not used for this sleeve.** It now manages the stop, target and trail, but
+  the 18-bar hold clock is not persisted across restarts, so it would silently run a different
+  strategy. Its deploy-compatible variant was `rr=None`: +55.2%, -7.1% max DD,
   19 trades, Sharpe 1.75 at the same 5% risk / 50% position cap.
 - **`bot auto` is not used either.** The 15-minute books are a multi-coin
   SMA/trail book hardcoded to SmaCross.
 
-What to expect: 19 trades in two years is 0.79/month, so the paper record
-will be flat most weeks and the first forward fill can take a month or more.
-Judge it on the forward trades only, and do not read a 0-trade first month as
+What to expect: 19 trades in two years is 0.79/month, so the demo record
+will be flat most weeks and the first dry-run fill can take a month or more.
+Judge it on the dry-run trades only, and do not read a 0-trade first month as
 a failure of the rule.
 - **A drawdown stop is a brake, not a floor.** It stops new entries after
   the account is down; it does not cap the loss at 10%. The slow-bleed test
   still lost ~27% before the then-25% switch; a 10% brake halts new entries
   sooner but cannot floor a position already open.
 
-So: do not treat a `bot live` run with the 1.5R target as a validation of
-this backtest. Promotion to paper needs one code change first - teach the live
-loop to persist and check the target (and the entry timestamp) the same way it
-handles the stop - or it must be promoted as the `rr=None` variant with that
-choice recorded in the manifest evidence (`deploy/PROMOTION.md`, exit parity).
-After that: a paper sleeve that records simulated fills with the same exit
-semantics, then a forward record long enough to cover several trades - at
+So: do not treat a `bot deploy` run with the 1.5R target as a validation of
+this backtest while the 18-bar clock can reset. A live release would need the
+entry timestamp persisted the same way the stop and target are; for demo the
+replay is the record. The demo sleeve records simulated fills with the same
+exit semantics, then a dry-run record long enough to cover several trades - at
 0.79 trades/month, a dozen trades is about 15 months.
 
 To watch the historical replay through the CLI:
 
-    $env:PYTHONPATH='src'; .venv\Scripts\python.exe -m bot paper --source binance `
+    $env:PYTHONPATH='src'; .venv\Scripts\python.exe -m bot demo --source binance `
       --symbol UNI/USDT --interval 4h --n-bars 4381 --strategy capitulation_dip_uni `
       --param window=20 --param drop_pct=0.20 --param stop_atr=2.5 `
       --param rr=1.5 --param max_hold=18 --risk-per-trade 0.05 `

@@ -1,6 +1,6 @@
 # research/ - the lab
 
-Ideas live here; nothing here runs in the live loop. A study earns its way
+Ideas live here; nothing here runs in the deploy loop. A study earns its way
 onto the shelf by being tuned here and then shipped as a static sleeve
 module, `src/bot/strategy/<strategy>_<symbol>.py`, which carries its tuned
 params and provenance (policy in `docs/TARGETS.md`). There is no runtime
@@ -106,9 +106,9 @@ Artifacts: `wvfx_stage1..4.csv`, `wvfx_pooled_4h.csv`, `wvfx_xcheck.csv`,
 | `five_sleeves.py` | 952 cells across the five coin/rule pairs (grid x stats x bootstrap) -> `five_sleeves.csv`, `five_sleeves_picks.csv` |
 | `five_sleeves_book.py` | the five picks rerun as five $1,000 wallets, combined book + correlations -> `five_sleeves_book.json` |
 | `five_sleeves_report.py` | builds `five_sleeves.html` from the picks and the book JSON |
-| `five_sleeves_promote.py` | replays the four **shipped** sleeves and writes `evidence/<name>.json` for the paper manifests |
+| `five_sleeves_promote.py` | replays the four **shipped** sleeves and writes `evidence/<name>.json` for the demo manifests |
 | `FIVE_SLEEVES.md` | verdict: NEAR/RENDER/ARB hold up (+67 to +86%, -8 to -13% dd); PYTH and JUP sit on spikes (neighbour median +11% and +9%). Shipped as `swing_pullback_near`, `swing_breakout_render`, `swing_breakout_arb`, `capitulation_dip_jup`; **PYTH was dropped** by the owner and has no sleeve |
-| `top5/README.md` | the five-sleeve book (XRP/SUI/INJ/TAO/AVAX), exit ablation, bootstrap and cost stress; shipped and active on paper 2026-11-28 |
+| `top5/README.md` | the five-sleeve book (XRP/SUI/INJ/TAO/AVAX), exit ablation, bootstrap and cost stress; shipped and active on demo 2026-11-28 |
 | `top5_promote.py` | replays the five shipped sleeves through `Engine`, writes `top5/evidence/*.json`, and asserts the strict two-year numbers |
 ### Other
 

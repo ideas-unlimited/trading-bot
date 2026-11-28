@@ -24,7 +24,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-# Live lookback floor in days (see cmd_deploy): fetch at least this much of the
+# Deploy lookback floor in days (see cmd_deploy): fetch at least this much of the
 # bot's own timeframe every poll, regardless of what a fixed bar count would
 # shrink to on a faster chart.
 DEPLOY_LOOKBACK_DAYS = 100
@@ -165,7 +165,7 @@ def _load_bars(args: argparse.Namespace) -> list:
 def _config(args: argparse.Namespace, bars: list) -> BotConfig:
     from .metrics import infer_bars_per_year
 
-    # Not every subparser adds --bars-per-year (the live loop defines its own
+    # Not every subparser adds --bars-per-year (the deploy loop defines its own
     # --symbol/--interval instead of using _add_source_args), so read it
     # defensively and fall back to inferring the factor from the bars.
     bars_per_year = getattr(args, "bars_per_year", None) or infer_bars_per_year([b.ts for b in bars])
@@ -1137,7 +1137,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_bt.add_argument("--json", action="store_true", help="also print metrics as json")
     p_bt.set_defaults(func=cmd_backtest)
 
-    p_demo = sub.add_parser("demo", help="replay bars live-ish with simulated money")
+    p_demo = sub.add_parser("demo", help="replay bars in real time with simulated money")
     _add_source_args(p_demo)
     _add_strategy_args(p_demo)
     _add_cost_args(p_demo)
@@ -1290,38 +1290,38 @@ def build_parser() -> argparse.ArgumentParser:
                         help="JSON {SYMBOL: {param: value}} or a target_symbols.json pool")
     p_auto.set_defaults(func=cmd_auto)
 
-    p_fwd = sub.add_parser(
+    p_dryrun = sub.add_parser(
         "dryrun",
         help="dry-run promoted sleeves as simulated wallets (no orders sent)",
     )
-    p_fwd.add_argument("--all", action="store_true",
+    p_dryrun.add_argument("--all", action="store_true",
                        help="run every active manifest, one folder per sleeve")
-    p_fwd.add_argument("--strategy", default=None, help="sleeve name, e.g. capitulation_dip_uni")
-    p_fwd.add_argument("--symbol", default=None, help='pair, e.g. "UNI/USDT"')
-    p_fwd.add_argument("--interval", default="4h", help="bar timeframe")
-    p_fwd.add_argument("--param", action="append", default=[], metavar="k=v",
+    p_dryrun.add_argument("--strategy", default=None, help="sleeve name, e.g. capitulation_dip_uni")
+    p_dryrun.add_argument("--symbol", default=None, help='pair, e.g. "UNI/USDT"')
+    p_dryrun.add_argument("--interval", default="4h", help="bar timeframe")
+    p_dryrun.add_argument("--param", action="append", default=[], metavar="k=v",
                        help="override a sleeve parameter (repeatable)")
-    p_fwd.add_argument("--initial-cash", type=float, default=1_000.0, help="wallet size")
-    p_fwd.add_argument("--fee-bps", type=float, default=10.0)
-    p_fwd.add_argument("--slippage-bps", type=float, default=5.0)
-    p_fwd.add_argument("--risk-per-trade", type=float, default=0.03)
-    p_fwd.add_argument("--max-position-pct", type=float, default=0.95)
-    p_fwd.add_argument("--max-drawdown-stop", type=float, default=0.99)
-    p_fwd.add_argument("--days", type=int, default=730, help="history window (2-year cap)")
-    p_fwd.add_argument("--source", choices=["binance", "tv"], default="binance")
-    p_fwd.add_argument("--poll", type=int, default=900, help="seconds between cycles")
-    p_fwd.add_argument("--heartbeat-url", default=None,
+    p_dryrun.add_argument("--initial-cash", type=float, default=1_000.0, help="wallet size")
+    p_dryrun.add_argument("--fee-bps", type=float, default=10.0)
+    p_dryrun.add_argument("--slippage-bps", type=float, default=5.0)
+    p_dryrun.add_argument("--risk-per-trade", type=float, default=0.03)
+    p_dryrun.add_argument("--max-position-pct", type=float, default=0.95)
+    p_dryrun.add_argument("--max-drawdown-stop", type=float, default=0.99)
+    p_dryrun.add_argument("--days", type=int, default=730, help="history window (2-year cap)")
+    p_dryrun.add_argument("--source", choices=["binance", "tv"], default="binance")
+    p_dryrun.add_argument("--poll", type=int, default=900, help="seconds between cycles")
+    p_dryrun.add_argument("--heartbeat-url", default=None,
                        help="dead-man ping URL (default: HEARTBEAT_URL)")
-    p_fwd.add_argument("--heartbeat-every", type=float, default=1800.0,
+    p_dryrun.add_argument("--heartbeat-every", type=float, default=1800.0,
                        help="seconds between pings")
-    p_fwd.add_argument("--once", action="store_true", help="one cycle then exit (Task Scheduler)")
-    p_fwd.add_argument("--alerts", action="store_true",
+    p_dryrun.add_argument("--once", action="store_true", help="one cycle then exit (Task Scheduler)")
+    p_dryrun.add_argument("--alerts", action="store_true",
                        help="also send trade alerts from this replay (off by default)")
-    p_fwd.add_argument("--outdir", default=None,
+    p_dryrun.add_argument("--outdir", default=None,
                        help="single-sleeve override; defaults to runs/<env>/<strategy>/dryrun")
-    p_fwd.add_argument("--profile", choices=["manifest", "flags"], default="manifest",
+    p_dryrun.add_argument("--profile", choices=["manifest", "flags"], default="manifest",
                        help="risk profile: the manifest's measured one (default) or the flags")
-    p_fwd.set_defaults(func=cmd_dryrun)
+    p_dryrun.set_defaults(func=cmd_dryrun)
     p_wd = sub.add_parser(
         "watchdog",
         help="alert on a dead loop by name and ping the book's dead-man check",
