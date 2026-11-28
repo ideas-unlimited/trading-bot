@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from bot.backtest import bars_to_frame
-from bot.config import BotConfig
+from bot.config import BotConfig, RiskConfig
 from bot.data.feed import Bar
 from bot.exchange.live_client import duration_for, interval_for, split_symbol
 from bot.heartbeat import Heartbeat
@@ -76,6 +76,17 @@ class _FakeClient:
     def close_position(self, symbol):
         self.closed.append(symbol)
         return {}
+
+
+class _AccountClient(_FakeClient):
+    """Fake venue whose equity can fall, for the drawdown-brake path."""
+
+    def __init__(self, rows: list[dict], equity: float):
+        super().__init__(rows)
+        self.equity = equity
+
+    def get_account(self):
+        return {"equity": self.equity, "cash": self.equity}
 
 
 class _TrackingClient(_FakeClient):
@@ -236,6 +247,45 @@ class LiveTraderTests(unittest.TestCase):
             clock=lambda s: None,
         )
         return trader, client
+
+    def test_drawdown_brake_blocks_entries_and_survives_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            client = _AccountClient(_rows(), equity=850.0)
+            (tmp / "state.json").write_text(
+                json.dumps(
+                    {
+                        "last_ts": "2024-01-01T00:00:00+00:00",
+                        "stops": {},
+                        "risk": {
+                            "peak_equity": 1_000.0,
+                            "halted": False,
+                            "halt_reason": "",
+                        },
+                    }
+                )
+            )
+            config = BotConfig(
+                initial_cash=1_000.0,
+                risk=RiskConfig(max_drawdown_stop=0.10),
+            )
+            trader = LiveTrader(
+                client, BuyNow(), config, "BTC/USDT", "1d",
+                state_path=tmp / "state.json",
+                stream=io.StringIO(), clock=lambda s: None,
+            )
+            trader.poll(now=datetime(2024, 1, 5, tzinfo=timezone.utc))
+            self.assertEqual(client.orders, [])
+            self.assertTrue(trader.risk.halted)
+            self.assertTrue(trader.state["risk"]["halted"])
+
+            again = LiveTrader(
+                client, BuyNow(), config, "BTC/USDT", "1d",
+                state_path=tmp / "state.json",
+                stream=io.StringIO(), clock=lambda s: None,
+            )
+            self.assertTrue(again.risk.halted)
+            self.assertEqual(again.risk.peak_equity, 1_000.0)
 
     def test_no_signal_on_insufficient_history(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -853,6 +903,160 @@ class KillSwitchAndHistoryTests(unittest.TestCase):
             self.assertEqual(view["take_profit"], 120.0)
             self.assertEqual(view["mark_price"], 109.0)
 
+
+
+class EventLogTests(unittest.TestCase):
+    """D8: signals, fills, rejects, halts and errors reach the events table,
+    and 'no signal' polls never write a row (the table is a logbook, not a
+    heartbeat)."""
+
+    def _trader(self, tmp: Path, strategy=None, **kwargs) -> tuple[LiveTrader, _FakeClient]:
+        client = _FakeClient(_rows())
+        trader = LiveTrader(
+            client, strategy or build("sma_cross"), BotConfig(), "BTC/USDT", "1d",
+            state_path=tmp / "state.json", stream=io.StringIO(),
+            clock=lambda s: None, lookback=300, **kwargs,
+        )
+        return trader, client
+
+    @staticmethod
+    def _capture(trader: LiveTrader) -> list[tuple]:
+        events: list[tuple] = []
+        trader._event = (  # type: ignore[method-assign]
+            lambda kind, message="", *, level="info", payload=None:
+            events.append((kind, message, level, payload))
+        )
+        return events
+
+    def _buy_state(self, tmp: Path) -> None:
+        (tmp / "state.json").write_text(
+            json.dumps({"last_ts": _bars(_rows())[0].ts.isoformat(), "stops": {}})
+        )
+
+    def test_buy_fill_is_recorded(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            self._buy_state(tmp)
+            trader, _ = self._trader(tmp, _BuyEveryBar(), max_catchup=100)
+            events = self._capture(trader)
+            trader.poll(now=datetime(2024, 1, 8, tzinfo=timezone.utc))
+            fills = [e for e in events if e[0] == "fill" and "BUY" in e[1]]
+            self.assertEqual(len(fills), 1)
+            payload = fills[0][3]
+            self.assertEqual(payload["side"], "buy")
+            self.assertIn("stop", payload)
+            self.assertIn("order_id", payload)
+
+    def test_quiet_polls_write_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            trader, _ = self._trader(Path(td))
+            events = self._capture(trader)
+            n = trader.poll(now=datetime(2024, 1, 8, tzinfo=timezone.utc))
+            # Fresh state anchors, bars 2-3 hold, bar 4 buys: stub the same
+            # anchor path but assert the fresh anchor poll itself is silent.
+            self.assertEqual(n, 0)
+            self.assertEqual(events, [])
+
+    def test_kill_switch_halt_logged_once_and_release_logged(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            trader, client = self._trader(tmp, _BuyEveryBar())
+            trader.state["entries"]["BTC/USDT"] = {
+                "qty": 0.5, "price": 100.0, "ts": "2024-01-03T00:00:00+00:00",
+            }
+            halted = {"on": True}
+            trader._halted = lambda: halted["on"]
+            trader.bot_id = 7
+            events = self._capture(trader)
+            trader.poll(now=datetime(2024, 1, 8, tzinfo=timezone.utc))
+            trader.poll(now=datetime(2024, 1, 8, tzinfo=timezone.utc))
+            halts = [e for e in events if e[0] == "halt" and "engaged" in e[1]]
+            self.assertEqual(len(halts), 1, "one halt row, not one per poll")
+            # Released: the next poll logs the release exactly once.
+            halted["on"] = False
+            trader.state["last_ts"] = None  # anchor again, nothing trades
+            trader.poll(now=datetime(2024, 1, 9, tzinfo=timezone.utc))
+            self.assertEqual(len([e for e in events if e[0] == "halt"]), 2)
+
+    def test_order_rejection_becomes_an_error_event_and_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            self._buy_state(tmp)
+            trader, client = self._trader(tmp, _BuyEveryBar(), max_catchup=100)
+            events = self._capture(trader)
+
+            def boom(*args, **kwargs):
+                raise RuntimeError("insufficient balance")
+
+            client.submit_order = boom  # type: ignore[method-assign]
+            with self.assertRaises(RuntimeError):
+                trader.poll(now=datetime(2024, 1, 8, tzinfo=timezone.utc))
+            errors = [e for e in events if e[0] == "error"]
+            self.assertEqual(len(errors), 1)
+            self.assertIn("insufficient balance", errors[0][1])
+            self.assertEqual(errors[0][2], "error")
+
+    def test_trail_ratchet_is_recorded(self) -> None:
+        from bot.backtest import bars_to_frame
+
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            rows = [
+                {"t": f"2024-01-{d:02d}T00:00:00Z", "o": o, "h": h, "l": lo, "c": c, "v": 1000.0}
+                for d, (o, h, lo, c) in enumerate(
+                    [(100, 200, 99, 100), (100, 120, 100, 118)], start=1
+                )
+            ]
+            client = _FakeClient(rows)
+            client.orders.append({"symbol": "BTC/USDT", "side": "buy", "qty": 1.0})
+            trader = LiveTrader(
+                client, TrailBuy(), BotConfig(initial_cash=10_000.0),
+                "BTC/USDT", "1d", state_path=tmp / "state.json",
+                stream=io.StringIO(), clock=lambda s: None,
+            )
+            bars = _bars(rows)
+            prepared = trader.strategy.prepare(bars_to_frame(bars))
+            trader.state["entries"]["BTC/USDT"] = {
+                "qty": 1.0, "price": 100.0, "ts": bars[0].ts.isoformat(),
+            }
+            trader.state["stops"]["BTC/USDT"] = 90.0
+            trader._set_trail(
+                Signal(Action.BUY, "trail", stop_loss=90.0, trail_atr=2.0),
+                100.0, bars[0].ts,
+            )
+            events = self._capture(trader)
+            trader._ratchet_trail(bars[1], prepared, 1)
+            stops = [e for e in events if e[0] == "stop"]
+            self.assertEqual(len(stops), 1)
+            self.assertIn("trail raised", stops[0][1])
+            self.assertEqual(stops[0][3]["stop"], 116.0)
+
+    def test_event_helper_survives_a_dead_database(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            trader, _ = self._trader(Path(td), record=True)
+            trader.bot_id = 1
+
+            class Boom:
+                def connect(self):
+                    raise RuntimeError("no postgres")
+
+            import bot.db as store
+
+            orig = store.connect
+            store.connect = Boom  # type: ignore[assignment]
+            try:
+                trader._event("fill", "should not raise")
+                trader._event("fill", "second call warns only once")
+            finally:
+                store.connect = orig  # type: ignore[assignment]
+            self.assertIn("event log off", trader.stream.getvalue())
+            self.assertEqual(trader.stream.getvalue().count("event log off"), 1)
+
+    def test_event_helper_is_a_noop_without_registration(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            trader, _ = self._trader(Path(td))  # record=False (lab/tests default)
+            # Neither the guard nor a broken store may raise here.
+            trader._event("fill", "unregistered bot writes nothing")
 
 
 if __name__ == "__main__":

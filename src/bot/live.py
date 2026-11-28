@@ -29,6 +29,7 @@ from .config import BotConfig
 from .data.feed import Bar
 from .heartbeat import Heartbeat
 from .notify import Notifier
+from .risk import RiskManager
 from .strategy.base import Action, Strategy
 
 
@@ -95,6 +96,13 @@ class LiveTrader:
         # same shape so the dashboard view never depends on how it started.
         for key in ("stops", "entries", "tps", "trails"):
             self.state.setdefault(key, {})
+        risk_state = self.state.get("risk") or {}
+        self.risk = RiskManager(
+            config=self.config.risk,
+            peak_equity=float(risk_state.get("peak_equity") or 0.0),
+            halted=bool(risk_state.get("halted") or False),
+            halt_reason=str(risk_state.get("halt_reason") or ""),
+        )
         self._last_view: dict[str, Any] = {}
         self._trade_warned = False
         # Dashboard bookkeeping: a live loop registers itself once and then
@@ -109,6 +117,11 @@ class LiveTrader:
         self.notifier = notifier
         self._last_equity = 0.0
         self._alert_warned = False
+        # D8: signals, order rejects and errors reach the events table so the
+        # UI can show why a bot did nothing at 3am.  Never spam: only real
+        # signals, fills, halts and failures are recorded, never "no signal".
+        self._events_warned = False
+        self._halt_event_logged = False
 
     # -- state --------------------------------------------------------------
     def _load_state(self) -> dict[str, Any]:
@@ -137,6 +150,7 @@ class LiveTrader:
         account = self.client.get_account()
         position = self._position_qty()
         equity = self._book_equity(account)
+        self._update_risk(equity)
         self._last_equity = equity
 
         # Register before reading the kill switch: without an id there is no
@@ -144,6 +158,12 @@ class LiveTrader:
         if self.record_dashboard and self.bot_id is None:
             self._ensure_bot(equity)
         if self._halted():
+            if not self._halt_event_logged:
+                # One row, not one per poll: the kill switch is already
+                # visible on the dashboard while it holds.
+                self._halt_event_logged = True
+                self._event("halt", "kill switch engaged - closing position, no new entries",
+                            payload={"symbol": self.symbol})
             if position > 0:
                 self._exit(position, bars[-1].close, "halt", bars[-1].ts, equity=equity)
                 position = self._position_qty()
@@ -204,8 +224,14 @@ class LiveTrader:
             )
             position = self._position_qty()
             equity = self._book_equity(self.client.get_account()) or equity
+            self._update_risk(equity)
         if closed:
             self._save_state()
+        if not self._halted() and self._halt_event_logged:
+            # Released: the next engagement is a new event, not a replay.
+            self._halt_event_logged = False
+            self._event("halt", "kill switch released - normal trading resumed",
+                        payload={"symbol": self.symbol})
         else:
             # No new closed bar: still enforce an exit on the newest one,
             # which is what a restart onto an open position needs.
@@ -219,6 +245,32 @@ class LiveTrader:
         return len(closed)
 
     # -- dashboard bookkeeping ----------------------------------------------
+    def _event(self, kind: str, message: str = "", *, level: str = "info",
+               payload: dict[str, Any] | None = None) -> None:
+        """Append one row to the events table (D8).
+
+        Bookkeeping, not trading: a missing or broken database must never
+        stop the loop, so failures warn once and are otherwise swallowed.
+        Payloads must never carry secrets - only clientOrderId and venue
+        error codes, like everywhere else.
+        """
+        if not (self.record_dashboard and self.bot_id):
+            return
+        from . import db as store
+
+        try:
+            conn = store.connect()
+            try:
+                store.log_event(conn, self.bot_id, kind, message,
+                                level=level, payload=payload)
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as exc:  # noqa: BLE001 - the loop outlives the DB
+            if not self._events_warned:
+                self._events_warned = True
+                self._emit(f"[live] event log off: {exc}")
+
     def _ensure_bot(self, equity: float) -> None:
         """Register this run once so the dashboard can list it by name."""
         from . import db as store
@@ -412,6 +464,12 @@ class LiveTrader:
             "sell", qty, price, realized=realized, closed_by=why,
             order_id=str((order or {}).get("id") or ""), closed_at=ts,
         )
+        self._event("fill", f"SELL {qty:.4f} {self.symbol} @ {price:.4f} ({why})"
+                    + (f" realized {realized:+.2f}" if realized is not None else ""),
+                    payload={"side": "sell", "qty": qty, "price": price,
+                             "closed_by": why, "realized": realized,
+                             "order_id": str((order or {}).get("id") or ""),
+                             "ts": ts.isoformat()})
         for key in ("stops", "tps", "entries", "trails"):
             self.state.get(key, {}).pop(self.symbol, None)
         self._save_state()
@@ -427,6 +485,32 @@ class LiveTrader:
         """Equity this bot may size from: honours the capital cap when set."""
         equity = float(account.get("equity") or 0.0)
         return min(equity, self.capital) if self.capital is not None else equity
+
+    def _update_risk(self, equity: float) -> None:
+        """Track the high-water mark and persist the drawdown brake.
+
+        The dry-run engine applies ``max_drawdown_stop`` to new entries; the
+        trading loop must use the same knob or a manifest measured with a
+        brake would be released with the brake silently disabled.  The peak
+        is persisted because systemd restarts are routine, and a restart that
+        reset the peak would reset the protection too.
+        """
+        was_halted = self.risk.halted
+        self.risk.update_equity(float(equity))
+        if self.risk.halted and not was_halted:
+            self._emit(
+                f"[live] drawdown brake: {self.risk.halt_reason}; "
+                "no new entries (open position still managed)"
+            )
+        persisted = self.state.setdefault("risk", {})
+        current = {
+            "peak_equity": self.risk.peak_equity,
+            "halted": self.risk.halted,
+            "halt_reason": self.risk.halt_reason,
+        }
+        if persisted != current:
+            persisted.update(current)
+            self._save_state()
 
     def _last_ts(self) -> datetime | None:
         raw = self.state.get("last_ts")
@@ -461,6 +545,13 @@ class LiveTrader:
             return
 
         if signal.action is Action.BUY and position <= 0:
+            if self.risk.halted:
+                self._emit(
+                    f"[live] {bar.ts:%Y-%m-%d %H:%M} buy skipped: "
+                    f"drawdown brake ({self.risk.halt_reason})"
+                )
+                self.state["last_ts"] = bar.ts.isoformat()
+                return
             qty = compute_entry_qty(
                 equity,
                 bar.close,
@@ -470,13 +561,26 @@ class LiveTrader:
             )
             if qty * bar.close < 1.0:
                 self._emit(f"[live] {bar.ts:%Y-%m-%d %H:%M} buy skipped: size ${qty * bar.close:.2f} too small")
+                self._event("signal", f"buy skipped: size ${qty * bar.close:.2f} too small",
+                            payload={"action": "buy", "ts": bar.ts.isoformat()})
             else:
-                order = self.client.submit_order(
-                    self.symbol, "buy", qty,
-                    price=bar.close,
-                    stop=signal.stop_loss,
-                    take_profit=signal.take_profit,
-                )
+                try:
+                    order = self.client.submit_order(
+                        self.symbol, "buy", qty,
+                        price=bar.close,
+                        stop=signal.stop_loss,
+                        take_profit=signal.take_profit,
+                    )
+                except Exception as exc:
+                    # Rejected at the venue: surface it in the UI, then let
+                    # the usual poll-level catch keep the loop alive.  The
+                    # bar stays unprocessed (last_ts not saved), so the next
+                    # poll retries the same signal.
+                    self._event("error", f"order rejected: {type(exc).__name__}: {exc}",
+                                level="error",
+                                payload={"side": "buy", "qty": qty,
+                                         "price": bar.close})
+                    raise
                 # A new position owns its exits: never inherit a stale
                 # target (SUI has none) from the previous trade.
                 self.state["stops"].pop(self.symbol, None)
@@ -500,6 +604,11 @@ class LiveTrader:
                     stop=signal.stop_loss, take_profit=signal.take_profit,
                     entry_ts=bar.ts, ts=bar.ts, equity=equity,
                 )
+                self._event("fill", f"BUY {filled:.4f} {self.symbol} @ {fill_px:.4f} :: {signal.reason}",
+                            payload={"side": "buy", "qty": filled, "price": fill_px,
+                                     "order_id": str(order.get("id") or ""),
+                                     "stop": signal.stop_loss, "take_profit": signal.take_profit,
+                                     "reason": signal.reason, "ts": bar.ts.isoformat()})
                 self._emit(
                     f"[live] {bar.ts:%Y-%m-%d %H:%M} BUY {qty:.4f} {self.symbol} @ ~{bar.close:.2f}"
                     + (f" stop={signal.stop_loss:.2f}" if signal.stop_loss else " (no stop)")
@@ -510,6 +619,8 @@ class LiveTrader:
             self._emit(f"[live] {bar.ts:%Y-%m-%d %H:%M} CLOSE {self.symbol} @ ~{bar.close:.2f} :: {signal.reason}")
         else:
             self._emit(f"[live] {bar.ts:%Y-%m-%d %H:%M} signal {signal.action.value} ignored (position {position})")
+            self._event("signal", f"{signal.action.value} ignored (position {position})",
+                        payload={"action": signal.action.value, "ts": bar.ts.isoformat()})
         self.state["last_ts"] = bar.ts.isoformat()
 
     def _set_trail(self, signal: Any, fill_px: float, ts: datetime) -> None:
@@ -599,6 +710,8 @@ class LiveTrader:
         current = self.state.get("stops", {}).get(self.symbol)
         if current is None or candidate > float(current):
             self.state.setdefault("stops", {})[self.symbol] = candidate
+            self._event("stop", f"trail raised to {candidate:.4f} (peak {peak:.4f} - {trail_atr:g} ATR)",
+                        payload={"stop": candidate, "peak": peak, "ts": bar.ts.isoformat()})
             self._emit(
                 f"[live] {bar.ts:%Y-%m-%d %H:%M} TRAIL stop={candidate:.4f} "
                 f"(peak {peak:.4f} - {trail_atr:g} ATR {atr:.4f})"
@@ -672,6 +785,8 @@ class LiveTrader:
                     self.poll()
                 except Exception as exc:  # noqa: BLE001 - keep the loop alive
                     self._emit(f"[live] poll failed: {exc}")
+                    self._event("error", f"poll failed: {type(exc).__name__}: {exc}",
+                                level="error")
                 if once:
                     break
                 self.clock(self.poll_seconds)
