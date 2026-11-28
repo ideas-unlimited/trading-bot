@@ -530,7 +530,11 @@ const money = (x, dp=2) => "$" + Number(x||0).toLocaleString(undefined,{minimumF
 const qtyFmt = (x) => Number(x||0).toLocaleString(undefined,{maximumFractionDigits:8});
 async function loadAccount(){
   try {
-    const a = await api("/api/account");
+    // Raw fetch: `api()` turns any {"error": ...} into a throw, and the
+    // account payload deliberately reports "not configured" as data so the
+    // page can explain the venue instead of showing a bare failure.
+    const res = await fetch("/api/account");
+    let a; try { a = await res.json(); } catch { throw new Error("HTTP " + res.status); }
     const venue = (a.venue || "demo").toUpperCase();
     if (a.error) {
       $("accountChip").innerHTML = venue === "LIVE"
