@@ -120,7 +120,7 @@ sleep 3
 if curl -fsS http://127.0.0.1:9000/api/bots 2>/dev/null | python3 -c "
 import json, sys
 bots = json.load(sys.stdin)['bots']
-ok = any(b['name'].startswith('${strategy}') and b.get('last_heartbeat_at') for b in bots)
+ok = any('${strategy}' in b['name'] and b.get('last_heartbeat_at') for b in bots)
 sys.exit(0 if ok else 1)
 "; then
   echo "live       tradingbot@${name} active, registered, heartbeat fresh"

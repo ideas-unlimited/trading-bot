@@ -94,7 +94,7 @@ try:
     bots = json.load(sys.stdin)['bots']
 except Exception:
     print('API_ALIVE=0'); print('API_HALT='); sys.exit()
-b = next((x for x in bots if x['name'].startswith('${strategy}')), None)
+b = next((x for x in bots if '${strategy}' in x['name']), None)
 if not b:
     print('API_ALIVE=0'); print('API_HALT='); sys.exit()
 print('API_ALIVE=' + ('1' if b.get('alive') else '0'))
