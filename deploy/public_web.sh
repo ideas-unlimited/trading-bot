@@ -1,16 +1,27 @@
 #!/usr/bin/env bash
-# Publish the dashboard behind HTTPS + basic auth.
+# Publish both dashboards behind HTTPS + basic auth.
 #
-#   sudo bash deploy/public_web.sh <hostname> [username]
+#   sudo bash deploy/public_web.sh <base-hostname> [username]
 #
-# Example hostname without a domain: 139-99-236-166.sslip.io (sslip.io maps
-# the dashes back to the IP, so Let's Encrypt can issue a real certificate).
-# The app itself keeps listening on 127.0.0.1:9000; only Caddy is exposed.
+# Example base hostname without a domain: 139-99-236-166.sslip.io.  Two
+# site blocks are rendered from that same base:
+#   paper.<base> -> 127.0.0.1:9000   (PAPER - simulated fills)
+#   prod.<base>  -> 127.0.0.1:9001   (PRODUCTION - real money)
+# and <base> itself redirects to paper.  sslip.io resolves those subdomains
+# to the same IP, so Let's Encrypt issues real certificates for both.
 set -euo pipefail
 trap 'echo "public_web.sh failed at line $LINENO" >&2' ERR
 
-DOMAIN=${1:?usage: public_web.sh <hostname> [username]}
-USER_NAME=${2:-trader}
+BASE=${1:?usage: public_web.sh <hostname> [username]}
+BASE=${BASE#http://}; BASE=${BASE#https://}; BASE=${BASE%/}
+PAPER_DOMAIN="paper.$BASE"
+PROD_DOMAIN="prod.$BASE"
+LEGACY_DOMAIN="$BASE"
+
+# Keep the login already published; only mint a password on first run or
+# when WEB_PASSWORD says so.  Re-running must never lock the owner out.
+EXIST_USER=$(sed -n '/basic_auth {/{n;s/^[[:space:]]*\([^[:space:]]*\).*/\1/p;q}' /etc/caddy/Caddyfile 2>/dev/null || true)
+USER_NAME=${2:-${EXIST_USER:-trader}}
 
 if [[ ${EUID:-1} -ne 0 ]]; then
   echo "run with sudo" >&2
@@ -28,8 +39,19 @@ if ! command -v caddy >/dev/null 2>&1; then
   apt-get install -y -qq caddy >/dev/null
 fi
 
-PASS=${WEB_PASSWORD:-$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | cut -c1-20)}
-HASH=$(caddy hash-password --plaintext "$PASS" | tr -d '\n')
+EXIST_HASH=$(grep -oE '\$2[aby]\$[^[:space:]]+' /etc/caddy/Caddyfile 2>/dev/null | head -n1 || true)
+SHOWN_PASS=""
+if [[ -n "${WEB_PASSWORD:-}" ]]; then
+  PASS=$WEB_PASSWORD
+  HASH=$(caddy hash-password --plaintext "$PASS" | tr -d '\n')
+  SHOWN_PASS=$PASS
+elif [[ -n "$EXIST_HASH" ]]; then
+  HASH=$EXIST_HASH
+else
+  PASS=$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | cut -c1-20)
+  HASH=$(caddy hash-password --plaintext "$PASS" | tr -d '\n')
+  SHOWN_PASS=$PASS
+fi
 
 install -d -o caddy -g caddy /var/log/caddy
 TEMPLATE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/Caddyfile.template"
@@ -37,7 +59,11 @@ if [[ ! -f "$TEMPLATE" ]]; then
   echo "missing $TEMPLATE" >&2
   exit 1
 fi
-sed -e "s|{{DOMAIN}}|$DOMAIN|" -e "s|{{USER}}|$USER_NAME|" -e "s|{{HASH}}|$HASH|" \
+sed -e "s|{{PAPER_DOMAIN}}|$PAPER_DOMAIN|" \
+    -e "s|{{PROD_DOMAIN}}|$PROD_DOMAIN|" \
+    -e "s|{{LEGACY_DOMAIN}}|$LEGACY_DOMAIN|" \
+    -e "s|{{USER}}|$USER_NAME|" \
+    -e "s|{{HASH}}|$HASH|" \
   "$TEMPLATE" > /etc/caddy/Caddyfile
 
 systemctl enable caddy >/dev/null 2>&1 || true
@@ -45,16 +71,24 @@ systemctl restart caddy
 ufw allow 80/tcp >/dev/null 2>&1 || true
 ufw allow 443/tcp >/dev/null 2>&1 || true
 
-echo "== waiting for the certificate"
-for _ in $(seq 1 20); do
-  if curl -fsS -o /dev/null --max-time 5 "https://$DOMAIN/" 2>/dev/null; then break; fi
-  if [[ $(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "https://$DOMAIN/" 2>/dev/null) == "401" ]]; then break; fi
-  sleep 3
+echo "== waiting for certificates"
+for domain in "$PAPER_DOMAIN" "$PROD_DOMAIN"; do
+  for _ in $(seq 1 20); do
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "https://$domain/" 2>/dev/null || echo 000)
+    [[ "$code" == "200" || "$code" == "401" ]] && break
+    sleep 3
+  done
 done
 
-CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -u "$USER_NAME:$PASS" "https://$DOMAIN/" || echo 000)
 echo
-echo "URL  : https://$DOMAIN/"
-echo "user : $USER_NAME"
-echo "pass : $PASS"
-echo "check: HTTP $CODE with credentials"
+echo "PAPER : https://$PAPER_DOMAIN/"
+echo "PROD  : https://$PROD_DOMAIN/"
+echo "legacy: https://$LEGACY_DOMAIN/  -> redirects to paper"
+echo "user  : $USER_NAME"
+if [[ -n "$SHOWN_PASS" ]]; then
+  echo "pass  : $SHOWN_PASS"
+  CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -u "$USER_NAME:$SHOWN_PASS" "https://$PAPER_DOMAIN/" || echo 000)
+  echo "check : paper HTTP $CODE"
+else
+  echo "pass  : unchanged"
+fi

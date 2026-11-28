@@ -108,3 +108,20 @@ What it commits us to: any new instrument must be a Binance spot pair; a new
 venue is a new decision, not a config flag. `BinanceLiveClient` is the only
 adapter the loop, CLI and web may use, and every order carries a deterministic
 `clientOrderId`.
+
+## D13 - Two public hostnames, one per world (2026-11-28)
+
+`paper.139-99-236-166.sslip.io` -> :9000 (`trading_paper`) and
+`prod.139-99-236-166.sslip.io` -> :9001 (`trading_prod`) are the only public
+dashboards; the old bare hostname 302s to paper so an old bookmark cannot
+land on the wrong world.
+
+The env is injected server-side into the same HTML (title, green/red banner,
+`body.paper|prod`, accent colour), not by a client-side switch: a cached page
+can never claim the wrong world. Prod rejects bot and preset create/delete
+with a read-only error - strategies arrive by promotion package, never by
+clicking "create" against the live database.
+
+What it commits us to: both worlds run the same master checkout; only
+`BOT_ENV` differs per systemd unit. A UI change that hides the banner, or a
+new mutating endpoint that skips the read-only guard, is a regression.

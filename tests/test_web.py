@@ -1,14 +1,21 @@
 """Offline tests for the web terminal API (no network, no Postgres)."""
 
+import os
 import unittest
+from unittest.mock import patch
 
 from bot.web import (
     SYMBOLS,
     _jsonify,
     api_backtest,
+    api_bots_create,
+    api_bots_delete,
+    api_presets_create,
+    api_presets_delete,
     api_scan,
     api_strategies,
     api_symbols,
+    render_index,
 )
 
 
@@ -61,6 +68,39 @@ class ApiBasicsTests(unittest.TestCase):
         self.assertIn("rows", result)
         self.assertEqual(len(result["rows"]), 2)
         self.assertIn("sharpe", result["rows"][0])
+
+
+class EnvironmentBrandingTests(unittest.TestCase):
+    """The same HTML serves both worlds; the world must be burned in."""
+
+    def test_paper_page_is_marked_paper(self) -> None:
+        with patch.dict(os.environ, {"BOT_ENV": "paper"}):
+            html = render_index().decode("utf-8")
+        self.assertIn("<title>trading-bot · paper · terminal</title>", html)
+        self.assertIn('<body class="paper">', html)
+        self.assertIn("PAPER", html)
+        self.assertIn("simulated fills", html)
+        self.assertIn('const ENV = "paper"', html)
+        self.assertNotIn("{{ENV", html)
+
+    def test_prod_page_is_marked_production(self) -> None:
+        with patch.dict(os.environ, {"BOT_ENV": "prod"}):
+            html = render_index().decode("utf-8")
+        self.assertIn("PRODUCTION", html)
+        self.assertIn('<body class="prod">', html)
+        self.assertIn('const ENV = "prod"', html)
+        self.assertNotIn("{{ENV", html)
+
+    def test_prod_write_endpoints_are_read_only(self) -> None:
+        with patch.dict(os.environ, {"BOT_ENV": "prod"}):
+            results = [
+                api_bots_create({"name": "x", "symbol": "BTC/USDT", "timeframe": "1h"}),
+                api_bots_delete(1),
+                api_presets_create({"name": "x", "kind": "sma_cross"}),
+                api_presets_delete(1),
+            ]
+        for result in results:
+            self.assertIn("read-only", result["error"])
 
 
 if __name__ == "__main__":

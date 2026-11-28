@@ -117,6 +117,16 @@ when you hit a new environment quirk and solve it, add it here and commit.
   test in `tests/test_analysis.py` (recompute on truncated history, earlier
   values must not change).  Add one provenance comment (source + date)
   and at least one value-sanity test.
+- Chart-structure primitives came from a pasted TradingView pattern detector
+  (2026-11-27): `trendline_channel` (rails through the last two confirmed
+  pivots), `channel_breakout` (close beyond a rail by k ATR, optional
+  confirmation bars) and `measured_move` (rail +/- channel height). The twenty
+  named patterns in the source are just combinations of those three, so only
+  the primitives were ported. `BookConfig.structure_gate` exposes them as
+  entry gates: `breakout`, `squeeze` (height/ATR in its own low tail) and
+  `room` (measured move must pay `min_rr` x the ATR stop). All three only
+  block entries, and none improved the live book enough to deploy - measured
+  on the two-year window, see `research/structure_gates.py`.
 - Strategies should import from `bot.analysis` rather than re-implementing
   math inline; simple MAs stay in `bot.indicators`.
 
@@ -225,12 +235,15 @@ when you hit a new environment quirk and solve it, add it here and commit.
   stays in `/etc` (`caddy/Caddyfile`, `tradingbot/*.env`) since root daemons
   read it and it belongs to the box backup; the repo holds the template
   (`deploy/Caddyfile.template`) and the renderer that writes it.
-- **Public dashboard:** `https://139-99-236-166.sslip.io` — Caddy terminates
-  TLS (Let's Encrypt via the sslip.io name, auto-renewing) and enforces basic
-  auth, proxy to `127.0.0.1:9000`. Only 22/80/443 are open; port 9000 is not
-  reachable from the internet. The app has **no auth of its own** and its
-  endpoints create/delete bots, so Caddy is the only thing protecting it —
-  never bind the app to 0.0.0.0 or open 9000. Set up with
-  `deploy/public_web.sh`; the password hash lives in `/etc/caddy/Caddyfile`,
-  the plaintext is not stored anywhere on the box. Access log:
-  `/var/log/caddy/dashboard.log`.
+- **Public dashboards (two hostnames, one per world):**
+  `https://paper.139-99-236-166.sslip.io` -> 127.0.0.1:9000 (`trading_paper`),
+  `https://prod.139-99-236-166.sslip.io` -> 127.0.0.1:9001 (`trading_prod`);
+  the bare hostname 302s to paper. Caddy terminates TLS (Let's Encrypt,
+  auto-renewing) and basic auth; only 22/80/443 are open. Each page is
+  branded at render time (green PAPER / red PRODUCTION banner, distinct
+  title, `body.paper|prod`), and prod rejects bot/preset create+delete:
+  strategies arrive by promotion package. The app has **no auth of its
+  own**, so Caddy is the only thing protecting it — never bind it to
+  0.0.0.0 or open 9000/9001. Render with `deploy/public_web.sh` (reuses the
+  existing login and hash); the hash lives in `/etc/caddy/Caddyfile`, never
+  the plaintext. Logs: `/var/log/caddy/{paper,prod}.log`.

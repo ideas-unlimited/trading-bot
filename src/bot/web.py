@@ -22,6 +22,7 @@ from .exchange.binance import BrokerError
 from .exchange.live_client import BinanceLiveClient
 from .backtest import run_backtest
 from .config import BotConfig, CostConfig, RiskConfig
+from .envcfg import describe as env_describe, env_name
 from .data.feed import generate_synthetic
 from .metrics import infer_bars_per_year
 from .scanlib import load_scan_bars, make_config, run_scan
@@ -29,6 +30,46 @@ from .strategy import REGISTRY, build
 from . import db as store
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
+
+# The prod dashboard is read-only: a strategy reaches prod by promotion
+# package, never by clicking "create bot" against the live database.
+READ_ONLY_ENVS = ("prod",)
+
+
+def _read_only() -> bool:
+    try:
+        return env_name() in READ_ONLY_ENVS
+    except ValueError:
+        return True
+
+
+def render_index() -> bytes:
+    """Serve the SPA with its world burned into the page.
+
+    The same HTML runs on both ports, so the env label, banner and colour
+    theming are injected here; a cached page can never show the wrong world.
+    """
+    env = env_name()
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    if env == "prod":
+        label = "PRODUCTION"
+        note = "REAL MONEY · live orders when the broker path is enabled"
+        foot = "PRODUCTION<br>real money"
+    else:
+        label = "PAPER"
+        note = "simulated fills · no real money"
+        foot = "PAPER ONLY<br>no real orders possible"
+    tokens = {
+        "{{ENV}}": env,
+        "{{ENV_NAME}}": f"{env} · terminal",
+        "{{ENV_LABEL}}": label,
+        "{{ENV_NOTE}}": note,
+        "{{ENV_FOOT}}": foot,
+        "{{ENV_JSON}}": json.dumps(env),
+    }
+    for token, value in tokens.items():
+        html = html.replace(token, value)
+    return html.encode("utf-8")
 
 # Curated ticker lists for the terminal dropdowns.  Crypto pairs come from
 # Binance; the other lists exist only as TradingView research feeds
@@ -346,6 +387,8 @@ def api_bots_list() -> dict[str, Any]:
 
 
 def api_bots_create(payload: dict[str, Any]) -> dict[str, Any]:
+    if _read_only():
+        return {"error": "prod is read-only: create bots on paper, then promote"}
     name = (payload.get("name") or "").strip()
     symbol = (payload.get("symbol") or "").strip()
     timeframe = (payload.get("timeframe") or "").strip()
@@ -377,6 +420,8 @@ def api_bots_create(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def api_bots_delete(bot_id: int) -> dict[str, Any]:
+    if _read_only():
+        return {"error": "prod is read-only: demote on paper, then promote"}
     conn = _db_conn()
     try:
         return {"deleted": store.delete_bot(conn, bot_id)}
@@ -597,6 +642,8 @@ def api_presets_list() -> dict[str, Any]:
 
 
 def api_presets_create(payload: dict[str, Any]) -> dict[str, Any]:
+    if _read_only():
+        return {"error": "prod is read-only: presets are created on paper"}
     name = (payload.get("name") or "").strip()
     kind = (payload.get("kind") or "").strip()
     if not name or kind not in REGISTRY:
@@ -615,6 +662,8 @@ def api_presets_create(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def api_presets_delete(preset_id: int) -> dict[str, Any]:
+    if _read_only():
+        return {"error": "prod is read-only: presets are created on paper"}
     conn = _db_conn()
     try:
         return {"deleted": store.delete_preset(conn, preset_id)}
@@ -645,12 +694,14 @@ class WebHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib naming
         if self.path == "/" or self.path.startswith("/index.html"):
-            html = (WEB_DIR / "index.html").read_bytes()
+            html = render_index()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(html)))
             self.end_headers()
             self.wfile.write(html)
+        elif self.path == "/api/env":
+            self._send_json(200, env_describe())
         elif self.path == "/api/strategies":
             self._send_json(200, api_strategies())
         elif self.path == "/api/account":

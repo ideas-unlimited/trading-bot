@@ -1,7 +1,11 @@
 # Rendered by deploy/public_web.sh into /etc/caddy/Caddyfile.
-# {{DOMAIN}} is the public hostname (a sslip.io name works without a domain),
+# Two hostnames so the world is unmistakable:
+#   {{PAPER_DOMAIN}} -> 127.0.0.1:9000  (paper: simulated fills)
+#   {{PROD_DOMAIN}}  -> 127.0.0.1:9001  (production: real money)
+# The legacy hostname redirects to paper, so old bookmarks cannot be ambiguous.
 # {{USER}} / {{HASH}} are the basic-auth login and its bcrypt hash.
-{{DOMAIN}} {
+
+{{PAPER_DOMAIN}} {
 	basic_auth {
 		{{USER}} {{HASH}}
 	}
@@ -13,9 +17,32 @@
 	}
 	reverse_proxy 127.0.0.1:9000
 	log {
-		output file /var/log/caddy/dashboard.log {
+		output file /var/log/caddy/paper.log {
 			roll_size 5MB
 			roll_keep 5
 		}
 	}
+}
+
+{{PROD_DOMAIN}} {
+	basic_auth {
+		{{USER}} {{HASH}}
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+	reverse_proxy 127.0.0.1:9001
+	log {
+		output file /var/log/caddy/prod.log {
+			roll_size 5MB
+			roll_keep 5
+		}
+	}
+}
+
+{{LEGACY_DOMAIN}} {
+	redir https://{{PAPER_DOMAIN}}{uri} 302
 }

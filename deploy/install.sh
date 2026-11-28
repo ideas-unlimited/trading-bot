@@ -86,8 +86,7 @@ log "postgres"
 systemctl enable --now postgresql >/dev/null
 runuser -u postgres -- psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='tradingbot'" | grep -q 1 || \
   runuser -u postgres -- psql -qc "CREATE ROLE tradingbot LOGIN"
-runuser -u postgres -- psql -tAc "SELECT 1 FROM pg_database WHERE datname='trading_bot'" | grep -q 1 || \
-  runuser -u postgres -- createdb -O tradingbot trading_bot
+runuser -u postgres -- psql -q -f "$APP_DIR/deploy/create_databases.sql" >/dev/null
 
 # 8 GB budget.  The database is 28 MB, so it needs almost nothing: 512 MB of
 # buffers already holds every page we own, and the rest of RAM is left to the
@@ -112,7 +111,7 @@ else
   cat > "$APP_DIR/.env" <<EOF
 BINANCE_DEMO_KEY=replace-me
 BINANCE_DEMO_SECRET=replace-me
-DATABASE_URL=postgresql://tradingbot:$DB_PASS@127.0.0.1:5432/trading_bot
+DATABASE_URL=postgresql://tradingbot:$DB_PASS@127.0.0.1:5432/trading_common
 EOF
   grep -q '^BINANCE_DEMO_KEY=replace-me' "$APP_DIR/.env" && NEED_KEYS=1 || NEED_KEYS=0
 fi
@@ -143,12 +142,13 @@ write_bot sol "SOL/USDT" 4h momentum_swing 1000
 
 log "systemd"
 install -m 0644 "$APP_DIR/deploy/tradingbot-web.service" /etc/systemd/system/
+install -m 0644 "$APP_DIR/deploy/tradingbot-web-prod.service" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/tradingbot@.service" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/tradingbot-backup.service" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/tradingbot-backup.timer" /etc/systemd/system/
 chmod +x "$APP_DIR/deploy/run_bot.sh" "$APP_DIR/deploy/backup.sh"
 systemctl daemon-reload
-systemctl enable --now tradingbot-web.service
+systemctl enable --now tradingbot-web.service tradingbot-web-prod.service
 systemctl enable --now tradingbot-backup.timer
 
 if [[ "${NEED_KEYS:-0}" == "1" ]]; then

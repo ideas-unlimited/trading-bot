@@ -54,9 +54,11 @@ cd /opt/trading-bot
 bash deploy/install.sh
 ```
 
-Installs Python venv + Postgres, creates the `trading_bot` database, writes
-`/opt/trading-bot/.env`, installs three systemd units, enables the web
-terminal, UFW (SSH only) and fail2ban, and schedules a nightly `pg_dump`.
+Installs Python venv + Postgres, creates the three databases
+(`trading_common`, `trading_paper`, `trading_prod`), writes
+`/opt/trading-bot/.env`, installs the bot and both web units plus the backup
+timer, enables the dashboards, UFW (SSH only) and fail2ban, and schedules a
+nightly `pg_dump`.
 Re-running is safe; it never overwrites `.env`.
 
 ## 4. Add the Binance demo keys
@@ -85,30 +87,34 @@ Editorial config stays outside the clone — `/etc/caddy/Caddyfile` (rendered
 from `deploy/Caddyfile.template`) and `/etc/tradingbot/*.env` — because root
 daemons read them and they belong to the box, not to the repository.
 
-## 6. Reach the dashboard
+## 6. Reach the dashboards
 
-The server binds `127.0.0.1:9000` only. From your laptop:
+Two hostnames, two worlds, one checkout:
 
-```powershell
-ssh -L 9000:127.0.0.1:9000 <your-ssh-user>@<ip>
+| URL | World | Port | Database |
+|---|---|---|---|
+| `https://paper.139-99-236-166.sslip.io/` | PAPER - simulated fills | 9000 | `trading_paper` |
+| `https://prod.139-99-236-166.sslip.io/` | PRODUCTION - real money | 9001 | `trading_prod` |
+| `https://139-99-236-166.sslip.io/` | redirects to paper | - | - |
 
-Or publish it over HTTPS instead of tunnelling:
+The env is rendered into the page server-side (title, a green PAPER or red
+PRODUCTION banner, matching accent), so a screenshot always says which world
+it is. Prod is read-only for bots and presets: create and tune on paper, then
+promote with a manifest (`PROMOTION.md`).
+
+Both processes bind `127.0.0.1` only; Caddy terminates TLS and basic auth,
+and only 22/80/443 are open. Render the config with:
 
 ```bash
-sudo bash deploy/public_web.sh 139-99-236-166.sslip.io <username>
+sudo bash deploy/public_web.sh 139-99-236-166.sslip.io sahil
 ```
 
-That installs Caddy, obtains a real Let's Encrypt certificate for the
-`sslip.io` name (dashes map back to the IP, so no domain is needed), and
-puts basic auth in front of every path. The app keeps binding
-`127.0.0.1:9000`; only 80/443 are opened in UFW. Treat the dashboard as
-privileged: it can create and delete bots, so never expose it without the
-auth layer. Rotate the password by re-running with
-`WEB_PASSWORD='new-pass'`.
-```
+Re-running reuses the existing login and password hash, so it cannot lock you
+out; pass `WEB_PASSWORD='new-pass'` to rotate. Certificates are issued per
+hostname (sslip.io resolves the subdomains to the same IP).
 
-then open <http://127.0.0.1:9000>. (Tailscale works too: point `--host` at the
-tailnet address instead of opening the port.)
+For a tunnel instead: `ssh -L 9000:127.0.0.1:9000 <user>@<ip>` (paper) or
+`ssh -L 9001:127.0.0.1:9001 <user>@<ip>` (prod).
 
 ## Heartbeat (is the bot alive?)
 
