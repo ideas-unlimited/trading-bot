@@ -34,6 +34,24 @@ class JsonifyTests(unittest.TestCase):
         self.assertEqual(out["b"], [1.0, None])
         self.assertEqual(out["c"], "2024-01-01T00:00:00+00:00")
 
+    def test_decimal_is_a_number(self) -> None:
+        """Postgres NUMERIC is a Decimal; json.dumps refuses it (broke /api/bots)."""
+        from decimal import Decimal
+
+        out = _jsonify({"capital": Decimal("1000.00"), "equity": Decimal("1000.5"),
+                        "nested": [Decimal("1.25")]})
+        self.assertEqual(out, {"capital": 1000.0, "equity": 1000.5, "nested": [1.25]})
+        json.dumps(out)  # what _send_json does next must not raise
+
+    def test_send_json_tolerates_a_stray_decimal(self) -> None:
+        """A payload built elsewhere must not 500 the page over one field."""
+        from decimal import Decimal
+
+        from bot.web import _json_default
+
+        self.assertEqual(json.loads(json.dumps({"x": Decimal("2.5")},
+                                               default=_json_default)), {"x": 2.5})
+
 
 class ApiBasicsTests(unittest.TestCase):
     def test_strategies_registry_in_lab(self) -> None:

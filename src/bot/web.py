@@ -15,6 +15,7 @@ import inspect
 import json
 import math
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -113,10 +114,23 @@ MAX_CURVE_POINTS = 600
 MAX_TRADES_SHOWN = 50
 
 
+def _json_default(value: Any) -> Any:
+    """Encode what json.dumps cannot on its own."""
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
 def _jsonify(value: Any) -> Any:
     """Recursively convert NaN/None to null and datetimes to ISO strings."""
     if isinstance(value, float):
         return None if value != value else value
+    if isinstance(value, Decimal):
+        # Postgres NUMERIC (a bot's capital, an equity) arrives as Decimal and
+        # json.dumps refuses it - that alone 500s /api/bots (2026-11-28).
+        return float(value)
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, dict):
@@ -877,7 +891,9 @@ class WebHandler(BaseHTTPRequestHandler):
     """Routes; all heavy lifting is in the ``api_*`` functions (unit-testable)."""
 
     def _send_json(self, status: int, payload: dict[str, Any]) -> None:
-        data = json.dumps(payload).encode("utf-8")
+        # Last line of defence: a payload built anywhere else may still hold a
+        # Decimal, and one unencodable field must not take the whole page down.
+        data = json.dumps(payload, default=_json_default).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
