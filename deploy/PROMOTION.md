@@ -40,8 +40,8 @@ Entry requirements:
   `slippage_bps` and `params_hash` (the hash of `--params`);
 - the forward runner reproduces the backtest's exits: `bot forward` replays
   the same `Engine`, so the stop, take-profit and time exit are the measured
-  ones. `bot live` is still stop-only; do not use it to validate a
-  target-bearing sleeve.
+  ones. `bot live` manages the same stop and fixed-R target locally on each
+  closed bar (stop checked first), so it no longer drops the target.
 
 Paper capital is **$1,000 per bot/strategy**. It is simulated money; the point
 is that every strategy is measured on the same stake.
@@ -104,12 +104,20 @@ Full release, in order, after commit -> push -> `sudo bash
    - `curl -s http://127.0.0.1:9000/api/bots` lists the bot with a fresh
      `last_heartbeat_at`;
    - the Bots page shows it running.
-4. **Box checks:** `/etc/tradingbot/` must be `root:trader 750` - the
+4. **Trade alerts are shared, not per-bot.** Every live
+   `tradingbot@<name>` reads `/etc/tradingbot/alerts.env`; there is no
+   per-bot alert setting. Configure it once (README, "Trade alerts"), then
+   confirm this bot's startup log says `[live] trade alerts: ntfy` (or
+   `telegram` / `email`). If it says `trade alerts off`, fix the shared
+   file and restart the bot. Run
+   `bot notify-test --env-file /etc/tradingbot/alerts.env` to check delivery.
+   Never add alerts to `tradingbot-forward`: that is the shadow replay.
+5. **Box checks:** `/etc/tradingbot/` must be `root:trader 750` - the
    `trader` user has to traverse it to read its own env file (this silently
    broke every bot on 2026-11-28). One bot per symbol (they share one demo
    account). `STATE` lives under `/var/lib/tradingbot/`. A sub-4h strategy
    keeps the 1-year evidence cap everywhere, including here.
-5. **Secrets:** any credential touched during release goes into
+6. **Secrets:** any credential touched during release goes into
    `C:\Git\tradingbot-secrets-2026-11-28.txt` (the master record) in the same
    edit that puts it anywhere else.
 
