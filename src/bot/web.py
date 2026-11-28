@@ -133,6 +133,9 @@ SYMBOLS = {
 
 MAX_CURVE_POINTS = 600
 MAX_TRADES_SHOWN = 50
+# The forward unit polls every 15 minutes; allow one missed cycle before a
+# sleeve is called stale, so a normal wait never looks like a dead process.
+FORWARD_FRESH_SECONDS = 1200
 
 
 def _json_default(value: Any) -> Any:
@@ -554,11 +557,13 @@ def api_forward(base: Path | None = None, state_dir: Path | None = None) -> dict
                 age = None
                 if updated:
                     try:
-                        age = (now - datetime.fromisoformat(str(updated).replace("Z", "+00:00"))).total_seconds()
-                    except ValueError:
+                        stamp = datetime.fromisoformat(str(updated).replace("Z", "+00:00"))
+                        age = (now - stamp).total_seconds()
+                    except (TypeError, ValueError):
                         age = None
+                fresh = age is not None and age <= FORWARD_FRESH_SECONDS
                 row.update({
-                    "state": "running" if age is not None and age <= 300 else "stale",
+                    "state": "running" if fresh else "stale",
                     "updated_at": updated,
                     "age_s": int(age) if age is not None else None,
                     "history": runner.get("history"),
