@@ -73,8 +73,8 @@ def _utc(value: Any) -> str:
 def format_trade(event: Mapping[str, Any]) -> tuple[str, str]:
     """Return (subject, body) for one entry or exit fill.
 
-    event is deliberately plain data so both the forward replay and a
-    future live loop can build it without importing the engine.
+    event is deliberately plain data so the live loop and the optional
+    forward replay can build it without importing the engine.
     """
     side = str(event.get("side") or "").strip().lower()
     is_buy = side == "buy"
