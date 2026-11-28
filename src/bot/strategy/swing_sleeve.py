@@ -6,10 +6,10 @@ its own constants.  A sleeve is a *package*: module name, class name and
 registry name all carry the symbol, so a parameter set fitted on one coin can
 never be mistaken for a pooled rule.
 
-Windows are given in **bars of the sleeve's own chart** (4h for all of them),
-with the research value in hours in the docstring.  The research grid expressed
-windows in hours and divided by the bar length, which is the same thing on a
-fixed 4h chart and stays correct when the live loop rebuilds a shorter frame.
+Windows are given in **bars of the sleeve's own chart**, with the research
+value in hours in the docstring.  The 4h sleeves divide research hours by 4;
+the 1d sleeves divide by 24.  The bar count stays correct when the live loop
+rebuilds a shorter frame.
 
 Both families are long-only spot and both use the same risk skeleton:
 
@@ -37,9 +37,9 @@ class SwingSleeve(Strategy):
 
     name = "swing_sleeve"
     family = "pullback"
-    #: EMA fast leg, in bars (research: hours / 4).
+    #: EMA fast leg, in bars of this sleeve's chart.
     fast_bars = 6
-    #: EMA trend filter, in bars (research: hours / 4).
+    #: EMA trend filter, in bars of this sleeve's chart.
     trend_bars = 120
     #: Breakout lookback high, in bars.
     lookback_bars = 30

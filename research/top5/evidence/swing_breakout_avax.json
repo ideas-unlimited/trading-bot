@@ -1,0 +1,20 @@
+{
+  "symbol": "AVAX/USDT",
+  "timeframe": "1d",
+  "window": "2024-11-29 .. 2026-11-28",
+  "bars": 730,
+  "window_days": 729,
+  "trades": 20,
+  "fee_bps": 10.0,
+  "slippage_bps": 5.0,
+  "return_pct": 0.132847,
+  "max_drawdown": -0.060528,
+  "win_rate": 0.5,
+  "profit_factor": 1.7836,
+  "params_hash": "sha256:44136fa355b3678a",
+  "command": "python research/top5_promote.py  # swing_breakout_avax on AVAX/USDT, 1d, two years",
+  "note": "shipped sleeve re-run through Engine: next-open fills, stop-first intrabar, 3% risk, 95% max position, drawdown switch off, 10 bps fee + 5 bps slippage a side; strict two-year load (days=730)",
+  "risk_per_trade": 0.03,
+  "max_position_pct": 0.95,
+  "max_drawdown_stop": 0.99
+}

@@ -1,0 +1,20 @@
+{
+  "symbol": "SUI/USDT",
+  "timeframe": "4h",
+  "window": "2024-11-28 .. 2026-11-28",
+  "bars": 4380,
+  "window_days": 729,
+  "trades": 30,
+  "fee_bps": 10.0,
+  "slippage_bps": 5.0,
+  "return_pct": 0.613392,
+  "max_drawdown": -0.131407,
+  "win_rate": 0.433333,
+  "profit_factor": 2.381,
+  "params_hash": "sha256:44136fa355b3678a",
+  "command": "python research/top5_promote.py  # swing_breakout_sui on SUI/USDT, 4h, two years",
+  "note": "shipped sleeve re-run through Engine: next-open fills, stop-first intrabar, 3% risk, 95% max position, drawdown switch off, 10 bps fee + 5 bps slippage a side; strict two-year load (days=730)",
+  "risk_per_trade": 0.03,
+  "max_position_pct": 0.95,
+  "max_drawdown_stop": 0.99
+}

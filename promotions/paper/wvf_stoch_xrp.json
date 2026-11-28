@@ -1,0 +1,64 @@
+{
+  "strategy": "wvf_stoch_xrp",
+  "env": "paper",
+  "params_hash": "sha256:38d6e0662ef1e24d",
+  "symbols": [
+    "XRP/USDT"
+  ],
+  "timeframe": "4h",
+  "capital": 1000.0,
+  "promoted_at": "2026-11-28T11:26:16+00:00",
+  "promoted_by": "agent",
+  "override": false,
+  "override_reason": "",
+  "checks": [
+    {
+      "name": "backtest_bars",
+      "ok": true,
+      "detail": "bars=4380"
+    },
+    {
+      "name": "backtest_window",
+      "ok": true,
+      "detail": "window_days=729"
+    },
+    {
+      "name": "backtest_trades",
+      "ok": true,
+      "detail": "trades=19"
+    },
+    {
+      "name": "costs_modelled",
+      "ok": true,
+      "detail": "fee_bps=10.0, slippage_bps=5.0"
+    },
+    {
+      "name": "params_hash",
+      "ok": true,
+      "detail": "evidence=sha256:38d6e0662ef1e24d expected=sha256:38d6e0662ef1e24d"
+    }
+  ],
+  "evidence": {
+    "symbol": "XRP/USDT",
+    "timeframe": "4h",
+    "window": "2024-11-28 .. 2026-11-28",
+    "bars": 4380,
+    "window_days": 729,
+    "trades": 19,
+    "fee_bps": 10.0,
+    "slippage_bps": 5.0,
+    "return_pct": 0.489167,
+    "max_drawdown": -0.072941,
+    "win_rate": 0.631579,
+    "profit_factor": 2.9793,
+    "params_hash": "sha256:38d6e0662ef1e24d",
+    "command": "python research/top5_promote.py  # wvf_stoch_xrp on XRP/USDT, 4h, two years",
+    "note": "shipped sleeve re-run through Engine: next-open fills, stop-first intrabar, 3% risk, 95% max position, drawdown switch off, 10 bps fee + 5 bps slippage a side; strict two-year load (days=730)",
+    "risk_per_trade": 0.03,
+    "max_position_pct": 0.95,
+    "max_drawdown_stop": 0.99
+  },
+  "active": true,
+  "demoted_at": "",
+  "demote_reason": ""
+}
