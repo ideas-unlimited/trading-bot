@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>trading-bot · {{ENV_NAME}}</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=1">
 <style>
   :root {
     --bg: #0b0e11; --panel: #12161d; --panel2: #171d26; --border: #232b37;
@@ -17,7 +18,9 @@
   /* ---- sidebar ---- */
   nav { width: 196px; background: #0e1116; border-right: 1px solid var(--border);
         padding: 14px 10px; display: flex; flex-direction: column; gap: 1px; }
-  .logo { font-weight: 700; font-size: 14.5px; letter-spacing: .4px; padding: 4px 10px 16px; }
+  .logo { font-weight: 700; font-size: 14.5px; letter-spacing: .4px; padding: 4px 10px 16px;
+          display: flex; align-items: center; gap: 8px; }
+  .logo img { width: 20px; height: 20px; display: block; border-radius: 5px; }
   .logo span { color: var(--accent); }
   nav a { display: block; padding: 8px 10px; border-radius: 6px; color: #b7c0cd;
           text-decoration: none; font-size: 13px; cursor: pointer;
@@ -130,7 +133,7 @@
 <body class="{{ENV}}">
 <div class="envbar">{{ENV_LABEL}}<span>·</span>{{ENV_NOTE}}</div>
 <nav>
-  <div class="logo">trading<span>bot</span></div>
+  <div class="logo"><img src="/favicon.svg?v=1" alt="" width="20" height="20">trading<span>bot</span></div>
   <a data-view="dashboard" class="on">Dashboard</a>
   <a data-view="bots">Bots</a>
   <a data-view="strategies">Strategies</a>
@@ -163,6 +166,15 @@
       <h2>Live bots <span id="botsCount" class="badge muted">0 running</span></h2>
       <table id="dashBots"></table>
     </div>
+    <div class="card" id="forwardCard" style="margin-top:12px">
+      <h2>Forward paper sleeves <span id="forwardCount" class="badge muted">—</span></h2>
+      <table id="dashForward"></table>
+      <div class="hint">
+        Shadow replays from the forward runner — a strategy can be promoted and
+        replayed here without a live-bot row. “live” starts at $1,000 on the
+        deploy pin; “history” is the full two-year replay.
+      </div>
+    </div>
   </div>
 
   <!-- ================= BOTS ================= -->
@@ -172,6 +184,7 @@
       <div class="hint" style="margin:-4px 0 14px">
         Bots are created and promoted from lab; this page runs them. A kill switch
         halts within one poll: no new entries, and an open position is closed.
+        Forward sleeve replays are not live-bot rows — they are on the Dashboard.
       </div>
       <div id="botsList"><div class="empty">loading…</div></div>
     </div>
@@ -289,6 +302,46 @@ async function loadAccount(){
     return a;
   } catch(e){ $("accountChip").textContent = "account: " + e.message; return null; }
 }
+async function loadForward(){
+  const card = $("forwardCard");
+  if (ENV !== "paper") { card.style.display = "none"; return; }
+  const table = $("dashForward"), count = $("forwardCount");
+  try {
+    const data = await api("/api/forward");
+    const sleeves = data.sleeves || [];
+    const n = sleeves.filter(s => s.state === "running").length;
+    count.textContent = sleeves.length
+      ? `${n} running · ${sleeves.length} active`
+      : "none active";
+    count.className = "badge " + (n ? "live" : "muted");
+    table.innerHTML = sleeves.length
+      ? `<tr><th>sleeve</th><th>market</th><th>tf</th><th>state</th><th>history</th><th>trades</th><th>live since deploy</th><th>position</th><th>updated</th></tr>` +
+        sleeves.map(s => {
+          const h = s.history || {};
+          const f = s.forward || {};
+          const p = s.position;
+          const stateCls = s.state === "running" ? "live" : "muted";
+          const pos = p
+            ? `${qtyFmt(p.qty)} @ ${money(p.entry)}<br><span class="dim">uPnL ${money(p.unrealized)} · stop ${money(p.stop)}</span>`
+            : "flat";
+          return `<tr><td><b>${esc(s.strategy)}</b><div class="dim">${esc(s.symbol)}</div></td>` +
+            `<td>${esc(s.symbol)}</td><td>${esc(s.timeframe)}</td>` +
+            `<td><span class="badge ${stateCls}">${esc(s.state)}</span></td>` +
+            `<td class="${cls(h.return_pct)}">${h.return_pct == null ? "—" : fmt(h.return_pct*100, 2, "%")}` +
+            `<div class="dim">dd ${h.max_drawdown == null ? "—" : fmt(h.max_drawdown*100, 1, "%")}</div></td>` +
+            `<td>${h.trades == null ? "—" : h.trades}</td>` +
+            `<td class="${cls(f.return_pct)}">${f.return_pct == null ? "—" : fmt(f.return_pct*100, 2, "%")}` +
+            `<div class="dim">${f.trades == null ? 0 : f.trades} new fill${f.trades === 1 ? "" : "s"}</div></td>` +
+            `<td class="dim">${pos}</td>` +
+            `<td class="dim">${s.age_s == null ? "never" : ago(s.age_s)}</td></tr>`;
+        }).join("")
+      : `<tr><td class="empty" colspan="9">no active forward sleeves</td></tr>`;
+  } catch(e) {
+    count.textContent = "—";
+    table.innerHTML = `<tr><td class="empty" colspan="9">${esc(e.message)}</td></tr>`;
+  }
+}
+
 async function loadDashboard(){
   const a = await loadAccount();
   const stats = $("dashMetrics"), assets = $("dashAssets"), hint = $("assetsHint");
@@ -368,6 +421,7 @@ async function loadDashboard(){
     $("botsCount").textContent = "—";
     $("dashBots").innerHTML = `<tr><td class="empty" colspan="9">${esc(e.message)}</td></tr>`;
   }
+  await loadForward();
 }
 
 /* ================= bots ================= */

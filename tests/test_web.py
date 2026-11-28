@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,11 +16,13 @@ from bot.web import (
     api_bot_halt,
     api_bots_create,
     api_bots_delete,
+    api_forward,
     api_presets_create,
     api_presets_delete,
     api_scan,
     api_strategies,
     api_symbols,
+    favicon_svg,
     render_index,
 )
 
@@ -219,6 +222,44 @@ class StrategyCatalogueTests(unittest.TestCase):
                                     "timeframe": "1h", "kind": "sma_cross"})
         self.assertIn("promoted on 4h", wrong_tf["error"])
 
+    def test_forward_reads_the_sleeve_status_file(self) -> None:
+        self._manifest()
+        state = self.base / "state"
+        path = state / "sma_cross" / "forward" / "status.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            "runners": {"BTC/USDT": {
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "history": {"return_pct": 0.5, "trades": 10, "max_drawdown": -0.1},
+                "forward": {"return_pct": 0.01, "trades": 1},
+                "position": None,
+                "last_bar": "2026-11-28 04:00:00+00:00",
+            }},
+        }), encoding="utf-8")
+        data = api_forward(base=self.base, state_dir=state)
+        self.assertEqual(len(data["sleeves"]), 1)
+        row = data["sleeves"][0]
+        self.assertEqual(row["state"], "running")
+        self.assertEqual(row["symbol"], "BTC/USDT")
+        self.assertEqual(row["history"]["trades"], 10)
+        self.assertIsNone(row["position"])
+        json.dumps(data)  # the browser must be able to read it
+
+    def test_forward_without_status_is_waiting(self) -> None:
+        self._manifest()
+        data = api_forward(base=self.base, state_dir=self.base / "none")
+        self.assertEqual(data["sleeves"][0]["state"], "waiting")
+
+    def test_forward_hides_an_inactive_manifest(self) -> None:
+        self._manifest(active=False)
+        data = api_forward(base=self.base, state_dir=self.base / "state")
+        self.assertEqual(data["sleeves"], [])
+
+    def test_forward_is_empty_in_prod(self) -> None:
+        with patch.dict(os.environ, {"BOT_ENV": "prod"}):
+            data = api_forward(base=self.base, state_dir=self.base / "state")
+        self.assertEqual(data["sleeves"], [])
+
     def test_preset_create_requires_promotion(self) -> None:
         out = api_presets_create({"name": "x", "kind": "sma_cross"})
         self.assertIn("not activated for paper", out["error"])
@@ -244,6 +285,26 @@ class EnvironmentBrandingTests(unittest.TestCase):
         self.assertIn('<body class="prod">', html)
         self.assertIn('const ENV = "prod"', html)
         self.assertNotIn("{{ENV", html)
+
+    def test_favicon_is_coloured_for_its_world(self) -> None:
+        with patch.dict(os.environ, {"BOT_ENV": "paper"}):
+            paper = favicon_svg().decode("utf-8")
+        with patch.dict(os.environ, {"BOT_ENV": "prod"}):
+            prod = favicon_svg().decode("utf-8")
+        self.assertIn("#0ecb81", paper)          # paper green
+        self.assertNotIn("#f6465d", paper)
+        self.assertIn("#f6465d", prod)           # production red
+        self.assertNotIn("#0ecb81", prod)
+        for svg in (paper, prod):
+            self.assertTrue(svg.startswith("<svg"))
+            self.assertIn('viewBox="0 0 64 64"', svg)
+            self.assertNotIn("{{", svg)
+
+    def test_page_links_its_icon(self) -> None:
+        with patch.dict(os.environ, {"BOT_ENV": "paper"}):
+            html = render_index().decode("utf-8")
+        self.assertIn('<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=1">', html)
+        self.assertIn('class="logo"><img src="/favicon.svg?v=1"', html)
 
     def test_prod_write_endpoints_are_read_only(self) -> None:
         with patch.dict(os.environ, {"BOT_ENV": "prod"}):

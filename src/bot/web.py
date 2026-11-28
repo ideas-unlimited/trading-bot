@@ -25,7 +25,7 @@ from .exchange.live_client import BinanceLiveClient
 from .backtest import run_backtest
 from . import promotions as promo
 from .config import BotConfig, CostConfig, RiskConfig
-from .envcfg import describe as env_describe, env_name, lab_mode
+from .envcfg import describe as env_describe, env_name, lab_mode, state_dir as env_state_dir
 from .data.feed import generate_synthetic
 from .metrics import infer_bars_per_year
 from .scanlib import load_scan_bars, make_config, run_scan
@@ -74,6 +74,27 @@ def render_index() -> bytes:
     for token, value in tokens.items():
         html = html.replace(token, value)
     return html.encode("utf-8")
+
+
+# The mark is an equity line rising into a live dot, on a dark tile: legible
+# at 16 px, and the world sets the colour so two open tabs never look alike.
+ICON_ACCENT = {"paper": "#0ecb81", "prod": "#f6465d"}
+ICON_FALLBACK = "#4f8cff"
+
+
+def favicon_svg() -> bytes:
+    """The tab icon, coloured for this world (green paper, red prod)."""
+    try:
+        accent = ICON_ACCENT.get(env_name(), ICON_FALLBACK)
+    except ValueError:
+        accent = ICON_FALLBACK
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="trading-bot">
+<rect x="1" y="1" width="62" height="62" rx="15" fill="{accent}"/>
+<path d="M12 48h40" stroke="#0b0e11" stroke-opacity=".55" stroke-width="3" stroke-linecap="round"/>
+<path d="M13 43L27 31l7 7 15-15" fill="none" stroke="#0b0e11" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="49" cy="23" r="5" fill="#0b0e11"/>
+</svg>
+""".encode("utf-8")
 
 # Curated ticker lists for the terminal dropdowns.  Crypto pairs come from
 # Binance; the other lists exist only as TradingView research feeds
@@ -494,6 +515,66 @@ def _run_rate(conn: Any, bot_id: int, capital: float) -> dict[str, Any] | None:
         "month_pct": (per_day * 30.0 / capital * 100.0) if capital > 0 else None,
         "samples": len(rows),
     }
+
+
+def api_forward(base: Path | None = None, state_dir: Path | None = None) -> dict[str, Any]:
+    """Status of the paper forward sleeve replays.
+
+    Forward sleeves are not rows in bots: one process replays every active
+    manifest and writes <state>/<strategy>/forward/status.json. The Bots page
+    therefore cannot show them from the live-bot table; this endpoint is the
+    read-only view the dashboard uses so they are not invisible.
+    """
+    if env_name() != "paper":
+        return {"sleeves": [], "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    manifests = promo.active_manifests("paper", base)
+    root = Path(state_dir) if state_dir is not None else env_state_dir("paper")
+    now = datetime.now(timezone.utc)
+    sleeves: list[dict[str, Any]] = []
+    for name, manifest in sorted(manifests.items()):
+        for symbol in manifest.symbols:
+            path = root / name / "forward" / "status.json"
+            row: dict[str, Any] = {
+                "strategy": name,
+                "symbol": symbol,
+                "timeframe": manifest.timeframe,
+                "capital": manifest.capital,
+                "state": "waiting",
+                "updated_at": None,
+                "age_s": None,
+            }
+            runner: Any = None
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                runner = (data.get("runners") or {}).get(symbol)
+            except (OSError, ValueError):
+                runner = None
+            if isinstance(runner, dict):
+                updated = runner.get("updated_at")
+                age = None
+                if updated:
+                    try:
+                        age = (now - datetime.fromisoformat(str(updated).replace("Z", "+00:00"))).total_seconds()
+                    except ValueError:
+                        age = None
+                row.update({
+                    "state": "running" if age is not None and age <= 300 else "stale",
+                    "updated_at": updated,
+                    "age_s": int(age) if age is not None else None,
+                    "history": runner.get("history"),
+                    "forward": runner.get("forward"),
+                    "position": runner.get("position"),
+                    "last_bar": runner.get("last_bar"),
+                    "window": runner.get("window"),
+                    "deploy": runner.get("deploy"),
+                    "halted_reason": runner.get("halted_reason") or "",
+                })
+            sleeves.append(row)
+    return _jsonify({
+        "sleeves": sleeves,
+        "as_of": now.isoformat(timespec="seconds"),
+        "state_dir": str(root),
+    })
 
 
 def api_running() -> dict[str, Any]:
@@ -928,6 +1009,22 @@ class WebHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(html)))
             self.end_headers()
             self.wfile.write(html)
+        elif self.path.split("?")[0] == "/favicon.svg":
+            data = favicon_svg()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/svg+xml; charset=utf-8")
+            # Short cache: the world's colour is baked in, and a deploy may
+            # restyle it.  A day is long enough that the tab is instant.
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        elif self.path.split("?")[0] == "/favicon.ico":
+            # Browsers still ask for the legacy path; answer with the real one.
+            self.send_response(302)
+            self.send_header("Location", "/favicon.svg")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
         elif self.path == "/api/env":
             self._send_json(200, env_describe())
         elif self.path == "/api/strategies":
@@ -938,6 +1035,8 @@ class WebHandler(BaseHTTPRequestHandler):
             self._send_json(200, api_symbols())
         elif self.path == "/api/bots":
             self._send_json(200, api_bots_list())
+        elif self.path == "/api/forward":
+            self._send_json(200, api_forward())
         elif self.path == "/api/running":
             self._send_json(200, api_running())
         elif self.path == "/api/runs":
