@@ -127,7 +127,7 @@ if [[ $(systemctl is-active tradingbot@${name}) != active ]]; then
   echo "FAIL       tradingbot@${name} is not active; check: journalctl -u tradingbot@${name}" >&2
   exit 1
 fi
-journalctl -u tradingbot@${name} --no-pager | grep -q "on Binance DEMO account" || {
+journalctl -u tradingbot@${name} --no-pager | grep -c "on Binance DEMO account" >/dev/null || {
   echo "FAIL       no demo-account line in the journal - the loop may have exited" >&2
   exit 1
 }
