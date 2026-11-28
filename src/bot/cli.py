@@ -34,6 +34,7 @@ from .book import (
     save_book,
     simulate_book,
 )
+from .symbolcfg import merge_book_config
 from .config import BotConfig, CostConfig, RiskConfig
 from .data.binance import INTERVALS, fetch_binance_bars
 from .data.feed import generate_synthetic, load_csv, write_bars
@@ -627,15 +628,41 @@ def cmd_book(args: argparse.Namespace) -> int:
 
 def cmd_auto(args: argparse.Namespace) -> int:
     '''Run the paper books forward on live bars.  No orders are ever sent.'''
-    from .autobook import default_books, format_status, run_forever, run_once, select_books
+    from .autobook import (books_from_pool, default_books, format_status, run_forever,
+                           run_once, select_books)
+    from . import symbolcfg
 
-    books = select_books(args.books, cash=args.cash)
-    symbols = [s.strip() for s in args.coins.split(",") if s.strip()]
+    if getattr(args, "pool", None):
+        entries = symbolcfg.load_pool(args.pool)
+        books = list(books_from_pool(entries, cash=args.cash))
+        symbols = [e.symbol for e in entries if e.available]
+        label = f"pool {args.pool} ({len(books)} wallets, one per coin)"
+    else:
+        books = list(select_books(args.books, cash=args.cash))
+        symbols = [s.strip() for s in args.coins.split(",") if s.strip()]
+        label = ", ".join(b.key + " " + b.label for b in books)
+    overrides = _symbol_overrides(args)
+    if overrides:
+        from dataclasses import replace as _replace
+
+        merged = []
+        for book in books:
+            allowed = book.symbols or tuple(symbols)
+            mine = {sym: params for sym, params in overrides.items() if sym in allowed}
+            if not mine:
+                merged.append(book)
+                continue
+            merged.append(_replace(book, symbol_params={**book.symbol_params, **mine}))
+        books = merged
     kwargs = dict(symbols=symbols, books=books, timeframe=args.timeframe,
                   source=args.source, days=args.days, outdir=args.outdir)
-    print(f"books      {', '.join(b.key + ' ' + b.label for b in books)}")
+    print(f"books      {label}")
     print(f"wallets    ${books[0].cash:,.0f} each")
     print(f"data       {args.source} {args.timeframe} {', '.join(symbols)}")
+    for book in books:
+        for sym, params in book.symbol_params.items():
+            diff = "  ".join(f"{k}={v}" for k, v in params.items())
+            print(f"params     [{book.key}] {sym:<10} {diff}")
     print()
     if args.once:
         payload = run_once(**kwargs)
@@ -644,6 +671,29 @@ def cmd_auto(args: argparse.Namespace) -> int:
         print(f"state      {payload['status_path']}")
         return 0
     run_forever(args.interval, **kwargs)
+    return 0
+
+
+def cmd_pool(args: argparse.Namespace) -> int:
+    '''Show or edit the per-symbol parameter sets in config/target_symbols.json.'''
+    from . import symbolcfg
+
+    if args.set:
+        updates = symbolcfg.parse_overrides(args.set)
+        symbolcfg.update_params(updates, path=args.file)
+        for sym, params in updates.items():
+            print(f"set        {sym:<10} " + "  ".join(f"{k}={v}" for k, v in params.items()))
+    try:
+        entries = symbolcfg.load_pool(args.file)
+    except ValueError as exc:
+        print(f"invalid    {exc}")
+        return 1
+    rows = symbolcfg.describe(entries)
+    print(f"pool       {len(rows)} symbols  ({args.file or symbolcfg.TARGETS_PATH})")
+    for row in rows:
+        params = "  ".join(f"{k}={v}" for k, v in row["params"].items()) or "(book defaults)"
+        print(f"  {row['symbol']:<10} {str(row['timeframe'] or '-'):<3} "
+              f"{row['status']:<9} {params}")
     return 0
 
 
@@ -934,6 +984,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_book.add_argument("--trail-atr", type=float, default=None,
                         help="exit on a Chandelier trail this many ATRs under the peak "
                              "(omit for the fixed ATR stop)")
+    p_book.add_argument("--symbol-params", action="append", default=None,
+                        metavar="SYM:k=v;SYM:k=v",
+                        help="per-coin override, e.g. SUIUSDT:trail_atr=3.0 (repeatable)")
+    p_book.add_argument("--params-file", default=None,
+                        help="JSON {SYMBOL: {param: value}} or a target_symbols.json pool")
     p_book.add_argument("--trail-after-r", type=float, default=0.0,
                         help="only arm the trail once the trade shows this many R of profit")
     p_book.add_argument("--outdir", default="runs/book")
@@ -949,7 +1004,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_auto.add_argument("--interval", type=int, default=900, help="seconds between cycles")
     p_auto.add_argument("--once", action="store_true", help="one cycle then exit (Task Scheduler)")
     p_auto.add_argument("--outdir", default=None, help="defaults to runs/<env>/autobooks")
+    p_auto.add_argument("--pool", default=None,
+                        help="one wallet per symbol from this target_symbols.json")
+    p_auto.add_argument("--symbol-params", action="append", default=None,
+                        metavar="SYM:k=v;SYM:k=v",
+                        help="per-coin override applied to every book that may hold it")
+    p_auto.add_argument("--params-file", default=None,
+                        help="JSON {SYMBOL: {param: value}} or a target_symbols.json pool")
     p_auto.set_defaults(func=cmd_auto)
+
+    p_pool = sub.add_parser("pool", help="show or edit per-symbol parameters")
+    p_pool.add_argument("--file", default=None, help="defaults to config/target_symbols.json")
+    p_pool.add_argument("--set", action="append", default=None, metavar="SYM:k=v;SYM:k=v",
+                        help="write a coin's parameters into the pool file")
+    p_pool.set_defaults(func=cmd_pool)
 
     p_env = sub.add_parser("env", help="show which environment and databases this shell uses")
     p_env.set_defaults(func=cmd_env)

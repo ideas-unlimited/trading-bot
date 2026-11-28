@@ -43,13 +43,13 @@ class SelectBooksTests(unittest.TestCase):
         self.assertEqual([b.cash for b in books], [250.0, 250.0])
 
     def test_all_keyword(self):
-        self.assertEqual([b.key for b in select_books('all')], ['A', 'B', 'C'])
+        self.assertEqual([b.key for b in select_books('all')], ['A', 'B', 'C', 'D', 'E'])
 
     def test_unknown_book_raises(self):
         with self.assertRaises(ValueError):
             select_books('A,Z')
 
-    def test_three_books_have_a_thousand_each(self):
+    def test_each_book_has_a_thousand(self):
         for spec in autobook.default_books():
             self.assertEqual(spec.cash, 1_000.0)
 
@@ -79,15 +79,16 @@ class RunOnceTests(unittest.TestCase):
         return run_once(['AAA', 'BBB'], books=autobook.default_books(), outdir=outdir,
                         bars_by_symbol=self.bars, now=self.now, **kwargs)
 
-    def test_three_wallets_and_state_file(self):
+    def test_wallets_and_state_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             payload = self._run(Path(tmp))
-            self.assertEqual(sorted(payload['books']), ['A', 'B', 'C'])
+            keys = [b.key for b in autobook.default_books()]
+            self.assertEqual(sorted(payload['books']), keys)
             status = json.loads((Path(tmp) / 'status.json').read_text(encoding='utf-8'))
             self.assertEqual(status['books']['A']['deploy_equity'],
                              payload['books']['A']['equity'])
             self.assertEqual(payload['books']['A']['since_deploy'], 0.0)
-            for key in ('A', 'B', 'C'):
+            for key in keys:
                 self.assertTrue((Path(tmp) / key / 'trades.csv').exists())
                 self.assertTrue((Path(tmp) / key / 'equity.csv').exists())
 
@@ -121,6 +122,22 @@ class RunOnceTests(unittest.TestCase):
             state_path.write_text(json.dumps(state), encoding='utf-8')
             again = self._run(Path(tmp))
             self.assertAlmostEqual(again['books']['A']['since_deploy'], 1.0, places=9)
+
+    def test_window_shift_repins_the_deploy_mark(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = self._run(Path(tmp))
+            path = Path(tmp) / 'status.json'
+            state = json.loads(path.read_text(encoding='utf-8'))
+            state['books']['A']['window_start'] = '2020-01-01T00:00:00+00:00'
+            path.write_text(json.dumps(state), encoding='utf-8')
+            again = self._run(Path(tmp))
+            self.assertEqual(again['books']['A']['since_deploy'], 0.0)
+            self.assertEqual(again['books']['A']['repinned_at'],
+                             first['books']['A']['deployed_at'])
+
+    def test_auto_default_runs_every_book(self):
+        from bot.cli import build_parser
+        self.assertEqual(build_parser().parse_args(['auto']).books, 'all')
 
     def test_no_closed_bars_is_an_error(self):
         with tempfile.TemporaryDirectory() as tmp:

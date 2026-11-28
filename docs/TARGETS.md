@@ -57,9 +57,11 @@ audit. They are not targets and must not be tuned or traded.
 
 - **One strategy per symbol.** Tune its parameters on that symbol; do not
   assume a parameter set that works on BTC works on SUI or HYPE.
-- Prefer one registered strategy implementation with a per-symbol config
-  block over 18 forked strategy files; fork the code only when the signal
-  logic genuinely differs.
+- Prefer one registered implementation per signal family with a per-symbol
+  config block over 18 forked strategy files. When a registration's parameters
+  are fitted to one symbol, name it with the symbol suffix
+  (`capitulation_dip_uni`) and keep its research in `research/<symbol>/`;
+  fork the code only when the signal logic genuinely differs.
 - Tune on the earlier slice, validate on the later slice. Report the symbol,
   timeframe, venue and both windows with every result; never select
   parameters on the out-of-sample slice.

@@ -46,6 +46,19 @@ class BookConfig:
     slippage_bps: float = 5.0
     damiani_filter: bool = False
     stc_min: float | None = None
+    # chart-structure gates (see bot.analysis.trendline_channel)
+    structure_gate: str | None = None   # 'breakout' | 'squeeze' | 'room'
+    channel_left: int = 10
+    channel_right: int = 10
+    breakout_atr: float = 0.5
+    breakout_within: int = 5
+    squeeze_quantile: float = 0.4
+    min_rr: float = 2.0
+    channel_spans: tuple[int, ...] = ()   # non-empty => median channel (robust)
+    # trailing exit: a Chandelier stop k ATRs under the highest high since entry,
+    # ratcheted up only, armed once the trade shows 'trail_after_r' of profit
+    trail_atr: float | None = None
+    trail_after_r: float = 0.0
 
     def __post_init__(self) -> None:
         if self.fast >= self.slow:
@@ -60,6 +73,21 @@ class BookConfig:
             raise ValueError('initial_cash must be positive')
         if self.stc_min is not None and not 0 <= self.stc_min <= 100:
             raise ValueError('stc_min must be in [0, 100]')
+        if self.structure_gate not in (None, 'breakout', 'squeeze', 'room'):
+            raise ValueError("structure_gate must be one of: breakout, squeeze, room")
+        if self.breakout_within < 1:
+            raise ValueError('breakout_within must be >= 1')
+        if not 0 < self.squeeze_quantile < 1:
+            raise ValueError('squeeze_quantile must be in (0, 1)')
+        if self.trail_atr is not None and self.trail_atr <= 0:
+            raise ValueError('trail_atr must be positive or None')
+        if self.trail_after_r < 0:
+            raise ValueError('trail_after_r must be >= 0')
+
+
+# Settings that describe the wallet, not a coin.  A per-symbol override of one
+# of these would silently change every coin's sizing, so the engine rejects it.
+PORTFOLIO_FIELDS: tuple[str, ...] = ('max_positions', 'initial_cash')
 
 
 @dataclass
@@ -73,6 +101,7 @@ class BookResult:
     buy_hold: float
     fees: float = 0.0
     positions: dict[str, dict[str, object]] = field(default_factory=dict)
+    symbol_configs: dict[str, BookConfig] = field(default_factory=dict)
 
     @property
     def final_equity(self) -> float:
@@ -112,6 +141,31 @@ def _bars_per_year(index: pd.DatetimeIndex) -> float:
     return max(1.0, round(365.25 * 24 * 3600 / median)) if median > 0 else 365.0
 
 
+def _structure_ok(frame: pd.DataFrame, config: BookConfig, channel: pd.DataFrame) -> pd.Series:
+    '''One chart-structure gate over a frame; True means 'entry allowed'.'''
+    mode = config.structure_gate
+    if mode == 'breakout':
+        brk = analysis.channel_breakout(
+            frame, channel, atr_mult=config.breakout_atr, confirm=1
+        )['break_up']
+        # a breakout counts for the next `breakout_within` bars
+        return brk.rolling(config.breakout_within, min_periods=1).max().fillna(False).astype(bool)
+    if mode == 'squeeze':
+        height = channel['height'].abs()
+        ratio = (height / analysis.atr(frame['high'], frame['low'], frame['close'],
+                                      config.atr_window)).replace([np.inf, -np.inf], np.nan)
+        # compressed = channel thinner than its own recent distribution
+        thresh = ratio.rolling(200, min_periods=50).quantile(config.squeeze_quantile)
+        return (ratio <= thresh).fillna(False)
+    if mode == 'room':
+        target = analysis.measured_move(frame, channel)['target_up']
+        risk = config.atr_mult * analysis.atr(
+            frame['high'], frame['low'], frame['close'], config.atr_window
+        )
+        return ((target - frame['close']) >= config.min_rr * risk).fillna(False)
+    raise ValueError(f'unknown structure_gate {mode!r}')
+
+
 def _entry_gates(
     frames: Mapping[str, pd.DataFrame], config: BookConfig
 ) -> dict[str, np.ndarray] | None:
@@ -119,11 +173,18 @@ def _entry_gates(
 
     'damiani_filter' requires volatility to be awake (the Damiani
     Volatmeter's 'green' state); 'stc_min' requires the Schaff Trend Cycle
-    at or above a level.  Both read the signal bar only, and only ever
-    *block* an entry -- exits are untouched, so a filter can never strand a
-    position.
+    at or above a level.  'structure_gate' adds one chart-structure test
+    ported from the pasted pattern indicator: 'breakout' wants an upper-rail
+    break, 'squeeze' wants a coiling channel, 'room' wants the measured move
+    to pay at least 'min_rr' times the ATR stop.  All of them read the
+    signal bar only, and only ever *block* an entry -- exits are untouched,
+    so a filter can never strand a position.
     '''
-    if not (config.damiani_filter or config.stc_min is not None):
+    if not (
+        config.damiani_filter
+        or config.stc_min is not None
+        or config.structure_gate is not None
+    ):
         return None
     gates: dict[str, np.ndarray] = {}
     for sym, frame in frames.items():
@@ -132,31 +193,79 @@ def _entry_gates(
             ok &= analysis.damiani_volatmeter(frame)['expanding'].fillna(False)
         if config.stc_min is not None:
             ok &= analysis.schaff_trend_cycle(frame['close']) >= config.stc_min
+        if config.structure_gate is not None:
+            if config.channel_spans:
+                channel = analysis.trendline_channel_ensemble(
+                    frame, spans=config.channel_spans
+                )
+            else:
+                channel = analysis.trendline_channel(
+                    frame, left=config.channel_left, right=config.channel_right
+                )
+            ok &= _structure_ok(frame, config, channel)
         gates[sym] = ok.to_numpy(bool)
     return gates
 
 
+def effective_configs(
+    config: BookConfig,
+    symbol_configs: Mapping[str, BookConfig] | None,
+    symbols: Sequence[str],
+) -> dict[str, BookConfig]:
+    '''One config per coin: its override, else the book's.
+
+    A per-symbol config may differ in anything that describes a *coin* (the
+    MA spans, the filters, the trail, costs, sizing).  The wallet-level
+    fields in PORTFOLIO_FIELDS must match the book, because one coin silently
+    changing max_positions or the starting cash would move every other coin.
+    '''
+    out: dict[str, BookConfig] = {}
+    for sym in symbols:
+        cfg = (symbol_configs or {}).get(sym) or config
+        for name in PORTFOLIO_FIELDS:
+            if getattr(cfg, name) != getattr(config, name):
+                raise ValueError(
+                    f'{sym}: {name!r} is a wallet-level setting and cannot be '
+                    f'set per symbol'
+                )
+        out[sym] = cfg
+    return out
+
+
 def simulate_book(bars_by_symbol: Mapping[str, Sequence[Bar]],
                   config: BookConfig | None = None, *,
-                  close_at_end: bool = True) -> BookResult:
+                  close_at_end: bool = True,
+                  symbol_configs: Mapping[str, BookConfig] | None = None) -> BookResult:
     '''Replay the rule over the bars.
 
     'close_at_end' force-closes whatever is still open at the last bar - the
     backtest's convention.  A live paper book passes False so the open
     position survives between polls.
+
+    'symbol_configs' gives individual coins their own parameters (see
+    bot.symbolcfg): the engine then evaluates each coin's MAs, filters, trail
+    and costs with that coin's config, while the wallet - starting cash and
+    the number of slots - stays the book's.
     '''
     config = config or BookConfig()
     if not bars_by_symbol:
         raise ValueError('no bars')
-    strategy = SmaCross(config.fast, config.slow, config.atr_mult)
-    frames = {sym: strategy.prepare(bars_to_frame(bars)) for sym, bars in bars_by_symbol.items()}
-    gates = _entry_gates(frames, config)
+    cfgs = effective_configs(config, symbol_configs, tuple(bars_by_symbol))
+    strategies = {sym: SmaCross(cfgs[sym].fast, cfgs[sym].slow, cfgs[sym].atr_mult)
+                  for sym in bars_by_symbol}
+    frames = {sym: strategies[sym].prepare(bars_to_frame(bars))
+              for sym, bars in bars_by_symbol.items()}
+    gates: dict[str, np.ndarray] = {}
+    for sym, frame in frames.items():
+        one = _entry_gates({sym: frame}, cfgs[sym])
+        if one is not None:
+            gates[sym] = one[sym]
     timeline = sorted(set().union(*[set(f.index) for f in frames.values()]))
     ts_index = pd.DatetimeIndex(timeline)
     bars_per_year = _bars_per_year(ts_index)
 
-    fee = config.fee_bps / 10_000.0
-    slip = config.slippage_bps / 10_000.0
+    fee = {sym: cfgs[sym].fee_bps / 10_000.0 for sym in frames}
+    slip = {sym: cfgs[sym].slippage_bps / 10_000.0 for sym in frames}
 
     cash = config.initial_cash
     fees_paid = 0.0
@@ -165,6 +274,7 @@ def simulate_book(bars_by_symbol: Mapping[str, Sequence[Bar]],
     pending_buy: list[tuple[float, str, float]] = []   # score, symbol, stop
     last_close: dict[str, float] = {}
     entry_bar: dict[str, int] = {}
+    peak: dict[str, float] = {}
     equity = np.empty(len(timeline))
     trades: list[dict[str, object]] = []
     bars_in = 0
@@ -185,9 +295,9 @@ def simulate_book(bars_by_symbol: Mapping[str, Sequence[Bar]],
         nonlocal cash, fees_paid
         p = pos.pop(sym)
         qty = float(p['qty'])
-        proceeds = qty * px * (1.0 - fee)
+        proceeds = qty * px * (1.0 - fee[sym])
         cash += proceeds
-        exit_fee = qty * px * fee
+        exit_fee = qty * px * fee[sym]
         fees_paid += exit_fee
         r = (px - float(p['entry'])) / float(p['risk0']) if float(p['risk0']) > 0 else 0.0
         trades.append({
@@ -202,7 +312,7 @@ def simulate_book(bars_by_symbol: Mapping[str, Sequence[Bar]],
         # 1. fills at this bar's open: exits first so their cash is free
         for sym in pending_sell:
             if sym in pos:
-                px = raw_px(sym, ts, 'open') * (1.0 - slip)
+                px = raw_px(sym, ts, 'open') * (1.0 - slip[sym])
                 close_pos(sym, ts, px, 'cross')
         pending_sell = []
 
@@ -211,20 +321,22 @@ def simulate_book(bars_by_symbol: Mapping[str, Sequence[Bar]],
                 continue
             if ts not in frames[sym].index:
                 continue
-            px = float(frames[sym].at[ts, 'open']) * (1.0 + slip)
+            cfg = cfgs[sym]
+            px = float(frames[sym].at[ts, 'open']) * (1.0 + slip[sym])
             if stop <= 0 or stop >= px:
                 continue
             value = mark()
-            qty = min(config.risk_per_trade * value / (px - stop),
-                      config.max_position_pct * value / px,
-                      cash / (px * (1.0 + fee)))
+            qty = min(cfg.risk_per_trade * value / (px - stop),
+                      cfg.max_position_pct * value / px,
+                      cash / (px * (1.0 + fee[sym])))
             if qty * px < 1.0:
                 continue
-            cost = qty * px * (1.0 + fee)
-            fees_paid += qty * px * fee
+            cost = qty * px * (1.0 + fee[sym])
+            fees_paid += qty * px * fee[sym]
             cash -= cost
             pos[sym] = {'qty': qty, 'entry': px, 'stop': stop, 'risk0': px - stop,
                         'entry_ts': ts, 'cost': cost}
+            peak[sym] = px
             last_close[sym] = px
             entry_bar[sym] = i
         pending_buy = []
@@ -240,7 +352,29 @@ def simulate_book(bars_by_symbol: Mapping[str, Sequence[Bar]],
             lo = float(frames[sym].at[ts, 'low'])
             stop = float(pos[sym]['stop'])
             if lo <= stop:
-                close_pos(sym, ts, min(o, stop) * (1.0 - slip), 'stop')
+                close_pos(sym, ts, min(o, stop) * (1.0 - slip[sym]), 'stop')
+
+        # 2b. ratchet the trail from this bar's close for the *next* bar, so no
+        #     bar can both update the trail and fill against it (no lookahead)
+        if pos:
+            for sym in list(pos):
+                if ts not in frames[sym].index:
+                    continue
+                cfg = cfgs[sym]
+                if not cfg.trail_atr:
+                    continue
+                row = frames[sym].loc[ts]
+                atr = float(row['atr'])
+                if not np.isfinite(atr) or atr <= 0:
+                    continue
+                peak[sym] = max(peak.get(sym, float(pos[sym]['entry'])), float(row['high']))
+                risk0 = float(pos[sym]['risk0'])
+                gain_r = (float(last_close[sym]) - float(pos[sym]['entry'])) / risk0 if risk0 > 0 else 0.0
+                if gain_r < cfg.trail_after_r:
+                    continue
+                candidate = peak[sym] - cfg.trail_atr * atr
+                if candidate > float(pos[sym]['stop']):
+                    pos[sym]['stop'] = candidate
 
         equity[i] = mark()
         if pos:
@@ -252,16 +386,16 @@ def simulate_book(bars_by_symbol: Mapping[str, Sequence[Bar]],
             if ts not in frame.index:
                 continue
             j = int(frame.index.get_loc(ts))
-            sig = strategy.signal(j, frame, 1.0 if sym in pos else 0.0)
+            sig = strategies[sym].signal(j, frame, 1.0 if sym in pos else 0.0)
             if sig is None:
                 continue
             if sig.action is Action.CLOSE and sym in pos:
                 pending_sell.append(sym)
             elif sig.action is Action.BUY and sym not in pos and sig.stop_loss:
-                if gates is not None and not gates[sym][j]:
+                if sym in gates and not gates[sym][j]:
                     continue
                 closes = frame['close'].to_numpy()
-                k = j - config.score_window
+                k = j - cfgs[sym].score_window
                 score = closes[j] / closes[k] - 1.0 if k >= 0 and closes[k] > 0 else -9.0
                 candidates.append((float(score), sym, float(sig.stop_loss)))
 
@@ -275,7 +409,7 @@ def simulate_book(bars_by_symbol: Mapping[str, Sequence[Bar]],
     if pos:
         if close_at_end:
             for sym in list(pos):
-                close_pos(sym, timeline[-1], last_close[sym] * (1.0 - slip), 'end')
+                close_pos(sym, timeline[-1], last_close[sym] * (1.0 - slip[sym]), 'end')
             equity[-1] = cash
         else:
             for sym, p in pos.items():
@@ -298,7 +432,7 @@ def simulate_book(bars_by_symbol: Mapping[str, Sequence[Bar]],
 
     return BookResult(eq, trade_df, config, list(frames),
                       bars_in / max(len(timeline), 1), bars_per_year, buy_hold, fees_paid,
-                      open_positions)
+                      open_positions, cfgs)
 
 
 def summarize(result: BookResult) -> dict[str, float]:
@@ -371,19 +505,26 @@ def save_book(result: BookResult, outdir: str | Path) -> dict[str, Path]:
     return {'equity': eq_path, 'trades': tr_path}
 
 
-def last_signal(result: BookResult, bars_by_symbol: Mapping[str, Sequence[Bar]]) -> dict[str, object]:
+def last_signal(result: BookResult, bars_by_symbol: Mapping[str, Sequence[Bar]],
+                symbol_configs: Mapping[str, BookConfig] | None = None) -> dict[str, object]:
     '''What the rule says on the most recent completed bars, for the next open.'''
-    strategy = SmaCross(result.config.fast, result.config.slow, result.config.atr_mult)
-    frames = {sym: strategy.prepare(bars_to_frame(bars)) for sym, bars in bars_by_symbol.items()}
-    gates = _entry_gates(frames, result.config)
+    cfgs = effective_configs(
+        result.config,
+        symbol_configs if symbol_configs is not None else result.symbol_configs,
+        tuple(bars_by_symbol),
+    )
     out: dict[str, object] = {}
-    for sym, frame in frames.items():
+    for sym, bars in bars_by_symbol.items():
+        cfg = cfgs[sym]
+        strategy = SmaCross(cfg.fast, cfg.slow, cfg.atr_mult)
+        frame = strategy.prepare(bars_to_frame(bars))
         i = len(frame) - 1
         held = 1.0 if sym in result.positions else 0.0
         sig = strategy.signal(i, frame, held)
         if sig is None:
             out[sym] = 'flat / no setup'
         elif sig.action is Action.BUY:
+            gates = _entry_gates({sym: frame}, cfg)
             blocked = gates is not None and not bool(gates[sym][i])
             out[sym] = (f'BUY at next open, stop {sig.stop_loss:.4f}'
                         + ('  [filter blocks it]' if blocked else ''))

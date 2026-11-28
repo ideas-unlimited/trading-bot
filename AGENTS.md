@@ -212,9 +212,22 @@ when you hit a new environment quirk and solve it, add it here and commit.
 
 ## Repo conventions
 
-- `pine/` — TradingView strategy ports. `research/` — research scratch space
-  (currently one agent's active workspace; check `git status`/overlap notes
-  before editing there).
+- `pine/` — TradingView strategy ports. `research/` — the lab;
+  `research/README.md` is the map. Per-symbol sleeves live in
+  `research/<symbol>/`; pooled studies sit at the top level while active and
+  move to `research/archive/` when closed (one line in its README explains
+  what was learned). One study = one script + one `.md` carrying the window,
+  timeframe and numbers. Check `git status` and mtimes, and never move or edit
+  a file another agent is working in.
+- **Per-symbol sleeves are named `<strategy>_<symbol>`** (lowercase symbol,
+  e.g. `capitulation_dip_uni`). The deployable class/module lives in
+  `src/bot/strategy/`; the symbol's research notes and scripts live in
+  `research/<symbol>/`. The suffix is mandatory because a parameter set fitted
+  on one coin must never be mistaken for a pooled rule or reused on another.
+  The plumbing already exists: `bot.symbolcfg` reads/writes the pool,
+  `BookSpec.symbol_params` carries a coin's overrides through the replay, and
+  `bot auto --pool config/target_symbols.json` runs one $1,000 wallet per
+  coin (all "book defaults" until a coin is tuned).
 - `src/bot/strategy/__init__.py` is a **shared file** (strategy registry) —
   always re-read it immediately before editing; another agent may have added
   a strategy while you worked.

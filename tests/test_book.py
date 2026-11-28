@@ -98,6 +98,12 @@ class BookTests(unittest.TestCase):
             BookConfig(max_positions=0)
         with self.assertRaises(ValueError):
             BookConfig(stc_min=101.0)
+        with self.assertRaises(ValueError):
+            BookConfig(structure_gate='magic')
+        with self.assertRaises(ValueError):
+            BookConfig(structure_gate='breakout', breakout_within=0)
+        with self.assertRaises(ValueError):
+            BookConfig(structure_gate='squeeze', squeeze_quantile=1.0)
 
     def test_entry_gates_only_block(self):
         frame = bars_to_frame(make_bars([100.0 + (i % 7) for i in range(300)]))
@@ -106,6 +112,26 @@ class BookTests(unittest.TestCase):
         self.assertEqual(len(gates['A']), len(frame))
         self.assertEqual(gates['A'].dtype, bool)
         self.assertFalse(gates['A'].all())
+
+    def test_structure_gates_only_block(self):
+        closes = [100.0 + (i % 7) - 0.05 * i for i in range(300)]
+        frame = bars_to_frame(make_bars(closes))
+        for mode in ('breakout', 'squeeze', 'room'):
+            gates = _entry_gates({'A': frame}, BookConfig(structure_gate=mode))
+            self.assertEqual(len(gates['A']), len(frame))
+            self.assertEqual(gates['A'].dtype, bool)
+            # an unmargined rail breakout can only ever be a subset of bars
+            self.assertFalse(gates['A'].all() and mode != 'squeeze')
+
+    def test_structure_gate_never_adds_trades(self):
+        closes = [100.0] * 20 + [100.0 + i for i in range(1, 40)] + [140.0 - i for i in range(1, 40)]
+        bars = make_bars(closes)
+        plain = simulate_book({'A': bars}, BookConfig(fast=2, slow=3, fee_bps=0.0, slippage_bps=0.0))
+        self.assertGreaterEqual(len(plain.trades), 1)
+        for mode in ('breakout', 'squeeze', 'room'):
+            gated = simulate_book({'A': bars}, BookConfig(
+                fast=2, slow=3, fee_bps=0.0, slippage_bps=0.0, structure_gate=mode))
+            self.assertLessEqual(len(gated.trades), len(plain.trades), mode)
 
     def test_filters_never_add_trades(self):
         closes = [100.0] * 20 + [100.0 + i for i in range(1, 40)] + [140.0 - i for i in range(1, 40)]
@@ -116,6 +142,48 @@ class BookTests(unittest.TestCase):
             fast=2, slow=3, fee_bps=0.0, slippage_bps=0.0,
             damiani_filter=True, stc_min=70.0))
         self.assertLessEqual(len(gated.trades), len(plain.trades))
+
+    def test_trail_config_validation(self):
+        with self.assertRaises(ValueError):
+            BookConfig(trail_atr=0.0)
+        with self.assertRaises(ValueError):
+            BookConfig(trail_after_r=-0.5)
+
+    def test_trail_lifts_the_exit_on_a_runner(self):
+        closes = [100.0] * 60 + [100.0 + i for i in range(1, 121)] + [220.0 - 3.0 * i for i in range(1, 31)]
+        bars = make_bars(closes)
+        base = dict(fast=5, slow=10, fee_bps=0.0, slippage_bps=0.0)
+        fixed = simulate_book({'A': bars}, BookConfig(**base))
+        trailed = simulate_book({'A': bars}, BookConfig(**base, trail_atr=1.5))
+        self.assertEqual(len(fixed.trades), 1)
+        self.assertEqual(len(trailed.trades), 1)
+        f_exit = float(fixed.trades.iloc[0]['exit'])
+        t_exit = float(trailed.trades.iloc[0]['exit'])
+        self.assertGreater(t_exit, f_exit)
+        self.assertGreater(t_exit, 150.0)          # the run was 120 points
+        self.assertLess(t_exit, 220.0)             # but not the very top
+        self.assertGreater(float(trailed.trades.iloc[0]['r_multiple']), 1.0)
+
+    def test_trail_after_r_waits_for_profit(self):
+        closes = [100.0] * 60 + [100.0 + i for i in range(1, 121)] + [220.0 - 3.0 * i for i in range(1, 31)]
+        bars = make_bars(closes)
+        base = dict(fast=5, slow=10, fee_bps=0.0, slippage_bps=0.0)
+        fixed = simulate_book({'A': bars}, BookConfig(**base))
+        late = simulate_book({'A': bars}, BookConfig(**base, trail_atr=1.5, trail_after_r=50.0))
+        self.assertEqual(float(fixed.trades.iloc[0]['exit']),
+                         float(late.trades.iloc[0]['exit']))
+
+    def test_trail_is_causal(self):
+        closes = [100.0] * 60 + [100.0 + (i % 9) * 1.5 for i in range(1, 161)] + [110.0] * 40
+        bars = make_bars(closes)
+        cfg = BookConfig(fast=5, slow=10, fee_bps=0.0, slippage_bps=0.0, trail_atr=2.0)
+        full = simulate_book({'A': bars}, cfg)
+        part = simulate_book({'A': bars[:150]}, cfg)
+        cut = bars[149].ts
+        stamp = lambda df: [(r.symbol, str(r.entry_ts), str(r.exit_ts), round(float(r.exit), 6))
+                            for r in df.itertuples()]
+        self.assertEqual(stamp(part.trades[part.trades['exit_ts'] < cut]),
+                         stamp(full.trades[full.trades['exit_ts'] < cut]))
 
     def test_bars_to_frame_dedupes(self):
         bars = make_bars([1.0, 2.0])
