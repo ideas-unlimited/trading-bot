@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 
 import pandas as pd
@@ -38,6 +39,21 @@ class Signal:
     #: Arm the trail only after the trade shows this many R of profit
     #: (0 = arm immediately).  Measured on the close, like ``book.py``.
     trail_after_r: float = 0.0
+    #: Arm the trail only after price trades at or above this level.
+    #: Useful when the target is a structural level rather than an R multiple.
+    trail_after_price: float | None = None
+    #: A BUY may add to an existing position when this is true.  The engine
+    #: keeps one weighted-average position and never opens a second one.
+    add: bool = False
+    #: Fraction of the normal risk-sized order to buy.  Three equal tranches
+    #: use 1/3 each; the stop is shared by the whole position.
+    size_fraction: float = 1.0
+    #: Resting limit ladder.  When non-empty the engine does not buy at the
+    #: next open; it fills each level touched by a later bar's low (at the
+    #: level, or better at that bar's open), one size_fraction per level.
+    limit_prices: tuple[float, ...] = ()
+    #: The ladder is cancelled at or after this close timestamp.
+    limit_expires_at: datetime | None = None
 
 
 class Strategy(ABC):

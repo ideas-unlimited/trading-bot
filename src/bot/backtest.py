@@ -81,10 +81,14 @@ class Engine:
 
         self.i = 0
         self._pending: Signal | None = None
+        self._limit: Signal | None = None
+        self._limit_levels: tuple[float, ...] = ()
+        self._no_trail_bar: datetime | None = None
         self._stop: float | None = None
         self._take: float | None = None
         self._trail_atr: float | None = None
         self._trail_after_r: float = 0.0
+        self._trail_after_price: float | None = None
         self._entry_px: float | None = None
         self._risk0: float | None = None
         self._peak: float | None = None
@@ -106,6 +110,7 @@ class Engine:
             self._execute(self._pending, ts, open_px)
             self._pending = None
 
+        self._check_limit(row, ts)
         self._check_exits(row, ts)
         self._ratchet_trail(row)
 
@@ -158,21 +163,42 @@ class Engine:
     # -- internals -------------------------------------------------------
     def _execute(self, signal: Signal, ts: datetime, open_px: float) -> None:
         if signal.action is Action.BUY:
-            if self.broker.in_position:
+            was_in = self.broker.in_position
+            if was_in and not signal.add:
+                return
+            # A stop at or above the fill price is already invalid; refuse the
+            # order rather than falling back to an unstopped allocation.
+            if signal.stop_loss is not None and signal.stop_loss >= open_px:
                 return
             equity = self.broker.equity(open_px)
             qty = self.risk.size(equity, open_px, signal.stop_loss)
+            qty *= max(0.0, min(1.0, signal.size_fraction))
             if qty <= 0:
                 return
             fill = self.broker.buy(ts, open_px, qty, reason=signal.reason)
             if fill is not None:
-                self._stop = signal.stop_loss
-                self._take = signal.take_profit
-                self._trail_atr = signal.trail_atr
-                self._trail_after_r = signal.trail_after_r
-                self._entry_px = fill.price
-                self._risk0 = fill.price - signal.stop_loss
-                self._peak = fill.price
+                if not was_in:
+                    self._stop = signal.stop_loss
+                    self._take = signal.take_profit
+                    self._trail_atr = signal.trail_atr
+                    self._trail_after_r = signal.trail_after_r
+                    self._trail_after_price = signal.trail_after_price
+                    self._entry_px = fill.price
+                    self._risk0 = (
+                        fill.price - signal.stop_loss
+                        if signal.stop_loss is not None
+                        else None
+                    )
+                    self._peak = fill.price
+                else:
+                    # DCA add: Broker.buy() has already weighted the entry.
+                    self._entry_px = self.broker.entry_price
+                    self._risk0 = (
+                        self._entry_px - self._stop
+                        if self._entry_px is not None and self._stop is not None
+                        else None
+                    )
+                    self._peak = max(self._peak or fill.price, fill.price)
             return
 
         # SELL / CLOSE
@@ -182,9 +208,86 @@ class Engine:
             self._take = None
             self._trail_atr = None
             self._trail_after_r = 0.0
+            self._trail_after_price = None
+            self._limit = None
+            self._limit_levels = ()
             self._entry_px = None
             self._risk0 = None
             self._peak = None
+
+    def _check_limit(self, row: pd.Series, ts: datetime) -> None:
+        """Fill a resting limit ladder touched by this bar."""
+        sig = self._limit
+        if sig is None:
+            return
+        if sig.limit_expires_at is not None and ts >= sig.limit_expires_at:
+            self._limit = None
+            self._limit_levels = ()
+            return
+        if self.risk.halted:
+            self._limit = None
+            self._limit_levels = ()
+            return
+
+        open_px = float(row["open"])
+        low = float(row["low"])
+        # An opening gap through the stop invalidates the setup before any
+        # fill.  A mere intrabar wick through it can still fill the ladder and
+        # then stop out on the same bar, which is the conservative order.
+        if not self.broker.in_position and sig.stop_loss is not None and open_px <= sig.stop_loss:
+            self._limit = None
+            self._limit_levels = ()
+            return
+
+        was_in = self.broker.in_position
+        remaining: list[float] = []
+        for level in sorted(self._limit_levels):
+            if open_px <= level:
+                price = open_px
+            elif low <= level:
+                price = level
+            else:
+                remaining.append(level)
+                continue
+            if sig.stop_loss is not None and price <= sig.stop_loss:
+                remaining.append(level)
+                continue
+            equity = self.broker.equity(price)
+            qty = self.risk.size(equity, price, sig.stop_loss)
+            qty *= max(0.0, min(1.0, sig.size_fraction))
+            if qty <= 0:
+                remaining.append(level)
+                continue
+            fill = self.broker.buy(ts, price, qty, reason=sig.reason)
+            if fill is None:
+                remaining.append(level)
+                continue
+            if not was_in:
+                self._stop = sig.stop_loss
+                self._take = sig.take_profit
+                self._trail_atr = sig.trail_atr
+                self._trail_after_r = sig.trail_after_r
+                self._trail_after_price = sig.trail_after_price
+                self._entry_px = fill.price
+                self._risk0 = (
+                    fill.price - sig.stop_loss
+                    if sig.stop_loss is not None
+                    else None
+                )
+                self._peak = fill.price
+                was_in = True
+            else:
+                self._entry_px = self.broker.entry_price
+                self._risk0 = (
+                    self._entry_px - self._stop
+                    if self._entry_px is not None and self._stop is not None
+                    else None
+                )
+                self._peak = max(self._peak or fill.price, fill.price)
+            self._no_trail_bar = ts
+        self._limit_levels = tuple(remaining)
+        if not self._limit_levels:
+            self._limit = None
 
     def _check_exits(self, row: pd.Series, ts: datetime) -> None:
         if not self.broker.in_position:
@@ -198,6 +301,9 @@ class Engine:
             self._stop = self._take = None
             self._trail_atr = None
             self._trail_after_r = 0.0
+            self._trail_after_price = None
+            self._limit = None
+            self._limit_levels = ()
             self._entry_px = None
             self._risk0 = None
             self._peak = None
@@ -208,6 +314,9 @@ class Engine:
             self._stop = self._take = None
             self._trail_atr = None
             self._trail_after_r = 0.0
+            self._trail_after_price = None
+            self._limit = None
+            self._limit_levels = ()
             self._entry_px = None
             self._risk0 = None
             self._peak = None
@@ -220,13 +329,21 @@ class Engine:
         """
         if not self._trail_atr or not self.broker.in_position:
             return
+        if self._no_trail_bar == row["ts"]:
+            return
+        high = float(row["high"])
+        if self._trail_after_price is not None:
+            if high < self._trail_after_price:
+                return
+            # Armed once price touches the structural target; later dips can
+            # never disarm it.
+            self._trail_after_price = None
         if self._trail_after_r > 0:
             if not self._entry_px or not self._risk0 or self._risk0 <= 0:
                 return
             gain_r = (float(row["close"]) - self._entry_px) / self._risk0
             if gain_r < self._trail_after_r:
                 return
-        high = float(row["high"])
         self._peak = high if self._peak is None else max(self._peak, high)
         atr = self._atr_at(self.i)
         if atr is None or atr <= 0:
@@ -249,7 +366,15 @@ class Engine:
             return
 
         if signal.action is Action.BUY:
-            if self.broker.in_position or self.risk.halted:
+            if self.risk.halted:
+                return
+            if self.broker.in_position and not signal.add:
+                return
+            if signal.limit_prices:
+                if self._limit is not None or self._pending is not None:
+                    return
+                self._limit = signal
+                self._limit_levels = tuple(signal.limit_prices)
                 return
         elif not self.broker.in_position:
             return

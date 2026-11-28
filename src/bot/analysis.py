@@ -198,6 +198,84 @@ def swing_pivots(
     return pd.DataFrame({"pivot_high": confirmed_h, "pivot_low": confirmed_l})
 
 
+def demand_bands(
+    df: pd.DataFrame,
+    *,
+    swing: int = 5,
+    half_atr: float = 0.5,
+    max_age_days: float = 60.0,
+    atr_window: int = 14,
+) -> pd.DataFrame:
+    """Demand bands around confirmed swing lows, one ledger row per band.
+
+    A pivot low at bar p is confirmed swing bars later. The band is centred on
+    that pivot low and is half_atr ATR wide on each side. It becomes usable one
+    full bar after confirmation (available_at) and expires after max_age_days.
+    A newer pivot within half an ATR of a still-live band is treated as noise
+    and skipped.
+
+    Returns columns center, lower, upper, pivot_at, confirmed_at,
+    available_at, expires_at. Causal: earlier rows never change when later
+    bars are appended, and no field uses data after confirmed_at.
+    """
+    if swing < 1:
+        raise ValueError("swing must be >= 1")
+    if half_atr <= 0:
+        raise ValueError("half_atr must be > 0")
+    if max_age_days <= 0:
+        raise ValueError("max_age_days must be > 0")
+    if not isinstance(df.index, pd.DatetimeIndex):
+        raise ValueError("demand_bands needs a DatetimeIndex")
+    empty = pd.DataFrame(columns=[
+        "center", "lower", "upper", "pivot_at", "confirmed_at",
+        "available_at", "expires_at",
+    ])
+    if len(df) < 2:
+        return empty
+
+    deltas = df.index.to_series().diff().dropna()
+    bar_delta = deltas[deltas > pd.Timedelta(0)].median()
+    if not isinstance(bar_delta, pd.Timedelta) or bar_delta <= pd.Timedelta(0):
+        raise ValueError("demand_bands needs increasing timestamps")
+
+    piv = swing_pivots(df["high"], df["low"], swing, swing)
+    a = atr(df["high"], df["low"], df["close"], atr_window)
+    rows: list[dict[str, object]] = []
+    for conf_pos in np.flatnonzero(piv["pivot_low"].to_numpy()):
+        conf_pos = int(conf_pos)
+        pivot_pos = conf_pos - swing
+        if pivot_pos < 0:
+            continue
+        level = float(df["low"].iloc[pivot_pos])
+        av = float(a.iloc[conf_pos])
+        if not (np.isfinite(level) and np.isfinite(av)) or level <= 0 or av <= 0:
+            continue
+        confirmed_at = df.index[conf_pos]
+        available_at = confirmed_at + bar_delta
+        if available_at > df.index[-1] + bar_delta:
+            continue
+        duplicate = any(
+            row["available_at"] <= available_at < row["expires_at"]
+            and abs(float(row["center"]) - level) <= 0.5 * av
+            for row in rows
+        )
+        if duplicate:
+            continue
+        half = half_atr * av
+        rows.append({
+            "center": level,
+            "lower": level - half,
+            "upper": level + half,
+            "pivot_at": df.index[pivot_pos],
+            "confirmed_at": confirmed_at,
+            "available_at": available_at,
+            "expires_at": available_at + pd.Timedelta(days=max_age_days),
+        })
+    if not rows:
+        return empty
+    return pd.DataFrame(rows).sort_values("available_at").reset_index(drop=True)
+
+
 def liquidity_levels(
     high: pd.Series, low: pd.Series, window: int = 20
 ) -> pd.DataFrame:

@@ -339,6 +339,37 @@ class ValueSanity(unittest.TestCase):
         s2 = an.stochastic(df)
         self.assertAlmostEqual(s2["k"].iloc[i], 100.0, places=6)
 
+    def test_demand_bands_are_causal_and_centred_on_the_pivot(self):
+        n = 80
+        index = pd.date_range("2025-01-01", periods=n, freq="15min")
+        close = pd.Series(100.0, index=index)
+        high = close * 1.002
+        low = close * 0.998
+        # One clean swing low at bar 30, confirmed five bars later.
+        low.iloc[30] = 80.0
+        low.iloc[29] = 99.0
+        low.iloc[31] = 99.0
+        df = pd.DataFrame({
+            "open": close, "high": high, "low": low, "close": close,
+            "volume": 1.0,
+        })
+        bands = an.demand_bands(df, swing=5, half_atr=0.5, max_age_days=1)
+        self.assertFalse(bands.empty)
+        row = bands[bands["pivot_at"] == index[30]].iloc[0]
+        self.assertAlmostEqual(float(row["center"]), 80.0)
+        self.assertLess(float(row["lower"]), 80.0)
+        self.assertGreater(float(row["upper"]), 80.0)
+        self.assertEqual(row["pivot_at"], index[30])
+        self.assertEqual(row["confirmed_at"], index[35])
+        self.assertGreater(row["available_at"], row["confirmed_at"])
+
+        prefix = an.demand_bands(df.iloc[:50].copy(), swing=5, half_atr=0.5,
+                                 max_age_days=1)
+        cutoff = df.index[49]
+        full_early = bands[bands["available_at"] <= cutoff].reset_index(drop=True)
+        prefix_early = prefix[prefix["available_at"] <= cutoff].reset_index(drop=True)
+        pd.testing.assert_frame_equal(full_early, prefix_early, check_dtype=False)
+
 
 if __name__ == "__main__":
     unittest.main()

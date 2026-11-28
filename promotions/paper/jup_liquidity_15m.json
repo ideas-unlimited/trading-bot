@@ -1,0 +1,62 @@
+{
+  "strategy": "jup_liquidity_15m",
+  "env": "paper",
+  "params_hash": "sha256:43d50c859a1e34ef",
+  "symbols": [
+    "JUP/USDT"
+  ],
+  "timeframe": "15m",
+  "capital": 1000.0,
+  "promoted_at": "2026-11-28T08:11:25+00:00",
+  "promoted_by": "agent",
+  "override": false,
+  "override_reason": "",
+  "checks": [
+    {
+      "name": "backtest_bars",
+      "ok": true,
+      "detail": "bars=35073"
+    },
+    {
+      "name": "backtest_window",
+      "ok": true,
+      "detail": "window_days=365"
+    },
+    {
+      "name": "backtest_trades",
+      "ok": true,
+      "detail": "trades=57"
+    },
+    {
+      "name": "costs_modelled",
+      "ok": true,
+      "detail": "fee_bps=10.0, slippage_bps=5.0"
+    },
+    {
+      "name": "params_hash",
+      "ok": true,
+      "detail": "evidence=sha256:43d50c859a1e34ef expected=sha256:43d50c859a1e34ef"
+    }
+  ],
+  "evidence": {
+    "strategy": "jup_liquidity_15m",
+    "symbol": "JUP/USDT",
+    "timeframe": "15m",
+    "window": "2025-11-28 .. 2026-11-28 UTC",
+    "window_days": 365,
+    "bars": 35073,
+    "trades": 57,
+    "fee_bps": 10,
+    "slippage_bps": 5,
+    "return_pct": 0.0565,
+    "max_drawdown": -0.067,
+    "win_rate": 0.6842,
+    "profit_factor": 1.77,
+    "params_hash": "sha256:43d50c859a1e34ef",
+    "command": "python -m bot backtest --source binance --symbol JUP/USDT --interval 15m --start 2025-11-28 --n-bars 40000 --strategy jup_liquidity_15m --risk-per-trade 0.05 --max-position-pct 0.5 --max-drawdown-stop 0.10 --fee-bps 10 --slippage-bps 5",
+    "note": "exact-2 4h/6h/1d demand cluster, ranked after filtering overhead/too-far bands; resting 3-tranche limit ladder at upper/mid/lower; next confirmed 15m demand centre arms a 1.5 ATR(15m) trail; no partial sale at target; 480-bar time exit"
+  },
+  "active": true,
+  "demoted_at": "",
+  "demote_reason": ""
+}
