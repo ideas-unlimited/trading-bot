@@ -59,15 +59,30 @@ mkdir -p /etc/tradingbot
 want_symbol="$REL_SYMBOL" want_tf="$REL_TF" want_strategy="$strategy" want_cap="$REL_CAPITAL"
 want_risk="$REL_RISK" want_cap_pct="$REL_CAP" want_dd="$REL_DD"
 if [[ -f $conf ]]; then
-  mismatch=""
-  get() { grep -E "^$1=" "$conf" | head -1 | cut -d= -f2-; }
-  [[ $(get SYMBOL) == $want_symbol ]] || mismatch="$mismatch SYMBOL($(get SYMBOL)!=$want_symbol)"
-  [[ $(get INTERVAL) == $want_tf ]] || mismatch="$mismatch INTERVAL($(get INTERVAL)!=$want_tf)"
-  [[ $(get STRATEGY) == $want_strategy ]] || mismatch="$mismatch STRATEGY($(get STRATEGY)!=$want_strategy)"
-  [[ $(get CAPITAL) == $want_cap ]] || mismatch="$mismatch CAPITAL($(get CAPITAL)!=$want_cap)"
-  [[ $(get RISK_PER_TRADE) == $want_risk ]] || mismatch="$mismatch RISK($(get RISK_PER_TRADE)!=$want_risk)"
-  [[ $(get MAX_POSITION_PCT) == $want_cap_pct ]] || mismatch="$mismatch CAP($(get MAX_POSITION_PCT)!=$want_cap_pct)"
-  [[ $(get MAX_DRAWDOWN_STOP) == $want_dd ]] || mismatch="$mismatch DD($(get MAX_DRAWDOWN_STOP)!=$want_dd)"
+  mismatch=$(python3 - "$conf" <<PY
+import sys
+
+def norm(x):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return str(x or "")
+
+want = {
+    "SYMBOL": "$want_symbol", "INTERVAL": "$want_tf", "STRATEGY": "$want_strategy",
+    "CAPITAL": "$want_cap", "RISK_PER_TRADE": "$want_risk",
+    "MAX_POSITION_PCT": "$want_cap_pct", "MAX_DRAWDOWN_STOP": "$want_dd",
+}
+env = {}
+for line in open(sys.argv[1]):
+    line = line.strip()
+    if line and not line.startswith("#") and "=" in line:
+        k, _, v = line.partition("=")
+        env[k] = v
+bad = [k for k, w in want.items() if k not in env or norm(env[k]) != norm(w) or str(env[k]).strip() == ""]
+print("".join(f" {k}({env.get(k, 'missing')}!={want[k]})" for k in bad))
+PY
+)
   [[ -z $mismatch ]] || {
     echo "refused: $conf exists with different values:$mismatch" >&2
     echo "edit the file or demote first; the script never clobbers a live bot config" >&2
