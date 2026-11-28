@@ -193,6 +193,21 @@ class TestChannels(unittest.TestCase):
         request = open_.call_args.args[0]
         self.assertEqual(request.data, b"body")
         self.assertEqual(request.get_header("Authorization"), "Bearer tok")
+        self.assertIsNone(request.get_header("Email"))
+
+    def test_ntfy_can_forward_the_same_message_to_a_verified_email(self):
+        channel = NtfyChannel(
+            "https://ntfy.sh/topic", token="tok", email="sahilnow@gmail.com",
+        )
+        with mock.patch("bot.notify.urllib.request.urlopen", return_value=_Response()) as open_:
+            channel.send("subject", "body")
+        request = open_.call_args.args[0]
+        self.assertEqual(request.get_header("Email"), "sahilnow@gmail.com")
+        self.assertEqual(request.get_header("Authorization"), "Bearer tok")
+
+    def test_ntfy_email_requires_a_token(self):
+        with self.assertRaises(ValueError):
+            NtfyChannel("https://ntfy.sh/topic", email="sahilnow@gmail.com")
 
     def test_email_builds_a_message_and_uses_starttls(self):
         sent = []

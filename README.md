@@ -305,7 +305,7 @@ src/bot/
   scanlib.py       bars cache + incremental Binance sync under the 2-year cap
   web.py           dashboard and JSON API (env-branded, promotion-aware)
   db.py            Postgres schema: bots, trades, equity, events, promotions
-tests/             361 unittest cases, no network
+tests/             363 unittest cases, no network
 ```
 
 `research/` is the lab (`research/README.md` is the map), `config/` holds the

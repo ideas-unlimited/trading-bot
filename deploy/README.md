@@ -197,13 +197,19 @@ channel and prints which ones are active.  It never places an order.
    numeric `chat.id`.
 4. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `alerts.env`.
 
-### ntfy (no account)
+### ntfy (push, or email relay)
 
 Install the ntfy app, subscribe to a long random topic, and set
 `NTFY_URL=https://ntfy.sh/<topic>`.  Anyone who knows that URL can read the
 messages, so treat the topic as a password; `NTFY_TOKEN` protects a
 self-hosted or authenticated topic.  Trade sizes, symbols and P&L are
 visible to the ntfy server.
+
+The same publish can also forward to email: create a free ntfy.sh account,
+verify `ALERT_EMAIL_TO` in Account, create an access token, and set
+`NTFY_TOKEN` plus `NTFY_EMAIL=<verified address>`.  ntfy.sh blocks
+anonymous email, so the token is required.  This is a relay, not an SMTP
+client; the first message may still need marking as not-spam.
 
 ### Email (SMTP)
 

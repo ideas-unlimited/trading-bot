@@ -243,17 +243,30 @@ class NtfyChannel:
 
     The topic URL is effectively a bearer secret: anyone who knows it can
     read the messages, so pick a long random topic or protect it with a
-    token.  NTFY_URL is the full topic URL; NTFY_TOKEN is optional.
+    token.  NTFY_URL is the full topic URL; NTFY_TOKEN is optional except
+    when NTFY_EMAIL is used.  NTFY_EMAIL asks ntfy.sh to forward the same
+    message to a verified address (it is the email relay, not an SMTP
+    client), so it needs the account token.
     """
 
     name = "ntfy"
 
-    def __init__(self, url: str, *, token: str = "", timeout: float = 10.0) -> None:
+    def __init__(
+        self,
+        url: str,
+        *,
+        token: str = "",
+        email: str = "",
+        timeout: float = 10.0,
+    ) -> None:
         self.url = url.strip()
         self.token = token.strip()
+        self.email = email.strip()
         self.timeout = float(timeout)
         if not self.url:
             raise ValueError("NTFY_URL is required")
+        if self.email and not self.token:
+            raise ValueError("NTFY_TOKEN is required when NTFY_EMAIL is set")
 
     def send(self, subject: str, body: str) -> None:
         headers = {
@@ -263,6 +276,8 @@ class NtfyChannel:
         }
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
+        if self.email:
+            headers["Email"] = self.email
         request = urllib.request.Request(
             self.url, data=body.encode("utf-8"), headers=headers, method="POST"
         )
@@ -335,7 +350,14 @@ class Notifier:
 
         ntfy_url = value("NTFY_URL")
         if ntfy_url:
-            channels.append(NtfyChannel(ntfy_url, token=value("NTFY_TOKEN")))
+            try:
+                channels.append(NtfyChannel(
+                    ntfy_url,
+                    token=value("NTFY_TOKEN"),
+                    email=value("NTFY_EMAIL"),
+                ))
+            except ValueError as exc:
+                skipped.append(f"ntfy ignored ({exc})")
 
         smtp_host = value("SMTP_HOST")
         recipients = [
