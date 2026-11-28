@@ -3,6 +3,7 @@
 import unittest
 import urllib.error
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from email.message import EmailMessage
 from unittest import mock
 
@@ -156,6 +157,15 @@ class _Response:
 
     def __exit__(self, *args):
         return False
+
+
+class ForwardSilenceTests(unittest.TestCase):
+    def test_forward_unit_cannot_read_live_alert_channels(self):
+        root = Path(__file__).resolve().parents[1]
+        unit = root / "deploy" / "tradingbot-forward.service"
+        text = unit.read_text(encoding="utf-8")
+        self.assertIn("/etc/tradingbot/forward.env", text)
+        self.assertNotIn("alerts.env", text)
 
 
 class TestChannels(unittest.TestCase):
