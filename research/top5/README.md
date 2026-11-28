@@ -303,10 +303,10 @@ dropped; the evidence replay has 19 closed trades.
 
 - The five manifests are active; no live-bot unit or order path was added.
 
-- `SwingLab` (the breakout engine used here) is in
-  `research/cake/cake_swing.py`, not in `src/bot/strategy/`. To deploy, port it
-  to a proper `<strategy>_<symbol>` sleeve with baked defaults, registry entry,
-  test and manifest.
+- The research harness `SwingLab` is still in `research/cake/cake_swing.py`;
+  the deployable port is `src/bot/strategy/swing_sleeve.py` plus the four
+  per-coin breakout modules. The static sleeves carry the tuned defaults —
+  there is no runtime parameter shelf.
 - **The live loop does not implement `trail_atr`.** The forward replay
   (`bot forward`) does, because it uses `Engine`; `bot live` only honours stop,
   fixed target and strategy CLOSE signals. SUI therefore cannot be run
@@ -315,9 +315,9 @@ dropped; the evidence replay has 19 closed trades.
   INJ can do the same for 2.3 points less.
 - XRP WVF is live-compatible: fixed 2R target, stop, and the strategy's own
   time-exit CLOSE.
-- Paper first: forward at 3% risk, 95% cap, account drawdown switch off to
-  match the evidence. Poll the 4h sleeves at 00/04/08/12/16/20 UTC and the 1d
-  sleeves just after 00:00 UTC.
+- It is now running at 3% risk, 95% cap and the account drawdown switch off.
+  Poll the 4h sleeves at 00/04/08/12/16/20 UTC and the 1d sleeves just after
+  00:00 UTC.
 - Add a **portfolio-level -15% kill switch** as an overlay. The measured max
   portfolio DD was only -3.0%, so -15% is ~5× the sample; if it hits, the
   regime is outside the sample and the book should stop.
@@ -326,6 +326,8 @@ dropped; the evidence replay has 19 closed trades.
 
 ## Files
 
+- `research/top5_promote.py` — reruns every shipped sleeve through `Engine`
+  and writes the strict two-year evidence files in `research/top5/evidence/`.
 - `research/top5_final.json` — full metrics, bootstrap intervals, equity and
   trade CSVs for each sleeve.
 - `research/final_<SYMBOL>_<TF>_trades.csv` / `_equity.csv` — audit trail.
