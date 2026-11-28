@@ -525,6 +525,12 @@ def _decorate_bot(conn: Any, b: dict[str, Any], now: datetime) -> dict[str, Any]
         age = (now - b["last_heartbeat_at"]).total_seconds()
         b["heartbeat_age_s"] = int(age)
     b["alive"] = bool(age is not None and age < 300 and b.get("status") == "running")
+    # How long this run has been up. Blank unless the loop is actually alive:
+    # a dead row's started_at would count the time it has been dead too.
+    b["uptime_s"] = (
+        int((now - b["started_at"]).total_seconds())
+        if (b["alive"] and b.get("started_at")) else None
+    )
     b["return_pct"] = (
         (b["equity"] / b["capital"] - 1.0) * 100.0
         if (b["equity"] is not None and b["capital"] > 0) else None

@@ -213,6 +213,11 @@ when you hit a new environment quirk and solve it, add it here and commit.
   sell); the loop also persists its view — position, entry, stop, target, last
   bar — to `bots.state` every poll, so the page needs no venue call to answer
   "in a trade? where is the stop?".
+- **"Started" is this run, not the bot's first ever run.** The loop restamps
+  `bots.started_at` every time it picks up an existing row (systemd restarts a
+  crashed loop onto the same row), and `/api/running` reports `uptime_s` only
+  when the heartbeat is fresh — a dead row never reads "up 3d". The Bots card
+  and the dashboard's Bots table both show the start time with its uptime.
 - **The kill switch** is `bots.halted`, written by `POST /api/bots/<id>/halt`.
   The loop reads it every poll, closes any open position at market and skips
   new entries while halted; it keeps heartbeating, so a killed bot reads

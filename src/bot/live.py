@@ -212,6 +212,9 @@ class LiveTrader:
             ).fetchone()
             if row:
                 self.bot_id = int(row["id"])
+                # A restart lands on the same row; the dashboard must show
+                # this process's start, not the first one's.
+                store.mark_bot_started(conn, self.bot_id)
             else:
                 bot = store.register_bot(
                     conn, name,

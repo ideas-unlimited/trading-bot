@@ -583,6 +583,18 @@ def bot_heartbeat(conn: "psycopg.Connection", bot_id: int) -> None:
     )
 
 
+def mark_bot_started(conn: "psycopg.Connection", bot_id: int) -> None:
+    """Restamp started_at when a loop picks up an existing row.
+
+    systemd restarts a crashed loop onto the same bot row, so started_at
+    means "when this run started", not "when the bot was first created". The
+    Bots page reads it as the run's start time.
+    """
+    conn.execute(
+        "UPDATE bots SET started_at = now(), status = 'running' WHERE id = %s", (bot_id,)
+    )
+
+
 def stop_bot(conn: "psycopg.Connection", bot_id: int, status: str = "stopped") -> None:
     conn.execute(
         "UPDATE bots SET status = %s, stopped_at = now() WHERE id = %s", (status, bot_id)

@@ -53,6 +53,58 @@ class JsonifyTests(unittest.TestCase):
                                                default=_json_default)), {"x": 2.5})
 
 
+class _NoSnapshots:
+    """Stand-in connection: _run_rate finds no equity rows."""
+
+    def execute(self, *args, **kwargs):
+        return self
+
+    def fetchall(self):
+        return []
+
+
+class UptimeTests(unittest.TestCase):
+    """started_at + uptime_s answer "since when has this bot been running"."""
+
+    def _bot(self, now, **over):
+        from datetime import timedelta
+
+        bot = {
+            "id": 7, "name": "UNIUSDT-capitulation_dip_uni",
+            "symbol": "UNI/USDT", "timeframe": "4h", "strategy_name": "capitulation_dip_uni",
+            "status": "running", "capital": 1000.0, "equity": 1000.0, "realized": 0.0,
+            "started_at": now - timedelta(days=3, hours=4),
+            "last_heartbeat_at": now - timedelta(seconds=42),
+        }
+        bot.update(over)
+        return bot
+
+    def test_live_bot_reports_its_uptime(self) -> None:
+        from datetime import datetime, timezone
+
+        from bot.web import _decorate_bot
+
+        now = datetime(2026, 11, 28, 12, 0, tzinfo=timezone.utc)
+        bot = self._bot(now)
+        out = _decorate_bot(_NoSnapshots(), bot, now)
+        self.assertTrue(out["alive"])
+        self.assertEqual(out["uptime_s"], 3 * 86400 + 4 * 3600)
+        self.assertEqual(out["started_at"], bot["started_at"])
+
+    def test_dead_loop_has_no_uptime(self) -> None:
+        """A stale heartbeat must not be dressed up as "up 3d"."""
+        from datetime import datetime, timedelta, timezone
+
+        from bot.web import _decorate_bot
+
+        now = datetime(2026, 11, 28, 12, 0, tzinfo=timezone.utc)
+        out = _decorate_bot(
+            _NoSnapshots(), self._bot(now, last_heartbeat_at=now - timedelta(hours=2)), now
+        )
+        self.assertFalse(out["alive"])
+        self.assertIsNone(out["uptime_s"])
+
+
 class ApiBasicsTests(unittest.TestCase):
     def test_strategies_registry_in_lab(self) -> None:
         with patch.dict(os.environ, {"BOT_LAB": "1"}):

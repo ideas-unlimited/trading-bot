@@ -117,6 +117,7 @@
            gap: 8px; margin: 12px 0 10px; }
   .bfig .k { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
   .bfig .v { font: 13px var(--mono); margin-top: 2px; }
+  .bfig .v .up { display: block; font-size: 10.5px; color: var(--muted); margin-top: 2px; }
   .pills { display: flex; flex-wrap: wrap; gap: 6px; }
   .pill { font: 11px var(--mono); border: 1px solid var(--border); border-radius: 5px;
           padding: 3px 8px; color: #c3ccd9; }
@@ -209,6 +210,10 @@ const LAB = {{LAB_JSON}};
 const fmt = (x, dp=2, suffix="") => (x==null || x!==x) ? "–" : (x>=0?"+":"") + Number(x).toFixed(dp) + suffix;
 const cls = (x) => (x==null || x!==x) ? "" : (x>=0 ? "pos" : "neg");
 const ago = (s) => s == null ? "—" : s < 90 ? `${Math.max(0,Math.round(s))}s ago` : s < 5400 ? `${Math.round(s/60)}m ago` : `${(s/3600).toFixed(1)}h ago`;
+// How long a loop has been up, e.g. "3d 4h" — the start time is next to it.
+const up = (s) => s == null ? "" : s < 3600 ? `${Math.max(1,Math.round(s/60))}m`
+  : s < 86400 ? `${Math.floor(s/3600)}h ${Math.round((s%3600)/60)}m`
+  : `${Math.floor(s/86400)}d ${Math.round((s%86400)/3600)}h`;
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 let S = { strategies: {} };
@@ -343,7 +348,7 @@ async function loadDashboard(){
     $("botsCount").textContent = `${n} running`;
     $("botsCount").className = "badge " + (n ? "live" : "muted");
     $("dashBots").innerHTML = live.bots.length
-      ? `<tr><th>bot</th><th>symbol</th><th>tf</th><th>state</th><th>equity</th><th>return</th><th>run rate</th><th>last beat</th></tr>` +
+      ? `<tr><th>bot</th><th>symbol</th><th>tf</th><th>state</th><th>equity</th><th>return</th><th>run rate</th><th>started</th><th>last beat</th></tr>` +
         live.bots.map(b => {
           const rate = b.run_rate;
           const rateTxt = rate ? `${rate.month_pct >= 0 ? "+" : "−"}${Math.abs(rate.month_pct).toFixed(1)}%/mo` : "—";
@@ -355,12 +360,13 @@ async function loadDashboard(){
             `<td>${b.equity == null ? "—" : money(b.equity)}</td>` +
             `<td class="${cls(b.return_pct)}">${b.return_pct == null ? "—" : fmt(b.return_pct, 2, "%")}</td>` +
             `<td class="${cls(rate && rate.month_pct)}" title="${esc(rateTip)}">${rateTxt}</td>` +
+            `<td class="dim">${dt(b.started_at)}${b.uptime_s == null ? "" : `<br>up ${up(b.uptime_s)}`}</td>` +
             `<td class="dim">${ago(b.heartbeat_age_s)}</td></tr>`;
         }).join("")
-      : `<tr><td class="empty" colspan="8">no bots running — nothing is enabled yet</td></tr>`;
+      : `<tr><td class="empty" colspan="9">no bots running — nothing is enabled yet</td></tr>`;
   } catch(e) {
     $("botsCount").textContent = "—";
-    $("dashBots").innerHTML = `<tr><td class="empty" colspan="8">${esc(e.message)}</td></tr>`;
+    $("dashBots").innerHTML = `<tr><td class="empty" colspan="9">${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -399,7 +405,7 @@ function botCard(b){
       ${fig("trades", b.trades == null ? "—" : b.trades)}
       ${fig("realized", money(b.realized), cls(b.realized))}
       ${fig("heartbeat", ago(b.heartbeat_age_s))}
-      ${fig("started", b.started_at ? dt(b.started_at) : "—")}
+      ${fig("started", `${dt(b.started_at)}${b.uptime_s == null ? "" : `<span class="up">up ${up(b.uptime_s)}</span>`}`)}
     </div>
     <div class="pills">
       <span class="pill">position <b>${qty ? qtyFmt(qty) : "flat"}</b></span>
