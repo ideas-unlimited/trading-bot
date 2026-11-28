@@ -389,7 +389,7 @@ while True:
     broker_state = engine.broker
 ```
 
-`PaperTrader` is the working example. Going from there to real orders means
+`DemoTrader` is the working example. Going from there to real orders means
 writing an exchange adapter around `Broker.buy`/`Broker.sell` and reconciling
 fills — at that point, start with the smallest size the exchange allows and
 verify that simulated and live fills agree before scaling.

@@ -9,13 +9,13 @@ demand cluster, puts the stop below the cluster, uses the next confirmed
 55 trades (67.3% wins, PF 1.50) in the research simulator; the exact-3
 timeframe bucket lost -2.6R, so this sleeve takes exactly two timeframes.
 
-The production Engine supports one weighted-average position and a trail,
+The shared Engine supports one weighted-average position and a trail,
 not a partial sale.  This sleeve therefore runs the strongest researched
 exit (no sale at target; arm the trail when price touches the target).
 Each tranche is 1/3 of the normal order and Signal.size_fraction is scaled
 to 0.4, so the deploy service default 5% risk becomes at most 2% total when
 all three tranches fill.  JUP's tight stops often hit the 50% notional cap
-first; the measured production replay therefore carries about 1% total risk,
+first; the measured replay therefore carries about 1% total risk,
 not 2%.  The sleeve never uses more than the last 12 months of 15m data even
 when the loader hands it a longer window.
 

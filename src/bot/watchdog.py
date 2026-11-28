@@ -142,7 +142,7 @@ def alert_message(bot: dict[str, Any], now: datetime) -> tuple[str, str]:
         "check  journalctl -u 'tradingbot@*' -n 100",
         "       systemctl status 'tradingbot@*'",
         "",
-        "Paper world - no real money moved.",
+        "Demo world - no real money moved.",
     ]
     return subject, "\n".join(lines)
 
@@ -163,7 +163,7 @@ def recovery_message(
         "",
         "The loop is turning again; check the journal if it restarted by itself.",
         "",
-        "Paper world - no real money moved.",
+        "Demo world - no real money moved.",
     ]
     return subject, "\n".join(lines)
 

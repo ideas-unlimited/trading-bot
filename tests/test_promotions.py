@@ -63,11 +63,11 @@ class GateTests(unittest.TestCase):
                                           params_hash_expected="sha256:beef")
         self.assertFalse(next(c for c in checks if c["name"] == "params_hash")["ok"])
 
-    def test_prod_gate_passes(self):
+    def test_live_gate_passes(self):
         checks = promo.live_entry_checks(GOOD_LIVE)
         self.assertTrue(all(c["ok"] for c in checks), checks)
 
-    def test_prod_gate_requires_two_weeks(self):
+    def test_live_gate_requires_two_weeks(self):
         checks = promo.live_entry_checks({**GOOD_LIVE, "weeks_demo": 1})
         self.assertFalse(next(c for c in checks if c["name"] == "weeks_demo")["ok"])
 
@@ -75,11 +75,11 @@ class GateTests(unittest.TestCase):
         checks = promo.live_entry_checks({**GOOD_LIVE, "demo_over_backtest_pct": 90})
         self.assertFalse(next(c for c in checks if c["name"] == "not_beating_backtest")["ok"])
 
-    def test_prod_gate_blocks_heartbeat_gap(self):
+    def test_live_gate_blocks_heartbeat_gap(self):
         checks = promo.live_entry_checks({**GOOD_LIVE, "max_heartbeat_gap_minutes": 120})
         self.assertFalse(next(c for c in checks if c["name"] == "heartbeat")["ok"])
 
-    def test_prod_gate_blocks_duplicates(self):
+    def test_live_gate_blocks_duplicates(self):
         checks = promo.live_entry_checks({**GOOD_LIVE, "duplicate_orders": 1})
         self.assertFalse(next(c for c in checks if c["name"] == "duplicate_orders")["ok"])
 

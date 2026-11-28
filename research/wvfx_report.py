@@ -187,7 +187,7 @@ def main() -> None:
             "<b>Still thinner than it looks.</b> 34 out-of-sample trades across "
             "five coins is a small sample: ~+1.6% equity per trade, t = 2.3 "
             "pooled, and SOL's own 10 out-of-sample trades sit inside noise. "
-            "Paper it before it gets an allocation.",
+            "Run it in demo before it gets an allocation.",
             "<b>For SOL's single slot, momentum_swing 6h still looks stronger</b> "
             "(+18.9% out of sample against +6.3%, 26 trades against 15). Caveat: "
             "its parameters came from a full-window sweep, so that figure is an "

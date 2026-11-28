@@ -126,7 +126,7 @@
       "venue": "binance",
       "market": "spot",
       "data_source": "binance",
-      "status": "sleeve (paper pending)",
+      "status": "sleeve (demo pending)",
       "available": true,
       "strategy": "capitulation_dip_uni",
       "timeframe": "4h",

@@ -110,8 +110,8 @@ class BinanceOrderClient:
             load_env_for(self.env)
 
         # Rail 1: live may never hold or display a demo wallet.  Demo keys are
-        # virtual money; seeing them under a PRODUCTION banner is the exact
-        # mistake that teaches people to trust the wrong number.
+        # virtual money; seeing them under a LIVE banner is the exact mistake
+        # that teaches people to trust the wrong number.
         if self.env == "live":
             raise BrokerError(
                 "LIVE refused: this build has no real venue. Demo credentials are "

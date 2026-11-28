@@ -11,7 +11,7 @@ from bot.exchange import order_client as lc
 
 
 class LiveRefusesDemoTests(unittest.TestCase):
-    def test_prod_refuses_before_touching_credentials(self):
+    def test_live_refuses_before_touching_credentials(self):
         with mock.patch.dict(os.environ, {"BOT_ENV": "live"}):
             with self.assertRaises(lc.BrokerError) as ctx:
                 lc.BinanceOrderClient()
@@ -19,7 +19,7 @@ class LiveRefusesDemoTests(unittest.TestCase):
         self.assertIn("LIVE refused", message)
         self.assertIn("Demo credentials are never accepted", message)
 
-    def test_prod_cannot_inject_a_broker_either(self):
+    def test_live_cannot_inject_a_broker_either(self):
         with mock.patch.dict(os.environ, {"BOT_ENV": "live"}):
             with self.assertRaises(lc.BrokerError):
                 lc.BinanceOrderClient(broker=object())

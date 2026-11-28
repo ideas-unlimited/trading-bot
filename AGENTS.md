@@ -226,14 +226,14 @@ when you hit a new environment quirk and solve it, add it here and commit.
 - **USDT is the quote currency** (agreed 2026-11-28): every bot pair is
   X/USDT and the wallet is kept in USDT, not split across stables. Stray USDC
   is converted by a spot `USDCUSDT` market sell, not held as a second dollar.
-- **Binance demo trading (2026-11-27).** Rehearse live orders against
-  `https://demo-api.binance.com` — same endpoints, signing and order types as
-  production, keys issued from the real account, virtual balances. Verified
-  on closed 4h bars: demo opens/closes match production to the cent, highs
-  and lows differ by a few dollars and volume by ~0.6%; testnet's book is far
-  thinner (volume ~1/70th). So **signals always come from production klines**
-  (`api.binance.com`); only order routing points at demo. Never take signals
-  from demo or testnet candles.
+- **Binance demo trading (2026-11-27).** Rehearse the venue's real order flow
+  against `https://demo-api.binance.com` — same endpoints, signing and order
+  types as production, keys issued from the real account, virtual balances.
+  Verified on closed 4h bars: demo opens/closes match production to the
+  cent, highs and lows differ by a few dollars and volume by ~0.6%; testnet's
+  book is far thinner (volume ~1/70th). So **signals always come from
+  production klines** (`api.binance.com`); only order routing points at demo.
+  Never take signals from demo or testnet candles.
 
 ## Web terminal
 
