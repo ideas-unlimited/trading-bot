@@ -370,15 +370,17 @@ when you hit a new environment quirk and solve it, add it here and commit.
   pings the dead-man URL in `/etc/tradingbot/watchdog.env` **only when no
   running bot is stale**. Episodes are deduped in
   `/var/lib/tradingbot/<env>/watchdog.json`.
-  **Never point five loops at one ping URL**: a shared URL stays green while
-  any survivor pings, so one dead loop is invisible — that is exactly the bug
-  the watchdog exists to remove. The per-poll ping (`HEARTBEAT_URL` in a bot
-  env file, throttled 30 min) still works and is only for a bot you want
-  paged on its own URL. A failed ping must never stop the loop. The forward
-  runner pings once per pass from `/etc/tradingbot/forward.env` (one process
-  for all sleeves, so one check is correct there);
-  `tradingbot-forward.service` runs `bot forward --all` with state in
-  `/var/lib/tradingbot/paper/`.
+  **Two checks, never one.** `forward.env` owns the forward *process* check
+  (one process, all sleeves, pings unconditionally after every pass);
+  `watchdog.env` owns the *book* check (only green when no bot is stale).
+  Pointing both at one check makes the gate meaningless, because forward's
+  unconditional ping re-greens it while a bot is dead. And never point five
+  loops at one ping URL: it stays green while any survivor pings, so one dead
+  loop is invisible — exactly the bug the watchdog exists to remove.
+  The per-poll ping (`HEARTBEAT_URL` in a bot env file, throttled 30 min)
+  still works and is only for a bot you want paged on its own URL. A failed
+  ping must never stop the loop. `tradingbot-forward.service` runs
+  `bot forward --all` with state in `/var/lib/tradingbot/paper/`.
 - **Trading host (bought 2026-11-27): OVH VPS, Sydney** — 4 vCPU, 8 GB RAM,
   75 GB local disk, 6 months prepaid, automated backup (1 rotation), Linux.
   This is the only box that can reach Binance: `api.binance.com` answers US

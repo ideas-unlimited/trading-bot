@@ -153,27 +153,40 @@ knows *which* bot died.
 So one URL is honest here: green means "the watchdog ran and found no stale
 bot", and the message names the strategy that broke.
 
-### The external check: did the box die?
+### The two external checks
 
-1. Create a free check at <https://healthchecks.io> (or self-host Uptime Kuma).
-2. **Period 1h, grace 2h.** The watchdog pings every 5 minutes while the book
-   is healthy, so green is current and a missed hour is a real outage.
-3. Put its ping URL in `/etc/tradingbot/watchdog.env`, then:
+Both have the same shape: create a free check at <https://healthchecks.io>
+(or self-host Uptime Kuma), **period 1h, grace 2h**, paste its ping URL into
+the env file, restart the unit.
 
-   ```bash
-   sudo systemctl start tradingbot-watchdog.service   # one pass now
-   journalctl -u tradingbot-watchdog -n 20
-   ```
+| Check | URL in | Pings | Green means |
+|---|---|---|---|
+| forward runner | `/etc/tradingbot/forward.env` | after every pass, every 30 min, even a failed one | the sleeve replay process is turning |
+| book | `/etc/tradingbot/watchdog.env` | every 5 min, **only while no running bot is stale** | every live loop is beating |
 
-**One URL for five bots is the trap.** A shared ping URL stays green while
-*any* loop survives, so a single dead bot is invisible; a check also has one
-period, so it cannot hold five deadlines. The watchdog avoids both by reading
-per-bot heartbeats. If you want a per-bot check as well, give each env file
-its own URL - never the same one. `run_bot.sh` still passes `HEARTBEAT_URL`
-through from a bot's env file for that case.
+The forward check is about one process: `tradingbot-forward` replays every
+promoted sleeve in a single loop, and when it dies the record simply stops
+advancing - indistinguishable from a quiet market. The book check is about
+the five `tradingbot@*` loops, read per bot from the database, which is also
+why the watchdog can name the one that died.
 
-A failed ping never stops the bot: monitoring downtime costs you an alert, not
-a position.
+Verify either one by hand:
+
+```bash
+sudo systemctl start tradingbot-watchdog.service   # one pass now
+journalctl -u tradingbot-watchdog -n 20            # ends with 'dead-man pinged'
+```
+
+**Never point both files at one check.** The forward ping is unconditional, so
+it would re-green the book check while a bot is stale and the gate would mean
+nothing. Five bots on one URL is the other trap: it stays green while any
+survivor pings, and one check has one period, so it cannot hold five
+deadlines. One process on one check (forward) is fine; five loops on one is
+not. `run_bot.sh` still passes `HEARTBEAT_URL` through from a bot's env file
+if you also want a per-bot check - give each its own URL.
+
+A failed ping never stops anything: monitoring downtime costs you an alert,
+not a position.
 
 ## Trade alerts (email, Telegram, ntfy)
 
