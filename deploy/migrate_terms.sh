@@ -130,7 +130,16 @@ for root in "$STATE_DIR/demo" "$STATE_DIR/live" "$APP_DIR/runs/demo" "$APP_DIR/r
   for f in "$root"/*/forward; do
     [[ -d "$f" ]] || continue
     d=${f%/forward}/dryrun
-    [[ -e "$d" ]] && die "both $f and $d exist; resolve by hand"
+    if [[ -e "$d" ]]; then
+      # A fresh dry-run has already written the new path while the old
+      # service left its record behind.  Keep the old one for comparison and
+      # let the new path stand, instead of making the operator delete data by
+      # hand before the migration can finish.
+      archive="$f.pre-dryrun-$(date +%Y%m%d%H%M%S)"
+      log "both $f and $d exist; archiving $f as $archive"
+      mv "$f" "$archive"
+      continue
+    fi
     log "state $f -> $d"
     mv "$f" "$d"
   done
