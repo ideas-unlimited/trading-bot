@@ -1,0 +1,61 @@
+{
+  "strategy": "capitulation_dip_uni",
+  "env": "paper",
+  "params_hash": "sha256:3520143553854675",
+  "symbols": [
+    "UNI/USDT"
+  ],
+  "timeframe": "4h",
+  "capital": 1000.0,
+  "promoted_at": "2026-11-28T03:40:16+00:00",
+  "promoted_by": "agent",
+  "override": false,
+  "override_reason": "",
+  "checks": [
+    {
+      "name": "backtest_bars",
+      "ok": true,
+      "detail": "bars=4381"
+    },
+    {
+      "name": "backtest_window",
+      "ok": true,
+      "detail": "window_days=730"
+    },
+    {
+      "name": "backtest_trades",
+      "ok": true,
+      "detail": "trades=19"
+    },
+    {
+      "name": "costs_modelled",
+      "ok": true,
+      "detail": "fee_bps=10.0, slippage_bps=5.0"
+    },
+    {
+      "name": "params_hash",
+      "ok": true,
+      "detail": "evidence=sha256:3520143553854675 expected=sha256:3520143553854675"
+    }
+  ],
+  "evidence": {
+    "symbol": "UNI/USDT",
+    "timeframe": "4h",
+    "window": "2024-11-28 .. 2026-11-28",
+    "bars": 4381,
+    "window_days": 730,
+    "trades": 19,
+    "fee_bps": 10.0,
+    "slippage_bps": 5.0,
+    "return_pct": 0.678,
+    "max_drawdown": -0.0527,
+    "win_rate": 0.895,
+    "profit_factor": 9.82,
+    "params_hash": "sha256:3520143553854675",
+    "command": "python -m bot backtest --source binance --symbol UNI/USDT --interval 4h --start 2024-11-28 --strategy capitulation_dip_uni --risk-per-trade 0.05 --max-position-pct 0.5 --fee-bps 10 --slippage-bps 5",
+    "note": "next-open fills, stop-first intrabar, 1.5R target, 18-bar time exit; verified 2026-11-28"
+  },
+  "active": true,
+  "demoted_at": "",
+  "demote_reason": ""
+}

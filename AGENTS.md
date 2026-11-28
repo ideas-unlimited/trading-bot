@@ -107,6 +107,13 @@ when you hit a new environment quirk and solve it, add it here and commit.
   earlier part, report the later part, and publish the symbol's own year1 /
   year2 table. See `research/per_symbol.py`, `research/per_symbol_knob.py`
   and `research/PER_SYMBOL.md` (peer analysis, same conclusion).
+- **The forward sleeve runner is the same replay for one strategy.**
+  `bot forward --strategy <sleeve> --symbol <pair> --interval 4h` runs one
+  sleeve through `Engine` (stop, target and time exit included), pins deploy
+  equity in `runs/<env>/forward/status.json`, and refuses to start outside
+  `BOT_LAB` without an active manifest (then it uses the manifest's params).
+  Use it to validate a target-bearing sleeve; `bot live` still drops
+  `take_profit`.
 - **The pin is per window.** If the replay window's start moves by more than
   two days (history cap changed, a coin delisted, backfill), the pin is
   re-taken at the current equity and `repinned_at` records the old deploy

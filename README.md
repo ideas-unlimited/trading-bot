@@ -214,6 +214,26 @@ python -m bot live --symbol BTC/USDT --interval 1d --strategy sma_cross --once  
 
 State (last processed bar, local stops) lives in `runs/live_state.json`.
 
+**Forward sleeve runner** — the per-symbol counterpart of `bot auto`.  It
+replays one sleeve over the cached window through the same `Engine` as the
+backtest (next-open fills, stop-first, take-profit, time exit), pins the
+deploy equity and writes `runs/<env>/forward/status.json` plus trades and
+equity CSVs.  No key, no order, no position the demo account could close:
+
+```bash
+python -m bot forward --strategy capitulation_dip_uni --symbol UNI/USDT \
+  --interval 4h --risk-per-trade 0.05 --max-position-pct 0.5 --poll 900
+python -m bot forward --strategy capitulation_dip_uni --symbol UNI/USDT --once  # one cycle
+```
+
+Outside `BOT_LAB` it refuses to run unless an active manifest names the
+strategy, symbol and timeframe, and it checks the sleeve's parameter hash
+against that manifest - the replay measures exactly what was promoted.
+`start_forward.cmd [seconds]` launches the loop detached on Windows, logging
+to `logs/forward_<ts>.log`.  `live since deploy` starts at the first cycle
+and is re-pinned only if the two-year window start moves, so a history cap
+change cannot show up as a phantom loss.
+
 ## TradingView (optional companion)
 
 `pine/` contains Pine Script v5 ports of the strategies for TradingView's
@@ -432,6 +452,16 @@ python -m bot promote capitulation_dip_uni --to paper \
 `trades`, `fee_bps`, `slippage_bps` and `params_hash` (printed by a failed
 gate, or computed with `bot.promotions.params_hash`). The gate prints one
 PASS/FAIL line per check; `--force --reason "..."` overrides it and records
+the reason in the manifest.  Then start its forward record:
+
+```bash
+python -m bot forward --strategy capitulation_dip_uni --symbol UNI/USDT \
+  --interval 4h --risk-per-trade 0.05 --max-position-pct 0.5 --poll 900
+```
+
+It writes `runs/<env>/forward/status.json`; the deploy mark is pinned on the
+first cycle, so "live since deploy" is the honest forward number and not a
+re-slice of the backtest.
 why. `bot promotions` lists what is active, `bot demote` drains it. The full
 contract, including the paper -> prod gate, is `deploy/PROMOTION.md`.
 

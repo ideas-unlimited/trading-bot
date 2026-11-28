@@ -38,12 +38,24 @@ Entry requirements:
   1 year), strategy params hash, symbols, timeframe, and the run's metrics -
   the gate reads `bars`, `window_days`, `trades`, `fee_bps`,
   `slippage_bps` and `params_hash` (the hash of `--params`);
-- the forward runner reproduces the backtest's exits: if the rule uses a
-  take-profit or a time exit, both must be implemented in the live loop. A
-  paper run that drops the target measures a different strategy.
+- the forward runner reproduces the backtest's exits: `bot forward` replays
+  the same `Engine`, so the stop, take-profit and time exit are the measured
+  ones. `bot live` is still stop-only; do not use it to validate a
+  target-bearing sleeve.
 
 Paper capital is **$1,000 per bot/strategy**. It is simulated money; the point
 is that every strategy is measured on the same stake.
+
+Start the paper record with the forward runner (outside `BOT_LAB` it refuses
+to start without the active manifest and runs that manifest's parameters):
+
+    python -m bot forward --strategy <name> --symbol <PAIR>/USDT \
+      --interval 4h --risk-per-trade 0.05 --max-position-pct 0.5 --poll 900
+
+State is `runs/<env>/forward/status.json` plus `<name>_<SYMBOL>.trades.csv`
+and `.equity.csv`. A cycle is deterministic and idempotent; the deploy mark is
+pinned on the first cycle and re-pinned (old date kept as `repinned_at`) only
+when the two-year window start moves.
 
 ## 2. paper -> prod
 

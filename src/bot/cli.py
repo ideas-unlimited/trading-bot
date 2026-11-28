@@ -674,6 +674,74 @@ def cmd_auto(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_forward(args: argparse.Namespace) -> int:
+    """Replay one sleeve forward as a simulated wallet.  No orders are sent.
+
+    This is the per-symbol counterpart of `bot auto`: the same deterministic
+    replay reports "live since deploy" without an exchange key, an order or a
+    position the demo account could close.  Outside lab it still requires an
+    active promotion manifest, so a research sleeve cannot claim a forward
+    record by accident.
+    """
+    from . import envcfg, promotions as promo
+    from .forward import format_status, run_cycle, run_forever
+
+    manifest = None
+    if not envcfg.lab_mode():
+        try:
+            manifest = promo.require(args.strategy, envcfg.env_name())
+        except promo.PromotionError as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            return 2
+        if args.symbol not in manifest.symbols:
+            covered = ", ".join(manifest.symbols)
+            print(f"refused: {args.strategy} is promoted on {covered}; {args.symbol} is not covered", file=sys.stderr)
+            return 2
+        if args.interval != manifest.timeframe:
+            print(f"refused: {args.strategy} is promoted on {manifest.timeframe}; this run asks for {args.interval}", file=sys.stderr)
+            return 2
+
+    params = _parse_params(args.param)
+    probe = build(args.strategy, **params)
+    if manifest is not None:
+        digest = promo.params_hash(probe.params)
+        if digest != manifest.params_hash:
+            print(
+                f"refused: {args.strategy} is promoted with {manifest.params_hash}; "
+                f"these parameters hash to {digest}. Run the promoted set or promote the change.",
+                file=sys.stderr,
+            )
+            return 2
+        params = dict(probe.params)
+    kwargs = dict(
+        strategy_name=args.strategy,
+        symbol=args.symbol,
+        timeframe=args.interval,
+        params=params,
+        capital=args.initial_cash,
+        fee_bps=args.fee_bps,
+        slippage_bps=args.slippage_bps,
+        risk_per_trade=args.risk_per_trade,
+        max_position_pct=args.max_position_pct,
+        max_drawdown_stop=args.max_drawdown_stop,
+        days=args.days,
+        source=args.source,
+        outdir=args.outdir,
+    )
+    print(f"sleeve     {args.strategy}  {args.symbol}  {args.interval}")
+    print(f"wallet     ${args.initial_cash:,.0f}   risk {args.risk_per_trade:.1%}/trade"
+          f"   cap {args.max_position_pct:.0%}")
+    print(f"data       {args.source} {args.interval}  window {args.days}d")
+    print()
+    if args.once:
+        payload = run_cycle(**kwargs)
+        print(format_status(payload))
+        print()
+        print(f"state      {payload['status_path']}")
+        return 0
+    run_forever(args.poll, **kwargs)
+    return 0
+
 def cmd_pool(args: argparse.Namespace) -> int:
     '''Show or edit the per-symbol parameter sets in config/target_symbols.json.'''
     from . import symbolcfg
@@ -1013,6 +1081,27 @@ def build_parser() -> argparse.ArgumentParser:
                         help="JSON {SYMBOL: {param: value}} or a target_symbols.json pool")
     p_auto.set_defaults(func=cmd_auto)
 
+    p_fwd = sub.add_parser(
+        "forward",
+        help="replay one sleeve forward as a simulated wallet (no orders sent)",
+    )
+    p_fwd.add_argument("--strategy", required=True, help="sleeve name, e.g. capitulation_dip_uni")
+    p_fwd.add_argument("--symbol", required=True, help='pair, e.g. "UNI/USDT"')
+    p_fwd.add_argument("--interval", default="4h", help="bar timeframe")
+    p_fwd.add_argument("--param", action="append", default=[], metavar="k=v",
+                       help="override a sleeve parameter (repeatable)")
+    p_fwd.add_argument("--initial-cash", type=float, default=1_000.0, help="wallet size")
+    p_fwd.add_argument("--fee-bps", type=float, default=10.0)
+    p_fwd.add_argument("--slippage-bps", type=float, default=5.0)
+    p_fwd.add_argument("--risk-per-trade", type=float, default=0.05)
+    p_fwd.add_argument("--max-position-pct", type=float, default=0.5)
+    p_fwd.add_argument("--max-drawdown-stop", type=float, default=0.5)
+    p_fwd.add_argument("--days", type=int, default=730, help="history window (2-year cap)")
+    p_fwd.add_argument("--source", choices=["binance", "tv"], default="binance")
+    p_fwd.add_argument("--poll", type=int, default=900, help="seconds between cycles")
+    p_fwd.add_argument("--once", action="store_true", help="one cycle then exit (Task Scheduler)")
+    p_fwd.add_argument("--outdir", default=None, help="defaults to runs/<env>/forward")
+    p_fwd.set_defaults(func=cmd_forward)
     p_pool = sub.add_parser("pool", help="show or edit per-symbol parameters")
     p_pool.add_argument("--file", default=None, help="defaults to config/target_symbols.json")
     p_pool.add_argument("--set", action="append", default=None, metavar="SYM:k=v;SYM:k=v",
