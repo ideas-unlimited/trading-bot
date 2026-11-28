@@ -401,7 +401,7 @@ async function loadDashboard(){
     ].map(([k,v,d]) => `<div class="metric"><div class="k">${k}</div><div class="v">${v}</div>${d?`<div class="d">${esc(d)}</div>`:""}</div>`).join("");
     assets.innerHTML = `<tr><td class="empty" colspan="5">${live ? "no live venue configured" : esc(a.error)}</td></tr>`;
     hint.innerHTML = live
-      ? `<div>${esc(a.error)}</div><div style="margin-top:6px">Demo credentials are refused in prod by design. This world cannot read balances or place orders until a live venue is deliberately added and reviewed.</div>`
+      ? `<div>No live venue is wired in this build. Prod refuses demo credentials before it reads a key, and real-money routing has to be added deliberately and reviewed.</div>`
       : "";
     $("dashPositions").innerHTML = `<tr><td class="empty" colspan="4">no venue</td></tr>`;
   } else {
