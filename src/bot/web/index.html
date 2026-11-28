@@ -511,7 +511,16 @@ async function syncTrades(){
           <td class="${t.side==="buy"?"pos":"neg"}">${esc(t.side)}</td><td>${t.qty}</td>
           <td>${t.price.toFixed(2)}</td><td>$${(t.qty*t.price).toLocaleString(undefined,{maximumFractionDigits:2})}</td></tr>`).join("")
       : `<tr><td colspan="6" class="dim">no fills synced yet</td></tr>`;
-  } catch(e){ fail(e.message); }
+  } catch(e){
+    // P&L is a venue question. In prod there is no venue, so this page
+    // explains that in place instead of raising a page-wide banner.
+    const why = /PROD refused/.test(e.message)
+      ? "this world has no live venue — there are no fills to sync"
+      : e.message;
+    $("pnlMetrics").innerHTML = "";
+    $("pnlSummary").innerHTML = `<tr><td class="dim">${esc(why)}</td></tr>`;
+    $("tradesTable").innerHTML = `<tr><td class="dim">${esc(why)}</td></tr>`;
+  }
 }
 $("btnSyncTrades").onclick = syncTrades;
 
