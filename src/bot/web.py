@@ -1,11 +1,11 @@
-"""Local web dashboard for the bot: backtests, timeframe scans, paper account.
+"""Local web dashboard for the bot: backtests, timeframe scans, demo account.
 
     python -m bot web --port 8000
 
 Serves a single-page UI (``web/index.html``) plus a small JSON API.  Bars
 come from Binance (production klines, Postgres-cached); the account tab reads
 the demo wallet.  Same honesty rules as the rest of the project: the only
-order-related endpoint belongs to the paper trader, and nothing here can
+order-related endpoint belongs to the demo trader, and nothing here can
 reach a live broker.
 """
 
@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from .exchange.binance import BrokerError
-from .exchange.live_client import BinanceLiveClient
+from .exchange.order_client import BinanceOrderClient
 from .backtest import run_backtest
 from . import promotions as promo
 from .config import BotConfig, CostConfig, RiskConfig
@@ -34,9 +34,9 @@ from . import db as store
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
-# The prod dashboard is read-only: a strategy reaches prod by promotion
+# The live dashboard is read-only: a strategy reaches live by promotion
 # package, never by clicking "create bot" against the live database.
-READ_ONLY_ENVS = ("prod",)
+READ_ONLY_ENVS = ("live",)
 
 
 def _read_only() -> bool:
@@ -54,14 +54,14 @@ def render_index() -> bytes:
     """
     env = env_name()
     html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
-    if env == "prod":
-        label = "PRODUCTION"
-        note = "REAL MONEY · live orders when the broker path is enabled"
-        foot = "PRODUCTION<br>real money"
+    if env == "live":
+        label = "LIVE"
+        note = "REAL MONEY · venue not configured"
+        foot = "LIVE<br>real money · no venue yet"
     else:
-        label = "PAPER"
+        label = "DEMO"
         note = "simulated fills · no real money"
-        foot = "PAPER ONLY<br>no real orders possible"
+        foot = "DEMO<br>no real orders possible"
     tokens = {
         "{{ENV}}": env,
         "{{ENV_NAME}}": f"{env} · terminal",
@@ -78,12 +78,12 @@ def render_index() -> bytes:
 
 # The mark is an equity line rising into a live dot, on a dark tile: legible
 # at 16 px, and the world sets the colour so two open tabs never look alike.
-ICON_ACCENT = {"paper": "#0ecb81", "prod": "#f6465d"}
+ICON_ACCENT = {"demo": "#0ecb81", "live": "#f6465d"}
 ICON_FALLBACK = "#4f8cff"
 
 
 def favicon_svg() -> bytes:
-    """The tab icon, coloured for this world (green paper, red prod)."""
+    """The tab icon, coloured for this world (green demo, red live)."""
     try:
         accent = ICON_ACCENT.get(env_name(), ICON_FALLBACK)
     except ValueError:
@@ -98,7 +98,7 @@ def favicon_svg() -> bytes:
 
 # Curated ticker lists for the terminal dropdowns.  Crypto pairs come from
 # Binance; the other lists exist only as TradingView research feeds
-# (tvDatafeed, unofficial) and cannot be paper-traded.
+# (tvDatafeed, unofficial) and cannot be demo-traded.
 SYMBOLS = {
     "crypto": [
         # Binance spot pairs.  symbol is the display form ("BTC/USDT"); tv is
@@ -133,9 +133,9 @@ SYMBOLS = {
 
 MAX_CURVE_POINTS = 600
 MAX_TRADES_SHOWN = 50
-# The forward unit polls every 15 minutes; allow one missed cycle before a
+# The dry-run unit polls every 15 minutes; allow one missed cycle before a
 # sleeve is called stale, so a normal wait never looks like a dead process.
-FORWARD_FRESH_SECONDS = 1200
+DRYRUN_FRESH_SECONDS = 1200
 
 
 def _json_default(value: Any) -> Any:
@@ -168,7 +168,7 @@ def api_strategies(base: Any = None) -> dict[str, Any]:
     """The strategies this world may run.
 
     Lab sees the whole registry, because that is where ideas are tested.
-    Paper and prod see only what a promotion manifest activates: code that
+    Demo and live see only what a promotion manifest activates: code that
     merely exists is not a strategy available in that world. The dashboard
     therefore lists exactly what could trade.
     """
@@ -407,14 +407,14 @@ def run_scan_rows(
 def api_account() -> dict[str, Any]:
     """Wallet value per asset, priced in USDT, plus open positions.
 
-    The payload says which venue produced it. Prod never shows demo
+    The payload says which venue produced it. live never shows demo
     balances: the client refuses before this point, and the error carries
     ``venue: live`` so the UI can say *not configured* instead of *offline*.
     """
     env = env_name()
-    venue = "live" if env == "prod" else "demo"
+    venue = "live" if env == "live" else "demo"
     try:
-        client = BinanceLiveClient()
+        client = BinanceOrderClient()
         acct = client.get_account()
         positions = client.get_positions()
         balances = client.broker.balances()
@@ -520,23 +520,23 @@ def _run_rate(conn: Any, bot_id: int, capital: float) -> dict[str, Any] | None:
     }
 
 
-def api_forward(base: Path | None = None, state_dir: Path | None = None) -> dict[str, Any]:
-    """Status of the paper dry-run sleeve replays.
+def api_dryrun(base: Path | None = None, state_dir: Path | None = None) -> dict[str, Any]:
+    """Status of the demo dry-run sleeve replays.
 
     Dry-run sleeves are not rows in bots: one process replays every active
-    manifest and writes <state>/<strategy>/forward/status.json. The Bots page
+    manifest and writes <state>/<strategy>/dryrun/status.json. The Bots page
     therefore cannot show them from the trading-bot table; this endpoint is
     the read-only view the dashboard uses so they are not invisible.
     """
-    if env_name() != "paper":
+    if env_name() != "demo":
         return {"sleeves": [], "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds")}
-    manifests = promo.active_manifests("paper", base)
-    root = Path(state_dir) if state_dir is not None else env_state_dir("paper")
+    manifests = promo.active_manifests("demo", base)
+    root = Path(state_dir) if state_dir is not None else env_state_dir("demo")
     now = datetime.now(timezone.utc)
     sleeves: list[dict[str, Any]] = []
     for name, manifest in sorted(manifests.items()):
         for symbol in manifest.symbols:
-            path = root / name / "forward" / "status.json"
+            path = root / name / "dryrun" / "status.json"
             row: dict[str, Any] = {
                 "strategy": name,
                 "symbol": symbol,
@@ -562,13 +562,13 @@ def api_forward(base: Path | None = None, state_dir: Path | None = None) -> dict
                         age = (now - stamp).total_seconds()
                     except (TypeError, ValueError):
                         age = None
-                fresh = age is not None and age <= FORWARD_FRESH_SECONDS
+                fresh = age is not None and age <= DRYRUN_FRESH_SECONDS
                 row.update({
                     "state": "running" if fresh else "stale",
                     "updated_at": updated,
                     "age_s": int(age) if age is not None else None,
                     "history": runner.get("history"),
-                    "forward": runner.get("forward"),
+                    "dryrun": runner.get("dryrun"),
                     "position": runner.get("position"),
                     "last_bar": runner.get("last_bar"),
                     "window": runner.get("window"),
@@ -590,7 +590,7 @@ def _equity_contributors(conn: Any, days: int) -> list[tuple[str, list[tuple[dat
     """Per-wallet equity histories for this world.
 
     Two kinds of contributor: trading bots (equity_snapshots rows, one series
-    per bot) and, in paper, dry-run sleeves (the <state>/<strategy>/forward/
+    per bot) and, in demo, dry-run sleeves (the <state>/<strategy>/dryrun/
     <SYMBOL>.equity.csv files the dry-run runner appends to). One merged
     portfolio curve is built from them in api_equity; keeping the contributors
     separate here is what makes the merge testable without a database.
@@ -609,21 +609,21 @@ def _equity_contributors(conn: Any, days: int) -> list[tuple[str, list[tuple[dat
         )
     for name, series in per_bot.items():
         out.append((name, series))
-    if env_name() == "paper":
-        root = env_state_dir("paper")
+    if env_name() == "demo":
+        root = env_state_dir("demo")
         try:
-            manifests = promo.active_manifests("paper")
+            manifests = promo.active_manifests("demo")
         except Exception:  # noqa: BLE001 - a broken promotions dir must not 500 the widget
             manifests = {}
         for name, manifest in sorted(manifests.items()):
             for symbol in manifest.symbols:
-                path = root / name / "forward" / f"{symbol.replace('/', '')}.equity.csv"
+                path = root / name / "dryrun" / f"{symbol.replace('/', '')}.equity.csv"
                 try:
                     lines = path.read_text(encoding="utf-8").strip().splitlines()
                 except OSError:
                     continue
                 series: list[tuple[datetime, float]] = []
-                for line in lines[1:]:  # header: ts, equity, live_return, position_qty
+                for line in lines[1:]:  # header: ts, equity, deploy_return, position_qty
                     parts = line.split(",")
                     if len(parts) < 2:
                         continue
@@ -729,9 +729,9 @@ def _decorate_bot(conn: Any, b: dict[str, Any], now: datetime) -> dict[str, Any]
 def _venue_orders(symbol: str) -> tuple[list[dict[str, Any]], str | None]:
     """Resting orders on the venue, or why they cannot be read."""
     try:
-        from .exchange.live_client import BinanceLiveClient
+        from .exchange.order_client import BinanceOrderClient
 
-        return BinanceLiveClient().open_orders(symbol), None
+        return BinanceOrderClient().open_orders(symbol), None
     except Exception as exc:  # noqa: BLE001 - the page explains, never raises
         return [], str(exc)
 
@@ -750,7 +750,7 @@ def api_bot_detail(bot_id: int) -> dict[str, Any]:
         return {"error": f"no bot {bot_id} in this world"}
     orders: list[dict[str, Any]] = []
     orders_error: str | None = None
-    # Prod has no venue, so this must degrade, not throw: the levels the loop
+    # live has no venue, so this must degrade, not throw: the levels the loop
     # holds locally are still the answer to "where is my stop".
     orders, orders_error = _venue_orders(bot["symbol"])
     return _jsonify({
@@ -760,7 +760,7 @@ def api_bot_detail(bot_id: int) -> dict[str, Any]:
 
 
 def api_bot_halt(bot_id: int, payload: dict[str, Any]) -> dict[str, Any]:
-    """Kill switch.  Deliberately allowed in prod: stopping trading must
+    """Kill switch.  Deliberately allowed in live: stopping trading must
     never wait for a promotion."""
     if payload.get("halted") is None:
         return {"error": "halted (true or false) is required"}
@@ -782,7 +782,7 @@ def api_bot_halt(bot_id: int, payload: dict[str, Any]) -> dict[str, Any]:
 
 def api_bots_create(payload: dict[str, Any]) -> dict[str, Any]:
     if _read_only():
-        return {"error": "prod is read-only: create bots on paper, then promote"}
+        return {"error": "live is read-only: create bots on demo, then promote"}
     name = (payload.get("name") or "").strip()
     symbol = (payload.get("symbol") or "").strip()
     timeframe = (payload.get("timeframe") or "").strip()
@@ -816,7 +816,7 @@ def api_bots_create(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         bot = store.create_bot(
             conn, name=name, symbol=symbol, timeframe=timeframe,
-            kind=kind, params=params, config=config, mode=payload.get("mode", "paper"),
+            kind=kind, params=params, config=config, mode=payload.get("mode", "demo"),
         )
         return _jsonify({"bot": bot})
     finally:
@@ -825,7 +825,7 @@ def api_bots_create(payload: dict[str, Any]) -> dict[str, Any]:
 
 def api_bots_delete(bot_id: int) -> dict[str, Any]:
     if _read_only():
-        return {"error": "prod is read-only: demote on paper, then promote"}
+        return {"error": "live is read-only: demote on demo, then promote"}
     conn = _db_conn()
     try:
         return {"deleted": store.delete_bot(conn, bot_id)}
@@ -963,10 +963,10 @@ def _json_loads(raw: Any) -> Any:
         return []
 
 
-def api_paper_trades() -> dict[str, Any]:
-    """Sync demo-account fills into paper_trades and compute running P&L."""
+def api_demo_trades() -> dict[str, Any]:
+    """Sync demo-account fills into demo_trades and compute running P&L."""
     try:
-        client = BinanceLiveClient()
+        client = BinanceOrderClient()
     except BrokerError as exc:
         return {"error": f"Binance error: {exc}"}
     conn = _db_conn()
@@ -978,8 +978,8 @@ def api_paper_trades() -> dict[str, Any]:
             fills = client.closed_fills(symbols)
         except BrokerError as exc:
             return {"error": f"Binance error: {exc}"}
-        store.upsert_paper_trades(conn, fills)
-        rows = store.list_paper_trades(conn)
+        store.upsert_demo_trades(conn, fills)
+        rows = store.list_demo_trades(conn)
     finally:
         conn.close()
 
@@ -1047,7 +1047,7 @@ def api_presets_list() -> dict[str, Any]:
 
 def api_presets_create(payload: dict[str, Any]) -> dict[str, Any]:
     if _read_only():
-        return {"error": "prod is read-only: presets are created on paper"}
+        return {"error": "live is read-only: presets are created on demo"}
     name = (payload.get("name") or "").strip()
     kind = (payload.get("kind") or "").strip()
     if not name or kind not in REGISTRY:
@@ -1072,7 +1072,7 @@ def api_presets_create(payload: dict[str, Any]) -> dict[str, Any]:
 
 def api_presets_delete(preset_id: int) -> dict[str, Any]:
     if _read_only():
-        return {"error": "prod is read-only: presets are created on paper"}
+        return {"error": "live is read-only: presets are created on demo"}
     conn = _db_conn()
     try:
         return {"deleted": store.delete_preset(conn, preset_id)}
@@ -1141,16 +1141,16 @@ class WebHandler(BaseHTTPRequestHandler):
             self._send_json(200, api_symbols())
         elif self.path == "/api/bots":
             self._send_json(200, api_bots_list())
-        elif self.path == "/api/forward":
-            self._send_json(200, api_forward())
+        elif self.path == "/api/dryrun":
+            self._send_json(200, api_dryrun())
         elif self.path == "/api/equity":
             self._send_json(200, api_equity())
         elif self.path == "/api/running":
             self._send_json(200, api_running())
         elif self.path == "/api/runs":
             self._send_json(200, api_runs_list())
-        elif self.path == "/api/paper/trades":
-            self._send_json(200, api_paper_trades())
+        elif self.path == "/api/demo/trades":
+            self._send_json(200, api_demo_trades())
         elif self.path == "/api/bars":
             self._send_json(200, api_bars_status())
         elif self.path == "/api/presets":

@@ -97,11 +97,11 @@
             display: flex; align-items: center; justify-content: center; gap: 8px;
             font: 700 11.5px/1 var(--mono); letter-spacing: 1.6px; white-space: nowrap;
             overflow: hidden; text-overflow: ellipsis; padding: 0 10px; }
-  body.paper .envbar { background: #0f2f1d; color: #7fe0a2; border-bottom: 1px solid #1e5a36; }
-  body.prod  .envbar { background: #3a0e10; color: #ff9d95; border-bottom: 1px solid #7d1d1d; }
-  body.paper { padding-top: 30px; }
-  body.prod  { padding-top: 30px; --accent: #e5534b; }
-  body.prod nav .foot { color: #ff9d95; }
+  body.demo .envbar { background: #0f2f1d; color: #7fe0a2; border-bottom: 1px solid #1e5a36; }
+  body.live  .envbar { background: #3a0e10; color: #ff9d95; border-bottom: 1px solid #7d1d1d; }
+  body.demo { padding-top: 30px; }
+  body.live  { padding-top: 30px; --accent: #e5534b; }
+  body.live nav .foot { color: #ff9d95; }
   .spin { display: inline-block; width: 13px; height: 13px; border: 2px solid #fff5;
           border-top-color: #fff; border-radius: 50%; animation: r .9s linear infinite; vertical-align: -2px; }
   @keyframes r { to { transform: rotate(360deg); } }
@@ -173,7 +173,15 @@
     .w6, .w8 { grid-column: span 12; }
   }
   @media (max-width: 720px) { .wg { grid-column: span 12 !important; } }
-  #eqCanvas { width: 100%; height: 180px; display: block; }
+  #eqCanvas { width: 100%; height: 180px; min-height: 150px; display: block; cursor: crosshair; }
+  /* widget bodies stack, so a height-resized widget lets its chart grow */
+  .wg .wbody { display: flex; flex-direction: column; }
+  #eqCanvas { flex: 1 1 auto; }
+  /* edge resize handles, visible only in edit mode */
+  .rz { position: absolute; z-index: 5; display: none; touch-action: none; }
+  body.edit .rz { display: block; }
+  body.edit .rzx { right: -3px; top: 0; bottom: 0; width: 9px; cursor: ew-resize; }
+  body.edit .rzy { left: 0; right: 0; bottom: -3px; height: 9px; cursor: ns-resize; }
   .chartcap { display: flex; gap: 14px; align-items: center; font-size: 11px;
               color: var(--muted); margin-top: 6px; }
   .health { display: flex; flex-direction: column; gap: 8px; padding: 2px 0; }
@@ -286,7 +294,7 @@
   <button data-add="equity"><span class="ico">📈</span><span>Equity curve<br><span class="desc">portfolio history, all wallets summed</span></span></button>
   <button data-add="positions"><span class="ico">◉</span><span>Open positions<br><span class="desc">venue exposure, entry and uP&L</span></span></button>
   <button data-add="bots"><span class="ico">◎</span><span>Trading bots<br><span class="desc">loops, heartbeats, returns</span></span></button>
-  <button data-add="forward"><span class="ico">◇</span><span>Dry-run bots<br><span class="desc">shadow replays vs history</span></span></button>
+  <button data-add="dryrun"><span class="ico">◇</span><span>Dry-run bots<br><span class="desc">shadow replays vs history</span></span></button>
   <button data-add="assets"><span class="ico">◧</span><span>Assets<br><span class="desc">balances and allocation</span></span></button>
   <button data-add="fills"><span class="ico">⇅</span><span>Recent fills<br><span class="desc">last executed orders</span></span></button>
   <button data-add="health"><span class="ico">♥</span><span>System health<br><span class="desc">stale loops, fresh data, runner</span></span></button>
@@ -366,7 +374,7 @@ async function loadStrategies(){
    Data lives in S (one fetch per endpoint, shared by every widget); the
    board is a 12-column grid of widgets the owner can drag, resize and
    remove in edit mode. The layout is a browser preference: localStorage,
-   never a database row, so paper and prod manifests stay trading state
+   never a database row, so demo and live manifests stay trading state
    only. The KPI strip above the board is fixed — the four numbers that
    must be readable in one glance. */
 const money = (x, dp=2) => "$" + Number(x||0).toLocaleString(undefined,{minimumFractionDigits:dp,maximumFractionDigits:dp});
@@ -397,10 +405,10 @@ async function loadRunning(){
   try { S.running = await api("/api/running"); S.runningError = null; }
   catch(e){ S.running = null; S.runningError = e.message; }
 }
-async function loadForward(){
-  if (ENV !== "paper") { S.forward = null; return; }
-  try { S.forward = await api("/api/forward"); S.forwardError = null; }
-  catch(e){ S.forward = null; S.forwardError = e.message; }
+async function loadDryrun(){
+  if (ENV !== "demo") { S.dryrun = null; return; }
+  try { S.dryrun = await api("/api/dryrun"); S.dryrunError = null; }
+  catch(e){ S.dryrun = null; S.dryrunError = e.message; }
 }
 async function loadEquity(){
   try { S.equity = await api("/api/equity"); S.equityError = null; }
@@ -422,7 +430,22 @@ const WIDGETS = {
         <div class="chartcap"><span class="legend"><i style="background:#4f8cff"></i>portfolio equity</span>
         <span class="dim">${span} · ${S.equity.contributors} wallet${S.equity.contributors===1?"":"s"} summed · priced in USDT</span></div>`;
     },
-    after(root){ drawEquity(root.querySelector("#eqCanvas")); } },
+    after(root){
+      const c = root.querySelector("#eqCanvas");
+      if (!c) return;
+      drawEquity(c);
+      // Hover: snap to the nearest sample and repaint with the crosshair.
+      // The board repaints every 60s, so the listener lives on the fresh
+      // canvas node each time — no duplicate-handler accumulation.
+      c.addEventListener("mousemove", e => {
+        const st = eqState.get(c); if (!st) return;
+        const r = c.getBoundingClientRect();
+        const idx = Math.max(0, Math.min(st.s.length - 1,
+          Math.round((e.clientX - r.left - 4) / (st.W - 8) * (st.s.length - 1))));
+        drawEquity(c, idx);
+      });
+      c.addEventListener("mouseleave", () => drawEquity(c));
+    } },
 
   positions: { icon: "◉", title: "Open positions", w: 4,
     head(){ const n = (S.account && !S.account.error && S.account.positions) ? S.account.positions.length : 0;
@@ -431,7 +454,7 @@ const WIDGETS = {
       if (S.accountError) return `<div class="empty">${esc(S.accountError)}</div>`;
       const a = S.account;
       if (!a || a.error)
-        return `<div class="empty">${a && a.venue === "live" ? "no live venue configured — prod refuses demo credentials before it reads a key" : esc((a && a.error) || "account unreadable")}</div>`;
+        return `<div class="empty">${a && a.venue === "live" ? "no live venue configured — live refuses demo credentials before it reads a key" : esc((a && a.error) || "account unreadable")}</div>`;
       if (!a.positions.length) return `<div class="empty">no open positions</div>`;
       return `<table><tr><th>symbol</th><th>qty</th><th>entry</th><th>uP&L</th></tr>` +
         a.positions.map(p =>
@@ -463,21 +486,21 @@ const WIDGETS = {
         <div class="hint">kill switch, stop and target: the trading-bots page</div>`;
     } },
 
-  forward: { icon: "◇", title: "Dry-run bots", w: 6,
-    head(){ if (ENV !== "paper") return "";
-      const sl = (S.forward && S.forward.sleeves) || [];
+  dryrun: { icon: "◇", title: "Dry-run bots", w: 6,
+    head(){ if (ENV !== "demo") return "";
+      const sl = (S.dryrun && S.dryrun.sleeves) || [];
       const n = sl.filter(s => s.state === "running").length;
       return `<span class="badge ${n?"live":"muted"}">${sl.length ? `${n} running · ${sl.length} active` : "none active"}</span>`; },
     render(){
-      if (ENV !== "paper")
-        return `<div class="empty">dry-run sleeves replay in the paper world only — this world is ${esc(ENV)}</div>`;
-      if (S.forwardError) return `<div class="empty">${esc(S.forwardError)}</div>`;
-      const sleeves = (S.forward && S.forward.sleeves) || [];
+      if (ENV !== "demo")
+        return `<div class="empty">dry-run sleeves replay in the demo world only — this world is ${esc(ENV)}</div>`;
+      if (S.dryrunError) return `<div class="empty">${esc(S.dryrunError)}</div>`;
+      const sleeves = (S.dryrun && S.dryrun.sleeves) || [];
       if (!sleeves.length) return `<div class="empty">no active dry-run sleeves</div>`;
       return `<table><tr><th>sleeve</th><th>state</th><th>history 2y</th><th>since deploy</th><th>position</th></tr>` +
         sleeves.map(s => {
           const h = s.history || {};
-          const f = s.forward || {};
+          const f = s.dryrun || {};
           const p = s.position;
           const pos = p
             ? `${qtyFmt(p.qty)} @ ${money(p.entry)}<br><span class="dim">uPnL ${money(p.unrealized)}</span>`
@@ -536,8 +559,8 @@ const WIDGETS = {
       const bots = (S.running && S.running.bots) || [];
       for (const b of bots.slice(0, 6))
         rows.push(row(b.alive, b.name, b.alive ? `beat ${ago(b.heartbeat_age_s)}` : (b.halted ? "halted" : `stale ${ago(b.heartbeat_age_s)}`)));
-      if (ENV === "paper" && S.forward) {
-        const sl = S.forward.sleeves || [];
+      if (ENV === "demo" && S.dryrun) {
+        const sl = S.dryrun.sleeves || [];
         const stale = sl.filter(s => s.state === "stale").length;
         const running = sl.filter(s => s.state === "running").length;
         if (sl.length)
@@ -545,7 +568,7 @@ const WIDGETS = {
       }
       const a = S.account;
       if (a && a.error)
-        rows.push(row(ENV === "prod" ? null : false, "venue", a.venue === "live" ? "not configured (prod by design)" : String(a.error)));
+        rows.push(row(ENV === "live" ? null : false, "venue", a.venue === "live" ? "not configured (live by design)" : String(a.error)));
       else if (a)
         rows.push(row(true, "venue", `${(a.venue || "demo")} · priced ${ago(Math.max(0, (Date.now() - new Date(a.as_of).getTime()) / 1000))}`));
       rows.push(row(null, "strategies", `${Object.keys(S.strategies).length} promoted to this world`));
@@ -554,16 +577,31 @@ const WIDGETS = {
     } },
 };
 
-const DEFAULT_LAYOUT = [
-  { id: "equity", w: 8 }, { id: "positions", w: 4 },
-  { id: "bots", w: 6 }, { id: "forward", w: 6 },
-  { id: "health", w: 4 }, { id: "fills", w: 4 }, { id: "assets", w: 4 },
+const SIZES = [3, 4, 6, 8, 12];
+// A function, not a constant: items are mutated by resize/drag closures, so
+// every "reset to default" must hand out fresh copies, not shared objects.
+const defaultLayout = () => [
+  { id: "equity", w: 8, h: null }, { id: "positions", w: 4, h: null },
+  { id: "bots", w: 6, h: null }, { id: "dryrun", w: 6, h: null },
+  { id: "health", w: 4, h: null }, { id: "fills", w: 4, h: null },
+  { id: "assets", w: 4, h: null },
 ];
-const LS_KEY = "tb.dash.layout.v1";
+// v2: the widget registry renamed the forward id to dryrun; a stored v1
+// layout would lose its dry-run widget to the sanitizer, so start clean.
+const LS_KEY = "tb.dash.layout.v2";
 let layout;
 try { layout = JSON.parse(localStorage.getItem(LS_KEY)); } catch { layout = null; }
-if (!Array.isArray(layout) || !layout.every(x => x && WIDGETS[x.id]))
-  layout = DEFAULT_LAYOUT.slice();
+if (Array.isArray(layout)) {
+  // Sanitize a stored layout: unknown widget, bogus width or a silly height
+  // falls back to the default instead of breaking the board.
+  layout = [...new Map(layout.filter(x => x && WIDGETS[x.id]).map(x => [
+    x.id,
+    { id: x.id,
+      w: SIZES.includes(x.w) ? x.w : WIDGETS[x.id].w,
+      h: (typeof x.h === "number" && x.h >= 150) ? Math.round(x.h) : null },
+  ])).values()];
+}
+if (!Array.isArray(layout) || !layout.length) layout = defaultLayout();
 const saveLayout = () => { try { localStorage.setItem(LS_KEY, JSON.stringify(layout)); } catch {} };
 
 const board = $("board");
@@ -574,14 +612,16 @@ function widgetEl(item){
   el.dataset.wid = item.id;
   el.innerHTML = `<header><span class="grip">⠿⠿</span><h3>${def.icon} ${def.title}</h3>
     <div class="wtools"><button class="sz" title="cycle width">S/M/L</button>
-    <button class="rm" title="remove">✕</button></div></header><div class="wbody"></div>`;
+    <button class="rm" title="remove">✕</button></div></header><div class="wbody"></div>
+    <div class="rz rzx" title="drag to resize width"></div>
+    <div class="rz rzy" title="drag to resize height · double-click resets"></div>`;
   if (def.head){ const span = document.createElement("span");
     span.innerHTML = def.head() || "";
     el.querySelector("h3").after(span); }
   el.querySelector(".wbody").innerHTML = def.render();
+  if (item.h) el.style.height = item.h + "px";
   el.querySelector(".sz").onclick = () => {
-    const sizes = [3, 4, 6, 8, 12];
-    item.w = sizes[(sizes.indexOf(item.w) + 1) % sizes.length];
+    item.w = SIZES[(SIZES.indexOf(item.w) + 1) % SIZES.length];
     el.className = "wg w" + item.w;
     if (item.id === "equity") drawEquity(el.querySelector("#eqCanvas"));
     saveLayout();
@@ -592,14 +632,70 @@ function widgetEl(item){
     layout = layout.filter(x => x.id !== item.id);
     saveLayout();
   };
+  wireResize(el, item);
   el.draggable = document.body.classList.contains("edit");
   return el;
+}
+/* ---- edge resize: drag the right edge for width (snaps to the column
+   grid), the bottom edge for height. Pointer capture, so it works even
+   when the cursor leaves the handle; the widget's HTML5 drag is suspended
+   for the gesture so the two drags never fight. ---- */
+let resizeBox = null;
+function wireResize(el, item){
+  // Applies synchronously on every pointermove: one getBoundingClientRect
+  // per move is cheap here, and rAF would simply never fire for a hidden tab.
+  const apply = (e) => {
+    const { kind } = resizeBox;
+    const cx = e.clientX, cy = e.clientY;
+    const r = el.getBoundingClientRect();
+    if (kind === "x") {
+      const br = board.getBoundingClientRect(), gap = 12;
+      const unit = (br.width - 11 * gap) / 12 + gap;
+      const want = (cx - r.left + gap) / unit;
+      const span = SIZES.reduce((best, s) => Math.abs(s - want) < Math.abs(best - want) ? s : best, 3);
+      if (span !== item.w) {
+        item.w = span; el.className = "wg w" + span;
+        if (item.id === "equity") drawEquity(el.querySelector("#eqCanvas"));
+      }
+    } else {
+      const h = Math.max(150, Math.round(cy - r.top));
+      if (h !== item.h) {
+        item.h = h; el.style.height = h + "px";
+        if (item.id === "equity") drawEquity(el.querySelector("#eqCanvas"));
+      }
+    }
+  };
+  const move = (e) => { if (resizeBox) apply(e); };
+  const up = () => {
+    document.removeEventListener("pointermove", move);
+    const wasResizing = !!resizeBox;
+    resizeBox = null;
+    if (wasResizing) saveLayout();
+    el.draggable = document.body.classList.contains("edit");
+  };
+  const start = (e, kind) => {
+    if (!document.body.classList.contains("edit")) return;
+    e.preventDefault(); e.stopPropagation();
+    resizeBox = { el, item, kind };
+    el.draggable = false;
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up, { once: true });
+  };
+  el.querySelector(".rzx").addEventListener("pointerdown", e => start(e, "x"));
+  el.querySelector(".rzy").addEventListener("pointerdown", e => start(e, "y"));
+  el.querySelector(".rzy").addEventListener("dblclick", () => {
+    item.h = null; el.style.height = "";
+    if (item.id === "equity") drawEquity(el.querySelector("#eqCanvas"));
+    saveLayout();
+  });
 }
 function finishWidget(el){
   // Post-attach hooks (the equity canvas needs clientWidth, which a detached
   // node does not have — it used to paint an empty chart on first load).
+  // Synchronous on purpose: rAF is throttled to nothing for background tabs,
+  // which left the chart unpainted until the first mouse move.
   const def = WIDGETS[el.dataset.wid];
-  if (def.after) requestAnimationFrame(() => def.after(el));
+  if (def.after) def.after(el);
 }
 function paintBoard(force){
   // A poll must not yank the board mid-drag; an explicit reset may repaint
@@ -609,33 +705,84 @@ function paintBoard(force){
   for (const item of layout){ const el = widgetEl(item); board.appendChild(el); finishWidget(el); }
 }
 
-/* ---- equity chart (canvas, no dependencies) ---- */
-function drawEquity(canvas){
+/* ---- equity chart (canvas, no dependencies) ----
+   drawEquity(canvas[, hoverIdx]) paints the whole chart each call; the
+   hover redraws are cheap (≤400 points). Hover shows a crosshair snapped
+   to the nearest sample with a time / equity / return readout — the point
+   must be readable, not just the trend. */
+const eqState = new WeakMap();   // canvas -> {s, X, Y, W, H, mono} for the hover handler
+function drawEquity(canvas, hoverIdx){
   if (!canvas || !canvas.clientWidth) return;
   const s = (S.equity && S.equity.series) || [];
   const dpr = window.devicePixelRatio || 1;
   const W = canvas.clientWidth, H = canvas.clientHeight;
   canvas.width = W * dpr; canvas.height = H * dpr;
   const ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr);
-  if (s.length < 2) return;
+  if (s.length < 2){ eqState.delete(canvas); return; }
   const vals = s.map(p => p.equity);
   const mn = Math.min(...vals), mx = Math.max(...vals), pad = (mx - mn) * 0.08 || 1;
   const lo = mn - pad, hi = mx + pad;
   const X = i => 4 + i / (s.length - 1) * (W - 8);
-  const Y = v => H - 14 - (v - lo) / (hi - lo) * (H - 26);
+  const Y = v => H - 16 - (v - lo) / (hi - lo) * (H - 30);
+  const mono = getComputedStyle(document.body).getPropertyValue("--mono") || "monospace";
+  ctx.font = "10px " + mono;
+  // faint y-gridlines with labels: the axis is readable without hovering too
+  ctx.lineWidth = 1;
+  for (const f of [0.25, 0.5, 0.75]) {
+    const v = lo + (hi - lo) * f, y = Math.round(Y(v)) + 0.5;
+    ctx.strokeStyle = "#1d2530"; ctx.setLineDash([2, 3]);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = "#848e9c";
+    ctx.fillText("$" + Math.round(v).toLocaleString(), 4, y - 3);
+  }
   ctx.beginPath(); s.forEach((p, i) => i ? ctx.lineTo(X(i), Y(p.equity)) : ctx.moveTo(X(0), Y(p.equity)));
   ctx.strokeStyle = "#4f8cff"; ctx.lineWidth = 1.6; ctx.stroke();
   ctx.lineTo(X(s.length - 1), H); ctx.lineTo(X(0), H); ctx.closePath();
   const grad = ctx.createLinearGradient(0, 0, 0, H);
   grad.addColorStop(0, "rgba(79,140,255,.22)"); grad.addColorStop(1, "rgba(79,140,255,0)");
   ctx.fillStyle = grad; ctx.fill();
-  ctx.font = "10px " + getComputedStyle(document.body).getPropertyValue("--mono");
   ctx.fillStyle = "#848e9c";
   ctx.fillText("$" + Math.round(mx).toLocaleString(), 4, 11);
-  ctx.fillText("$" + Math.round(lo).toLocaleString(), 4, H - 3);
+  ctx.fillText("$" + Math.round(lo).toLocaleString(), 4, H - 4);
   const last = vals[vals.length - 1];
   ctx.fillStyle = "#eaecef";
-  ctx.fillText("$" + Math.round(last).toLocaleString(), W - 60, Y(last) - 6);
+  ctx.fillText("$" + Math.round(last).toLocaleString(), W - 60, Math.max(11, Y(last) - 6));
+  eqState.set(canvas, { s, X, Y, W, H, mono });
+  if (hoverIdx != null) drawCrosshair(canvas, hoverIdx);
+}
+function roundRectPath(ctx, x, y, w, h, r){
+  ctx.beginPath();
+  if (ctx.roundRect) { ctx.roundRect(x, y, w, h, r); return; }
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function drawCrosshair(canvas, idx){
+  const st = eqState.get(canvas);
+  if (!st || idx < 0 || idx >= st.s.length) return;
+  const ctx = canvas.getContext("2d");
+  const p = st.s[idx], x = st.X(idx), y = st.Y(p.equity);
+  ctx.strokeStyle = "#5b6472"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x + 0.5, 14); ctx.lineTo(x + 0.5, st.H - 16); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+  ctx.fillStyle = "#4f8cff"; ctx.fill();
+  ctx.strokeStyle = "#0b0e11"; ctx.stroke();
+  // readout: point in time, equity there, and return since the window start
+  const when = new Date(p.ts).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const since = (p.equity / st.s[0].equity - 1) * 100;
+  const lines = [when, "$" + p.equity.toLocaleString(undefined, { maximumFractionDigits: 2 }), fmt(since, 1, "%")];
+  ctx.font = "10.5px " + st.mono;
+  const wBox = Math.max(...lines.map(t => ctx.measureText(t).width)) + 16;
+  const hBox = lines.length * 14 + 10;
+  let bx = x + 12; if (bx + wBox > st.W - 4) bx = x - wBox - 12;
+  let by = Math.max(18, y - hBox - 10); if (by + hBox > st.H - 18) by = st.H - hBox - 18;
+  ctx.fillStyle = "rgba(23,29,38,.95)"; ctx.strokeStyle = "#2a3444"; ctx.lineWidth = 1;
+  roundRectPath(ctx, bx, by, wBox, hBox, 6); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = "#eaecef";
+  ctx.fillText(lines[0], bx + 8, by + 16);
+  ctx.fillText(lines[1], bx + 8, by + 30);
+  ctx.fillStyle = since >= 0 ? "#0ecb81" : "#f6465d";
+  ctx.fillText(lines[2], bx + 8, by + 44);
 }
 
 /* ---- KPI strip: the four numbers that must survive any rearrangement ---- */
@@ -662,7 +809,7 @@ function paintKpis(){
   }
   const nPos = (a && !a.error && a.positions ? a.positions.length : 0)
     + bots.filter(b => Number((b.state || {}).position_qty || 0) > 0).length
-    + ((S.forward && S.forward.sleeves) || []).filter(x => x.position).length;
+    + ((S.dryrun && S.dryrun.sleeves) || []).filter(x => x.position).length;
   const kpis = [
     kpi(`equity ${a && !a.error ? (a.venue === "live" ? "· live" : "· demo") : ""}`, equity, eqSub, eqCls),
     kpi("portfolio since deploy", deploy, depSub, depCls),
@@ -722,7 +869,7 @@ addmenu.querySelectorAll("[data-add]").forEach(b => b.onclick = () => {
   toast(WIDGETS[id].title + " added — drag it into place");
 });
 $("btnResetLayout").onclick = () => {
-  layout = DEFAULT_LAYOUT.slice(); saveLayout(); paintBoard(true);
+  layout = defaultLayout(); saveLayout(); paintBoard(true);
   toast("Default layout restored");
 };
 let toastT;
@@ -739,7 +886,7 @@ function stampChip(){
   $("updtChip").innerHTML = `<span class="dot"></span>updated ${ago((Date.now() - lastStamp) / 1000)} · 60s poll`;
 }
 async function refreshDashboard(){
-  await Promise.all([loadAccount(), loadRunning(), loadForward(), loadEquity(), loadTrades()]);
+  await Promise.all([loadAccount(), loadRunning(), loadDryrun(), loadEquity(), loadTrades()]);
   lastStamp = Date.now();
   paintKpis(); paintBoard(); stampChip(); ok();
 }
@@ -853,12 +1000,12 @@ window.haltBot = async (id, halted) => {
 /* ================= trades =================
    One fetch fills both the fills widget and the P&L page. */
 async function loadTrades(){
-  try { S.trades = await api("/api/paper/trades"); S.tradesError = null; }
+  try { S.trades = await api("/api/demo/trades"); S.tradesError = null; }
   catch(e){
     S.trades = null;
-    // P&L is a venue question. In prod there is no venue, so the payload
+    // P&L is a venue question. In live there is no venue, so the payload
     // explains that in place instead of raising a page-wide banner.
-    S.tradesError = /PROD refused/.test(e.message)
+    S.tradesError = /live refused/i.test(e.message)
       ? "this world has no live venue — there are no fills to sync"
       : e.message;
   }

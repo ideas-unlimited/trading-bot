@@ -4,10 +4,10 @@
 \set ON_ERROR_STOP on
 SELECT 'CREATE DATABASE trading_common OWNER tradingbot'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'trading_common')\gexec
-SELECT 'CREATE DATABASE trading_paper OWNER tradingbot'
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'trading_paper')\gexec
-SELECT 'CREATE DATABASE trading_prod OWNER tradingbot'
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'trading_prod')\gexec
+SELECT 'CREATE DATABASE trading_demo OWNER tradingbot'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'trading_demo')\gexec
+SELECT 'CREATE DATABASE trading_live OWNER tradingbot'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'trading_live')\gexec
 
--- The app user keeps away from prod: revoke connect on prod for it only if
--- you later add a dedicated read-only role for the paper dashboard.
+-- The demo role keeps away from live: add a dedicated read-only role if the
+-- demo dashboard should never see live rows.

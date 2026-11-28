@@ -1,5 +1,5 @@
 [Unit]
-Description=Trading bot web terminal (PRODUCTION - real money)
+Description=Trading bot web terminal (LIVE - real money, venue not configured)
 After=network-online.target postgresql.service
 Wants=network-online.target
 
@@ -9,7 +9,7 @@ User=trader
 Group=trader
 WorkingDirectory=/opt/trading-bot
 Environment=PYTHONUNBUFFERED=1
-Environment=BOT_ENV=prod
+Environment=BOT_ENV=live
 Environment=OMP_NUM_THREADS=1
 Environment=OPENBLAS_NUM_THREADS=1
 Environment=MALLOC_ARENA_MAX=2
@@ -21,9 +21,9 @@ PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
 ReadWritePaths=/var/lib/tradingbot /opt/trading-bot/runs /opt/trading-bot/logs
-StateDirectory=tradingbot/prod
-LogsDirectory=tradingbot/prod
-# Same caps as paper: one process, one bars frame per request.
+StateDirectory=tradingbot/live
+LogsDirectory=tradingbot/live
+# Same caps as demo: one process, one bars frame per request.
 MemoryHigh=512M
 MemoryMax=1G
 MemorySwapMax=0

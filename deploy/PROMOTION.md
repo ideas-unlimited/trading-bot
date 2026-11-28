@@ -120,11 +120,14 @@ does **not** clone the dry-run book into the trading bot:
 
 1. **Start state.** The dry-run replays the whole window from a pinned $1,000
    wallet and can already be holding a position that opened before the deploy
-   pin. A trading bot starts flat on release and deliberately ignores the
-   historical bars that would have entered it. On 2026-11-28 the XRP dry-run
-   was long from 25 November while its trading bot, released on 28 November,
-   was flat. That is expected; it is not a failed release. The bot can only
-   enter on a new signal after its own start.
+   pin. A service trading bot on a fresh state (`STARTUP_REPLAY=1`, the
+   `run_bot.sh` default) replays the fetched closed window through `Engine`
+   and opens the model's current side as a **new** position at the newest
+   close; it does not copy the historical entry price or credit that P&L. A
+   manual `bot live` defaults off and anchors flat. On 2026-11-28 the XRP
+   dry-run was long from 25 November while its trading bot, released on 28
+   November, was flat; startup replay now joins that side, but the entry and
+   its P&L start at the release. Either way the bot cannot book the old fill.
 2. **Fill price.** The dry-run `Engine` fills a signal at the **next bar's
    open**. The trading bot sends a market order at the **signal bar's close**;
    it cannot wait for an open that has not happened. The same signal therefore
@@ -194,8 +197,8 @@ unavailable:
    **The three risk knobs are not optional.** `run_bot.sh` defaults them to
    1% / 95% / a 10% brake, which is nobody's measured profile. They must
    match exactly what the sleeve was backtested at: read the manifest
-   evidence, not a global runner flag. On 2026-11-28 the trading bots were caught
-   running at those defaults hours after release - same signals, wrong
+   evidence, not a global runner flag. On 2026-11-28 the trading bots were
+   caught running at those defaults hours after release - same signals, wrong
    sizing, and the swing sleeves would have halted on their own historical
    drawdown because their evidence says run the brake off (0.99). The
    dry-run runner resolves each sleeve's profile from its manifest (the unit's

@@ -1,4 +1,4 @@
-"""Tests for the per-symbol forward runner (simulated replay, no orders)."""
+"""Tests for the per-symbol dryrun runner (simulated replay, no orders)."""
 
 import csv
 import json
@@ -11,7 +11,7 @@ from unittest import mock
 
 from bot import promotions as promo
 from bot.data.feed import Bar
-from bot.forward import (
+from bot.dryrun import (
     active_specs, default_outdir, run_all_forever, run_cycle, run_forever, run_specs,
 )
 from bot.strategy.base import Action, Signal, Strategy
@@ -94,7 +94,7 @@ class TestForwardRunner(unittest.TestCase):
 
     def test_default_folder_is_per_strategy(self):
         path = default_outdir('capitulation_dip_uni')
-        self.assertEqual(path.name, 'forward')
+        self.assertEqual(path.name, 'dryrun')
         self.assertEqual(path.parent.name, 'capitulation_dip_uni')
 
     def test_target_exit_is_honoured(self):
@@ -102,10 +102,10 @@ class TestForwardRunner(unittest.TestCase):
         payload = self.run_with(BuyThenLeave(), bars)
         self.assertIsNone(payload['position'])
         self.assertEqual(payload['history']['trades'], 1)
-        # The deploy pin is taken on this first cycle, so the public forward
+        # The deploy pin is taken on this first cycle, so the public dryrun
         # wallet starts at capital even though history has already traded.
-        self.assertAlmostEqual(payload['forward']['equity'], 1_000.0)
-        self.assertAlmostEqual(payload['forward']['wallet'], 1_000.0)
+        self.assertAlmostEqual(payload['dryrun']['equity'], 1_000.0)
+        self.assertAlmostEqual(payload['dryrun']['wallet'], 1_000.0)
         self.assertGreater(payload['history']['equity'], 1_000.0)
         with (self.outdir / 'TESTUSDT.trades.csv').open() as fh:
             rows = list(csv.DictReader(fh))
@@ -220,7 +220,7 @@ class TestForwardRunner(unittest.TestCase):
             max_position_pct=0.95, max_drawdown_stop=0.9, outdir=self.outdir,
             bars=make_bars(), now=datetime(2024, 12, 1, 2, tzinfo=timezone.utc),
         )
-        # a smaller size is a different book, not a -60% forward record
+        # a smaller size is a different book, not a -60% dryrun record
         self.assertEqual(shrunk["deploy"]["deploy_equity"], shrunk["history"]["equity"])
         self.assertEqual(shrunk["deploy"]["repinned_at"], first["deploy"]["deployed_at"])
         self.assertEqual(shrunk["risk"]["risk_per_trade"], 0.02)
@@ -245,25 +245,25 @@ class TestActiveSpecs(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.base = Path(self.tmp.name)
-        (self.base / "paper").mkdir()
+        (self.base / "demo").mkdir()
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def write(self, name, **fields):
         payload = {
-            "strategy": name, "env": "paper", "params_hash": "sha256:x",
+            "strategy": name, "env": "demo", "params_hash": "sha256:x",
             "symbols": ["A/USDT"], "timeframe": "4h", "capital": 1000.0,
             "promoted_at": "2026-11-28T00:00:00+00:00",
         }
         payload.update(fields)
-        (self.base / "paper" / f"{name}.json").write_text(json.dumps(payload))
+        (self.base / "demo" / f"{name}.json").write_text(json.dumps(payload))
 
     def test_reads_every_symbol_of_every_active_manifest(self):
         self.write("beta", symbols=["B/USDT", "C/USDT"], capital=2000.0)
         self.write("alpha", symbols=["A/USDT"])
         self.write("dead", symbols=["D/USDT"], active=False)
-        specs = active_specs("paper", base=self.base)
+        specs = active_specs("demo", base=self.base)
         self.assertEqual([s["strategy"] for s in specs], ["alpha", "beta", "beta"])
         self.assertEqual([s["symbol"] for s in specs], ["A/USDT", "B/USDT", "C/USDT"])
         self.assertEqual(specs[1]["capital"], 2000.0)
@@ -273,12 +273,14 @@ class TestActiveSpecs(unittest.TestCase):
             "risk_per_trade": 0.05, "max_position_pct": 0.5, "max_drawdown_stop": 0.1,
         })
         self.write("beta")
-        specs = {s["strategy"]: s for s in active_specs("paper", base=self.base)}
+        specs = {s["strategy"]: s for s in active_specs("demo", base=self.base)}
         self.assertEqual(specs["alpha"]["risk_per_trade"], 0.05)
         self.assertEqual(specs["alpha"]["max_position_pct"], 0.5)
         self.assertEqual(specs["alpha"]["max_drawdown_stop"], 0.1)
-        # an older manifest states nothing: the runner keeps its own flags
-        self.assertNotIn("risk_per_trade", specs["beta"])
+        # a manifest without a measured profile ships the default profile
+        self.assertEqual(specs["beta"]["risk_per_trade"], 0.03)
+        self.assertEqual(specs["beta"]["max_position_pct"], 0.95)
+        self.assertEqual(specs["beta"]["max_drawdown_stop"], 0.99)
 
 
 class TestRunSpecs(unittest.TestCase):
@@ -287,9 +289,9 @@ class TestRunSpecs(unittest.TestCase):
 
     def test_one_broken_sleeve_does_not_stop_the_rest(self):
         fake = SimpleNamespace(name="s", params={})
-        with mock.patch("bot.forward.build", side_effect=[RuntimeError("boom"), fake]), \
-                mock.patch("bot.forward.run_cycle", return_value={}) as cycle, \
-                mock.patch("bot.forward.format_status", return_value="ok"), \
+        with mock.patch("bot.dryrun.build", side_effect=[RuntimeError("boom"), fake]), \
+                mock.patch("bot.dryrun.run_cycle", return_value={}) as cycle, \
+                mock.patch("bot.dryrun.format_status", return_value="ok"), \
                 mock.patch("sys.stdout"):
             results = run_specs([self.SPEC, self.SPEC])
         self.assertEqual(cycle.call_count, 1)
@@ -300,9 +302,9 @@ class TestRunSpecs(unittest.TestCase):
         fake = SimpleNamespace(name="s", params={})
         spec = dict(self.SPEC, risk_per_trade=0.05, max_position_pct=0.5,
                     max_drawdown_stop=0.1)
-        with mock.patch("bot.forward.build", return_value=fake), \
-                mock.patch("bot.forward.run_cycle", return_value={}) as cycle, \
-                mock.patch("bot.forward.format_status", return_value="ok"), \
+        with mock.patch("bot.dryrun.build", return_value=fake), \
+                mock.patch("bot.dryrun.run_cycle", return_value={}) as cycle, \
+                mock.patch("bot.dryrun.format_status", return_value="ok"), \
                 mock.patch("sys.stdout"):
             run_specs([spec], risk_per_trade=0.03, max_position_pct=0.95,
                       max_drawdown_stop=0.99)
@@ -314,9 +316,9 @@ class TestRunSpecs(unittest.TestCase):
 
     def test_manifest_without_a_profile_uses_the_flags(self):
         fake = SimpleNamespace(name="s", params={})
-        with mock.patch("bot.forward.build", return_value=fake), \
-                mock.patch("bot.forward.run_cycle", return_value={}) as cycle, \
-                mock.patch("bot.forward.format_status", return_value="ok"), \
+        with mock.patch("bot.dryrun.build", return_value=fake), \
+                mock.patch("bot.dryrun.run_cycle", return_value={}) as cycle, \
+                mock.patch("bot.dryrun.format_status", return_value="ok"), \
                 mock.patch("sys.stdout"):
             run_specs([self.SPEC], risk_per_trade=0.03, max_position_pct=0.95,
                       max_drawdown_stop=0.99)
@@ -328,8 +330,8 @@ class TestRunSpecs(unittest.TestCase):
     def test_hash_mismatch_is_refused_before_replaying(self):
         fake = SimpleNamespace(name="s", params={})
         bad = dict(self.SPEC, params_hash="sha256:other")
-        with mock.patch("bot.forward.build", return_value=fake), \
-                mock.patch("bot.forward.run_cycle") as cycle, \
+        with mock.patch("bot.dryrun.build", return_value=fake), \
+                mock.patch("bot.dryrun.run_cycle") as cycle, \
                 mock.patch("sys.stdout"):
             results = run_specs([bad])
         cycle.assert_not_called()
@@ -341,24 +343,24 @@ class TestForwardLoopHeartbeat(unittest.TestCase):
     def test_all_loop_pings_once_per_pass_even_with_no_sleeves(self):
         heartbeat = mock.Mock()
         notifier = mock.Mock(enabled=False)
-        with mock.patch("bot.forward.Heartbeat", return_value=heartbeat) as hb_cls, \
-                mock.patch("bot.forward.Notifier.from_env", return_value=notifier), \
-                mock.patch("bot.forward.active_specs", return_value=[]), \
-                mock.patch("bot.forward.run_specs") as specs, \
-                mock.patch("bot.forward.time.sleep", side_effect=KeyboardInterrupt), \
+        with mock.patch("bot.dryrun.Heartbeat", return_value=heartbeat) as hb_cls, \
+                mock.patch("bot.dryrun.Notifier.from_env", return_value=notifier), \
+                mock.patch("bot.dryrun.active_specs", return_value=[]), \
+                mock.patch("bot.dryrun.run_specs") as specs, \
+                mock.patch("bot.dryrun.time.sleep", side_effect=KeyboardInterrupt), \
                 mock.patch("sys.stdout"):
             with self.assertRaises(KeyboardInterrupt):
-                run_all_forever(30, env="paper", heartbeat_url="https://hc.example/ping")
+                run_all_forever(30, env="demo", heartbeat_url="https://hc.example/ping")
         hb_cls.assert_called_once_with("https://hc.example/ping", every=1800.0)
         heartbeat.ping.assert_called_once_with()
         specs.assert_called_once_with([], notifier=notifier)
 
     def test_single_loop_pings_after_the_cycle(self):
         heartbeat = mock.Mock()
-        with mock.patch("bot.forward.Heartbeat", return_value=heartbeat), \
-                mock.patch("bot.forward.run_cycle", return_value={"ok": True}), \
-                mock.patch("bot.forward.format_status", return_value="ok"), \
-                mock.patch("bot.forward.time.sleep", side_effect=KeyboardInterrupt), \
+        with mock.patch("bot.dryrun.Heartbeat", return_value=heartbeat), \
+                mock.patch("bot.dryrun.run_cycle", return_value={"ok": True}), \
+                mock.patch("bot.dryrun.format_status", return_value="ok"), \
+                mock.patch("bot.dryrun.time.sleep", side_effect=KeyboardInterrupt), \
                 mock.patch("sys.stdout"):
             with self.assertRaises(KeyboardInterrupt):
                 run_forever(30, strategy_name="s", symbol="A/USDT")

@@ -11,9 +11,9 @@ from unittest import mock
 from bot.backtest import bars_to_frame
 from bot.config import BotConfig, RiskConfig
 from bot.data.feed import Bar
-from bot.exchange.live_client import duration_for, interval_for, split_symbol
+from bot.exchange.order_client import duration_for, interval_for, split_symbol
 from bot.heartbeat import Heartbeat
-from bot.live import LiveTrader, compute_entry_qty
+from bot.deploy import DeployTrader, compute_entry_qty
 from bot.strategy import build
 from bot.strategy.base import Action, Signal, Strategy
 
@@ -47,7 +47,7 @@ def _bars(rows: list[dict]) -> list[Bar]:
 
 
 class _FakeClient:
-    """Scripted stand-in for BinanceLiveClient; never touches the network."""
+    """Scripted stand-in for BinanceOrderClient; never touches the network."""
 
     def __init__(self, rows: list[dict]):
         self.rows = rows
@@ -199,7 +199,7 @@ class ClientBarsTests(unittest.TestCase):
     """fetch_bars asks production klines and aggregates locally."""
 
     def test_weekly_timeframe_uses_the_native_interval(self) -> None:
-        import bot.exchange.live_client as lc
+        import bot.exchange.order_client as lc
 
         start = datetime(2024, 1, 4, tzinfo=timezone.utc)
         hourly = [
@@ -215,7 +215,7 @@ class ClientBarsTests(unittest.TestCase):
             calls.append((pair, interval, kwargs))
             return hourly
 
-        client = lc.BinanceLiveClient(api_key="k", api_secret="s")
+        client = lc.BinanceOrderClient(api_key="k", api_secret="s")
         with mock.patch.object(lc, "fetch_binance_bars", side_effect=fake):
             bars = client.fetch_bars("ETH/USDT", "1w")
         self.assertEqual(calls[0][0], "ETHUSDT")
@@ -248,11 +248,11 @@ class Capture:
         return self.ok
 
 
-class LiveTraderTests(unittest.TestCase):
-    def _make(self, tmp: Path, strategy_name: str = "sma_cross") -> tuple[LiveTrader, _FakeClient]:
+class DeployTraderTests(unittest.TestCase):
+    def _make(self, tmp: Path, strategy_name: str = "sma_cross") -> tuple[DeployTrader, _FakeClient]:
         client = _FakeClient(_rows())
         config = BotConfig(initial_cash=10_000.0)
-        trader = LiveTrader(
+        trader = DeployTrader(
             client,
             build(strategy_name),
             config,
@@ -271,7 +271,7 @@ class LiveTraderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             client = _DustClient(_rows(), 0.0949)
-            trader = LiveTrader(
+            trader = DeployTrader(
                 client,
                 build("sma_cross"),
                 BotConfig(initial_cash=10_000.0),
@@ -312,7 +312,7 @@ class LiveTraderTests(unittest.TestCase):
                 initial_cash=1_000.0,
                 risk=RiskConfig(max_drawdown_stop=0.10),
             )
-            trader = LiveTrader(
+            trader = DeployTrader(
                 client, BuyNow(), config, "BTC/USDT", "1d",
                 state_path=tmp / "state.json",
                 stream=io.StringIO(), clock=lambda s: None,
@@ -322,7 +322,7 @@ class LiveTraderTests(unittest.TestCase):
             self.assertTrue(trader.risk.halted)
             self.assertTrue(trader.state["risk"]["halted"])
 
-            again = LiveTrader(
+            again = DeployTrader(
                 client, BuyNow(), config, "BTC/USDT", "1d",
                 state_path=tmp / "state.json",
                 stream=io.StringIO(), clock=lambda s: None,
@@ -363,7 +363,7 @@ class LiveTraderTests(unittest.TestCase):
             (tmp / "state.json").write_text(
                 json.dumps({"last_ts": bars[0].ts.isoformat(), "stops": {}})
             )
-            trader = LiveTrader(
+            trader = DeployTrader(
                 client, build("sma_cross"), BotConfig(), "BTC/USDT", "1d",
                 state_path=tmp / "state.json", max_catchup=1000,
                 stream=io.StringIO(), clock=lambda s: None,
@@ -382,7 +382,7 @@ class LiveTraderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             client = _FakeClient(_rows())
-            trader = LiveTrader(
+            trader = DeployTrader(
                 client, build("rsi_meanrev"), BotConfig(), "BTC/USDT", "1d",
                 state_path=tmp / "state.json", stream=io.StringIO(), clock=lambda s: None,
             )
@@ -398,7 +398,7 @@ class LiveTraderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             client = _FakeClient(_rows())
-            trader = LiveTrader(
+            trader = DeployTrader(
                 client, build("rsi_meanrev"), BotConfig(), "BTC/USDT", "1d",
                 state_path=tmp / "state.json", stream=io.StringIO(), clock=lambda s: None,
             )
@@ -414,7 +414,7 @@ class LiveTraderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             client = _FakeClient(_rows())
-            trader = LiveTrader(
+            trader = DeployTrader(
                 client, build("rsi_meanrev"), BotConfig(), "BTC/USDT", "1d",
                 state_path=tmp / "state.json", stream=io.StringIO(), clock=lambda s: None,
             )
@@ -446,7 +446,7 @@ class LiveTraderTests(unittest.TestCase):
             (tmp / "state.json").write_text(
                 json.dumps({"last_ts": bars[0].ts.isoformat(), "stops": {}})
             )
-            trader = LiveTrader(
+            trader = DeployTrader(
                 client, build("sma_cross"), BotConfig(), "BTC/USDT", "1d",
                 state_path=tmp / "state.json", max_catchup=1000, capital=1_000.0,
                 stream=io.StringIO(), clock=lambda s: None,
@@ -462,8 +462,8 @@ class LiveTraderTests(unittest.TestCase):
 class LiveTrailTests(unittest.TestCase):
     """Chandelier trail in the live loop, with the engine's ordering."""
 
-    def _trader(self, tmp: Path, client: _TrackingClient, strategy=None) -> LiveTrader:
-        return LiveTrader(
+    def _trader(self, tmp: Path, client: _TrackingClient, strategy=None) -> DeployTrader:
+        return DeployTrader(
             client, strategy or TrailBuy(), BotConfig(initial_cash=10_000.0),
             "BTC/USDT", "1d", state_path=tmp / "state.json",
             stream=io.StringIO(), clock=lambda s: None,
@@ -483,7 +483,7 @@ class LiveTrailTests(unittest.TestCase):
             row(4, 117, 121, 116, 120),
         ]
 
-    def _seed(self, trader: LiveTrader, bars: list[Bar]) -> None:
+    def _seed(self, trader: DeployTrader, bars: list[Bar]) -> None:
         trader.state["entries"]["BTC/USDT"] = {
             "qty": 1.0, "price": 100.0, "ts": bars[0].ts.isoformat(),
         }
@@ -683,9 +683,9 @@ class LiveTrailTests(unittest.TestCase):
 
 
 class LiveAlertTests(unittest.TestCase):
-    def _trader(self, tmp: Path, notifier) -> tuple[LiveTrader, _FakeClient]:
+    def _trader(self, tmp: Path, notifier) -> tuple[DeployTrader, _FakeClient]:
         client = _FakeClient(_rows())
-        trader = LiveTrader(
+        trader = DeployTrader(
             client, BuyNow(), BotConfig(), "BTC/USDT", "1d",
             state_path=tmp / "state.json", stream=io.StringIO(),
             clock=lambda s: None, notifier=notifier,
@@ -765,9 +765,9 @@ class LiveAnchorTests(unittest.TestCase):
 
     def _make(
         self, tmp: Path, rows: list[dict], *, max_catchup: int = 3
-    ) -> tuple[LiveTrader, _FakeClient]:
+    ) -> tuple[DeployTrader, _FakeClient]:
         client = _FakeClient(rows)
-        trader = LiveTrader(
+        trader = DeployTrader(
             client,
             build("sma_cross"),
             BotConfig(initial_cash=10_000.0),
@@ -814,7 +814,7 @@ class LiveAnchorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             client = _FakeClient(self._long_rows())
-            trader = LiveTrader(
+            trader = DeployTrader(
                 client,
                 BuyNoTarget(),
                 BotConfig(initial_cash=10_000.0),
@@ -851,7 +851,7 @@ class LiveAnchorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             client = _FakeClient(self._long_rows())
-            trader = LiveTrader(
+            trader = DeployTrader(
                 client,
                 LastBarBuy(),
                 BotConfig(initial_cash=10_000.0),
@@ -884,7 +884,7 @@ class LiveAnchorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             client = SlicingClient(self._long_rows(900))
-            trader = LiveTrader(
+            trader = DeployTrader(
                 client,
                 NeedsWarmup(),
                 BotConfig(initial_cash=10_000.0),
@@ -909,7 +909,7 @@ class LiveAnchorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             client = _FakeClient(self._long_rows())
-            trader = LiveTrader(
+            trader = DeployTrader(
                 client,
                 NoSignal(),
                 BotConfig(initial_cash=10_000.0),
@@ -946,7 +946,7 @@ class HeartbeatWiringTests(unittest.TestCase):
     def test_poll_pings_the_heartbeat(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            trader = LiveTrader(
+            trader = DeployTrader(
                 _FakeClient(_rows()),
                 build("sma_cross"),
                 BotConfig(initial_cash=10_000.0),
@@ -968,7 +968,7 @@ class HeartbeatWiringTests(unittest.TestCase):
     def test_disabled_heartbeat_is_a_no_op(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            trader = LiveTrader(
+            trader = DeployTrader(
                 _FakeClient(_rows()),
                 build("sma_cross"),
                 BotConfig(initial_cash=10_000.0),
@@ -1003,9 +1003,9 @@ class KillSwitchAndHistoryTests(unittest.TestCase):
     """The bot page answers "in a trade? where is the stop? what filled?"
     from the loop, so these book-keeping paths must be tested like orders."""
 
-    def _trader(self, tmp: Path, strategy=None, **kwargs) -> tuple[LiveTrader, _FakeClient]:
+    def _trader(self, tmp: Path, strategy=None, **kwargs) -> tuple[DeployTrader, _FakeClient]:
         client = _FakeClient(_rows())
-        trader = LiveTrader(
+        trader = DeployTrader(
             client, strategy or build("sma_cross"), BotConfig(), "BTC/USDT", "1d",
             state_path=tmp / "state.json", stream=io.StringIO(),
             clock=lambda s: None, lookback=300, **kwargs,
@@ -1075,9 +1075,9 @@ class EventLogTests(unittest.TestCase):
     and 'no signal' polls never write a row (the table is a logbook, not a
     heartbeat)."""
 
-    def _trader(self, tmp: Path, strategy=None, **kwargs) -> tuple[LiveTrader, _FakeClient]:
+    def _trader(self, tmp: Path, strategy=None, **kwargs) -> tuple[DeployTrader, _FakeClient]:
         client = _FakeClient(_rows())
-        trader = LiveTrader(
+        trader = DeployTrader(
             client, strategy or build("sma_cross"), BotConfig(), "BTC/USDT", "1d",
             state_path=tmp / "state.json", stream=io.StringIO(),
             clock=lambda s: None, lookback=300, **kwargs,
@@ -1085,7 +1085,7 @@ class EventLogTests(unittest.TestCase):
         return trader, client
 
     @staticmethod
-    def _capture(trader: LiveTrader) -> list[tuple]:
+    def _capture(trader: DeployTrader) -> list[tuple]:
         events: list[tuple] = []
         trader._event = (  # type: ignore[method-assign]
             lambda kind, message="", *, level="info", payload=None:
@@ -1174,7 +1174,7 @@ class EventLogTests(unittest.TestCase):
             ]
             client = _FakeClient(rows)
             client.orders.append({"symbol": "BTC/USDT", "side": "buy", "qty": 1.0})
-            trader = LiveTrader(
+            trader = DeployTrader(
                 client, TrailBuy(), BotConfig(initial_cash=10_000.0),
                 "BTC/USDT", "1d", state_path=tmp / "state.json",
                 stream=io.StringIO(), clock=lambda s: None,

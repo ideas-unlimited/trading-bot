@@ -1,4 +1,4 @@
-"""Forward runner: replay one sleeve over closed bars with simulated money.
+"""dryrun runner: replay one sleeve over closed bars with simulated money.
 
 This is the ``bot auto`` pattern for a strategy/symbol pair: every cycle it
 loads the capped window, drops the still-forming bar, replays the sleeve
@@ -9,14 +9,14 @@ state: because the replay is deterministic, a restart cannot corrupt the
 record, and ``since deploy`` is measured against the pin rather than
 against the start of the historical window.
 
-State is one folder per sleeve - ``runs/<env>/<strategy>/forward/status.json``
+State is one folder per sleeve - ``runs/<env>/<strategy>/dryrun/status.json``
 with ``<SYMBOL>.trades.csv`` and ``<SYMBOL>.equity.csv`` beside it - so two
-sleeves can never overwrite each other's deploy pin.  ``bot forward --all``
+sleeves can never overwrite each other's deploy pin.  ``bot dryrun --all``
 walks the active manifests in one process and re-reads them every cycle.
 
 The window is hard-capped by :data:`bot.scanlib.MAX_HISTORY_DAYS`; if the
 window start moves by more than two days the pin is re-taken and the old
-deploy date is preserved as ``repinned_at`` (same rule as the paper books).
+deploy date is preserved as ``repinned_at`` (same rule as the demo books).
 """
 
 from __future__ import annotations
@@ -42,13 +42,13 @@ from .strategy.base import Strategy
 
 
 def default_outdir(strategy: str) -> Path:
-    """One folder per sleeve: runs/<env>/<strategy>/forward/status.json.
+    """One folder per sleeve: runs/<env>/<strategy>/dryrun/status.json.
 
-    Paper and prod never share a folder (state_dir carries the env), and two
+    Demo and live never share a folder (state_dir carries the env), and two
     sleeves never share a status file, so a promote/demote cannot delete
     another sleeve's deploy pin.
     """
-    return envcfg.state_dir() / strategy / "forward"
+    return envcfg.state_dir() / strategy / "dryrun"
 
 
 def runner_key(symbol: str) -> str:
@@ -184,7 +184,7 @@ def _notify_fills(
     cursor = last_key
     sent = 0
     can_send = notifier is not None and notifier.enabled
-    env = (os.environ.get("BOT_ENV") or "paper").strip().lower() or "paper"
+    env = (os.environ.get("BOT_ENV") or "demo").strip().lower() or "demo"
 
     for fill in new_fills:
         trade = _trade_for_fill(fill, trades)
@@ -238,9 +238,9 @@ def run_cycle(
     capital: float = 1_000.0,
     fee_bps: float = 10.0,
     slippage_bps: float = 5.0,
-    risk_per_trade: float = 0.05,
-    max_position_pct: float = 0.5,
-    max_drawdown_stop: float = 0.10,
+    risk_per_trade: float = 0.03,
+    max_position_pct: float = 0.95,
+    max_drawdown_stop: float = 0.99,
     days: int = scanlib.MAX_HISTORY_DAYS,
     source: str = "binance",
     outdir: str | Path | None = None,
@@ -338,11 +338,11 @@ def run_cycle(
         deploy_bar = last_bar
         repinned_at = (prev_deploy.get("deployed_at") or prev_deploy.get("repinned_at")) if moved else None
 
-    live_return = equity / deploy_equity - 1.0 if deploy_equity else 0.0
+    deploy_return = equity / deploy_equity - 1.0 if deploy_equity else 0.0
     deploy_dt = _dt(deploy_bar)
-    # A trade belongs to the forward record only if it opened after the bar the
+    # A trade belongs to the dryrun record only if it opened after the bar the
     # pin was taken on; the position that was already open stays in history.
-    forward_trades = [t for t in engine.broker.trades if t.entry_ts > deploy_dt]
+    dryrun_trades = [t for t in engine.broker.trades if t.entry_ts > deploy_dt]
 
     position = None
     if engine.broker.in_position:
@@ -359,24 +359,24 @@ def run_cycle(
 
     history = _stats(engine.broker.trades, curve, capital)
     history["wins"] = len([t for t in engine.broker.trades if t.pnl > 0])
-    forward = _stats(forward_trades, [(deploy_dt, deploy_equity), (now, equity)], capital)
+    dryrun = _stats(dryrun_trades, [(deploy_dt, deploy_equity), (now, equity)], capital)
     # The public wallet is capital-normalised: deploy_equity lives on the full
-    # history curve, so exposing it here made `forward.equity` look like the
+    # history curve, so exposing it here made `dryrun.equity` look like the
     # two-year history equity while return_pct was measured since deploy.
-    forward["equity"] = capital * (1.0 + live_return)
-    forward["return_pct"] = live_return
-    forward["wallet"] = forward["equity"]
-    forward["trades"] = len(forward_trades)
+    dryrun["equity"] = capital * (1.0 + deploy_return)
+    dryrun["return_pct"] = deploy_return
+    dryrun["wallet"] = dryrun["equity"]
+    dryrun["trades"] = len(dryrun_trades)
 
     # Alerts are a side effect of the replay, never a reason for it to fail.
-    # Only fills after the deploy bar are forward events; a position inherited
+    # Only fills after the deploy bar are dryrun events; a position inherited
     # from history can still produce a legitimate exit alert.
-    forward_fills = [fill for fill in engine.broker.fills if fill.ts > deploy_dt]
+    dryrun_fills = [fill for fill in engine.broker.fills if fill.ts > deploy_dt]
     try:
         alerts = _notify_fills(
             notifier=notifier,
             previous=prev,
-            fills=forward_fills,
+            fills=dryrun_fills,
             trades=engine.broker.trades,
             strategy=name,
             symbol=symbol,
@@ -389,7 +389,7 @@ def run_cycle(
             current_take=engine._take,
         )
     except Exception as exc:  # noqa: BLE001 - alerting must not break the record
-        print(f"[forward] {name}:{symbol} alerts failed: {type(exc).__name__}: {exc}", flush=True)
+        print(f"[dryrun] {name}:{symbol} alerts failed: {type(exc).__name__}: {exc}", flush=True)
         previous_alerts = prev.get("alerts")
         alerts = previous_alerts if isinstance(previous_alerts, dict) else {}
 
@@ -408,12 +408,12 @@ def run_cycle(
             "deploy_bar": deploy_bar,
             "deploy_equity": deploy_equity,
             "repinned_at": repinned_at,
-            "return_pct": live_return,
-            "wallet": capital * (1.0 + live_return),
-            "trades": len(forward_trades),
+            "return_pct": deploy_return,
+            "wallet": capital * (1.0 + deploy_return),
+            "trades": len(dryrun_trades),
         },
         "history": history,
-        "forward": forward,
+        "dryrun": dryrun,
         "position": position,
         "halted_reason": engine.risk.halt_reason,
         "alerts": alerts,
@@ -441,7 +441,7 @@ def run_cycle(
         writer = csv.writer(fh)
         writer.writerow([
             "entry_ts", "exit_ts", "qty", "entry_price", "exit_price", "fees",
-            "pnl", "return_pct", "reason_open", "reason_close", "forward",
+            "pnl", "return_pct", "reason_open", "reason_close", "dryrun",
         ])
         for t in engine.broker.trades:
             writer.writerow([
@@ -458,9 +458,9 @@ def run_cycle(
     if equity_path.exists():
         with equity_path.open(newline="", encoding="utf-8") as fh:
             existing = list(csv.reader(fh))
-    header = ["ts", "equity", "live_return", "position_qty"]
+    header = ["ts", "equity", "deploy_return", "position_qty"]
     rows = [r for r in existing[1:] if r and r[0] != last_bar] if existing else []
-    rows.append([last_bar, f"{equity:.6f}", f"{live_return:.8f}", str(engine.broker.qty)])
+    rows.append([last_bar, f"{equity:.6f}", f"{deploy_return:.8f}", str(engine.broker.qty)])
     with equity_path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
         writer.writerow(header)
@@ -582,7 +582,7 @@ def run_specs(
             print(format_status(payload), flush=True)
             results.append(payload)
         except Exception as exc:  # noqa: BLE001 - isolate one sleeve from the rest
-            print(f"[forward] {name}:{symbol} failed: {type(exc).__name__}: {exc}", flush=True)
+            print(f"[dryrun] {name}:{symbol} failed: {type(exc).__name__}: {exc}", flush=True)
             traceback.print_exc()
             results.append({"strategy": name, "symbol": symbol, "error": str(exc)})
     return results
@@ -606,25 +606,25 @@ def run_all_forever(
     heartbeat = Heartbeat(heartbeat_url, every=heartbeat_every)
     notifier = notifier or Notifier.from_env()
     print(
-        f"[forward] heartbeat every {heartbeat_every:.0f}s"
+        f"[dryrun] heartbeat every {heartbeat_every:.0f}s"
         if heartbeat_url
-        else "[forward] heartbeat off (set HEARTBEAT_URL)",
+        else "[dryrun] heartbeat off (set HEARTBEAT_URL)",
         flush=True,
     )
     print(
-        f"[forward] trade alerts: {notifier.describe()}"
+        f"[dryrun] trade alerts: {notifier.describe()}"
         if notifier.enabled
-        else "[forward] trade alerts off (forward replay is silent)",
+        else "[dryrun] trade alerts off (dryrun replay is silent)",
         flush=True,
     )
     while True:
         try:
             specs = active_specs(env)
             if not specs:
-                print("[forward] no active sleeves in this environment", flush=True)
+                print("[dryrun] no active sleeves in this environment", flush=True)
             run_specs(specs, notifier=notifier, **kwargs)
         except Exception as exc:  # noqa: BLE001 - the loop must outlive one cycle
-            print(f"[forward] cycle failed: {type(exc).__name__}: {exc}", flush=True)
+            print(f"[dryrun] cycle failed: {type(exc).__name__}: {exc}", flush=True)
             traceback.print_exc()
         finally:
             heartbeat.ping()
@@ -643,15 +643,15 @@ def run_forever(
     heartbeat = Heartbeat(heartbeat_url, every=heartbeat_every)
     notifier = notifier or Notifier.from_env()
     print(
-        f"[forward] heartbeat every {heartbeat_every:.0f}s"
+        f"[dryrun] heartbeat every {heartbeat_every:.0f}s"
         if heartbeat_url
-        else "[forward] heartbeat off (set HEARTBEAT_URL)",
+        else "[dryrun] heartbeat off (set HEARTBEAT_URL)",
         flush=True,
     )
     print(
-        f"[forward] trade alerts: {notifier.describe()}"
+        f"[dryrun] trade alerts: {notifier.describe()}"
         if notifier.enabled
-        else "[forward] trade alerts off (forward replay is silent)",
+        else "[dryrun] trade alerts off (dryrun replay is silent)",
         flush=True,
     )
     while True:
@@ -659,7 +659,7 @@ def run_forever(
             payload = run_cycle(notifier=notifier, **kwargs)
             print(format_status(payload), flush=True)
         except Exception as exc:  # noqa: BLE001 - one bad cycle must not stop the record
-            print(f"[forward] cycle failed: {type(exc).__name__}: {exc}", flush=True)
+            print(f"[dryrun] cycle failed: {type(exc).__name__}: {exc}", flush=True)
             traceback.print_exc()
         finally:
             heartbeat.ping()

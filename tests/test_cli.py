@@ -16,10 +16,10 @@ def run_cli(*argv):
 
 
 class TestCli(unittest.TestCase):
-    def test_forward_alerts_are_opt_in(self):
+    def test_dryrun_alerts_are_opt_in(self):
         parser = build_parser()
-        self.assertFalse(parser.parse_args(["forward", "--all"]).alerts)
-        self.assertTrue(parser.parse_args(["forward", "--all", "--alerts"]).alerts)
+        self.assertFalse(parser.parse_args(["dryrun", "--all"]).alerts)
+        self.assertTrue(parser.parse_args(["dryrun", "--all", "--alerts"]).alerts)
 
     def test_strategies_lists_registered_names(self):
         code, out = run_cli("strategies")
@@ -44,7 +44,7 @@ class TestCli(unittest.TestCase):
             self.assertIn("Total return", out)
             self.assertTrue((runs / "trades.csv").exists())
 
-    def test_live_refused_without_promotion(self):
+    def test_deploy_refused_without_promotion(self):
         import os
         from unittest import mock
 
@@ -52,14 +52,14 @@ class TestCli(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp, \
              mock.patch.object(promo, "PROMOTIONS", Path(tmp)), \
-             mock.patch.dict(os.environ, {"BOT_ENV": "paper", "BOT_LAB": ""}):
+             mock.patch.dict(os.environ, {"BOT_ENV": "demo", "BOT_LAB": ""}):
             err = io.StringIO()
             with contextlib.redirect_stdout(io.StringIO()), \
                  contextlib.redirect_stderr(err):
-                code = main(["live", "--symbol", "BTC/USDT", "--interval", "4h",
+                code = main(["deploy", "--symbol", "BTC/USDT", "--interval", "4h",
                              "--strategy", "sma_cross", "--once"])
         self.assertEqual(code, 2)
-        self.assertIn("not activated for paper", err.getvalue())
+        self.assertIn("not activated for demo", err.getvalue())
 
     def test_backtest_synthetic_with_params_and_json(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -82,16 +82,16 @@ class TestCli(unittest.TestCase):
         with self.assertRaises(SystemExit):
             run_cli("backtest", "--param", "fast")
 
-    def test_paper_mode_runs_and_reports_no_real_orders(self):
+    def test_demo_mode_runs_and_reports_no_real_orders(self):
         if True:
             code, out = run_cli(
-                "paper", "--source", "synthetic", "--bars", "300",
+                "demo", "--source", "synthetic", "--bars", "300",
                 "--strategy", "sma_cross", "--param", "fast=5", "--param", "slow=12",
                 "--every", "100",
             )
         self.assertEqual(code, 0)
         self.assertIn("no real orders", out)
-        self.assertIn("[paper] finished", out)
+        self.assertIn("[demo] finished", out)
 
 
 if __name__ == "__main__":
@@ -99,7 +99,7 @@ if __name__ == "__main__":
 
 class ConfigHelperTests(unittest.TestCase):
     def test_config_tolerates_subparsers_without_bars_per_year(self) -> None:
-        """The live subcommand defines its own args and has no --bars-per-year;
+        """The deploy subcommand defines its own args and has no --bars-per-year;
         _config must infer the factor instead of raising AttributeError."""
         import argparse
         from datetime import datetime, timedelta, timezone

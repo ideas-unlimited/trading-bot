@@ -1,4 +1,4 @@
-"""Postgres persistence for the terminal: bots, presets, runs, paper trades, bars.
+"""Postgres persistence for the terminal: bots, presets, runs, demo trades, bars.
 
 Requires the ``DATABASE_URL`` variable (e.g. in the git-ignored ``.env``):
     DATABASE_URL=postgresql://postgres:PASSWORD@localhost:5432/trading_bot
@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS bots (
     kind        text NOT NULL,
     params      jsonb NOT NULL DEFAULT '{}',
     config      jsonb NOT NULL DEFAULT '{}',
-    mode        text NOT NULL DEFAULT 'paper',
+    mode        text NOT NULL DEFAULT 'demo',
     created_at  timestamptz NOT NULL DEFAULT now(),
     last_run_at timestamptz
 );
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS runs (
     bars        int,
     started_at  timestamptz NOT NULL DEFAULT now()
 );
-CREATE TABLE IF NOT EXISTS paper_trades (
+CREATE TABLE IF NOT EXISTS demo_trades (
     order_id   text PRIMARY KEY,
     symbol     text NOT NULL,
     side       text NOT NULL,
@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     bot_name   text NOT NULL DEFAULT '',
     synced_at  timestamptz NOT NULL DEFAULT now()
 );
-ALTER TABLE bots ADD COLUMN IF NOT EXISTS env text NOT NULL DEFAULT 'paper';
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS env text NOT NULL DEFAULT 'demo';
 ALTER TABLE bots ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'registered';
 ALTER TABLE bots ADD COLUMN IF NOT EXISTS started_at timestamptz;
 ALTER TABLE bots ADD COLUMN IF NOT EXISTS stopped_at timestamptz;
@@ -171,7 +171,7 @@ class DatabaseError(RuntimeError):
 
 
 def database_url(kind: str = "env") -> str | None:
-    """URL for one database: kind is env | common | paper | prod."""
+    """URL for one database: kind is env | common | demo | live."""
     from . import envcfg
 
     return envcfg.database_url(kind)
@@ -389,7 +389,7 @@ def create_bot(conn: "psycopg.Connection", **fields: Any) -> dict:
         (
             fields["name"], fields["symbol"], fields["timeframe"], fields["kind"],
             json.dumps(fields.get("params") or {}), json.dumps(fields.get("config") or {}),
-            fields.get("mode", "paper"),
+            fields.get("mode", "demo"),
         ),
     ).fetchone()
     bot = dict(row)
@@ -482,14 +482,14 @@ def _hydrate_run(r: dict) -> dict:
     return r
 
 
-# -- paper trades -----------------------------------------------------------
-def upsert_paper_trades(conn: "psycopg.Connection", fills: list[dict]) -> int:
+# -- demo trades ------------------------------------------------------------
+def upsert_demo_trades(conn: "psycopg.Connection", fills: list[dict]) -> int:
     if not fills:
         return 0
     with conn.cursor() as cur:
         cur.executemany(
         """
-        INSERT INTO paper_trades (order_id, symbol, side, qty, price, filled_at, bot_name)
+        INSERT INTO demo_trades (order_id, symbol, side, qty, price, filled_at, bot_name)
         VALUES (%s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (order_id) DO NOTHING
         """,
@@ -501,10 +501,10 @@ def upsert_paper_trades(conn: "psycopg.Connection", fills: list[dict]) -> int:
     return len(fills)
 
 
-def list_paper_trades(conn: "psycopg.Connection", limit: int = 500) -> list[dict]:
+def list_demo_trades(conn: "psycopg.Connection", limit: int = 500) -> list[dict]:
     rows = conn.execute(
         "SELECT order_id, symbol, side, qty, price, filled_at, bot_name "
-        "FROM paper_trades ORDER BY filled_at DESC LIMIT %s",
+        "FROM demo_trades ORDER BY filled_at DESC LIMIT %s",
         (limit,),
     ).fetchall()
     return [
@@ -539,7 +539,7 @@ def _clean(obj: Any) -> Any:
 
 # -- environment separation -------------------------------------------------
 def connect_common(*, create: bool = True) -> "psycopg.Connection":
-    """The market-data database shared by paper and prod (bars, depth)."""
+    """The market-data database shared by demo and live (bars, depth)."""
     return connect(create=create, kind="common")
 
 
@@ -610,7 +610,7 @@ def set_bot_halted(
     """Flip a bot's kill switch; returns whether a row was updated.
 
     The loop reads this flag every poll, so a halt lands within one cycle
-    even when the process holds a position.  Halting is allowed in prod too:
+    even when the process holds a position.  Halting is allowed in live too:
     stopping trading must never need a promotion.
     """
     row = conn.execute(

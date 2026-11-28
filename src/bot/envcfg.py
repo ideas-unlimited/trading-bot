@@ -1,9 +1,9 @@
-"""Environment separation: paper vs prod, common data, paths and ports.
+"""Environment separation: demo vs live, common data, paths and ports.
 
-BOT_ENV selects the world (paper by default). DATABASE_URL is the base URL;
+BOT_ENV selects the world (demo by default). DATABASE_URL is the base URL;
 only the database name changes: trading_common for market data,
-trading_paper / trading_prod for bots, trades, equity, events and promotions.
-An explicit DATABASE_URL_COMMON / _PAPER / _PROD wins over the derived name.
+trading_demo / trading_live for bots, trades, equity, events and promotions.
+An explicit DATABASE_URL_COMMON / _DEMO / _LIVE wins over the derived name.
 """
 
 from __future__ import annotations
@@ -14,16 +14,16 @@ from urllib.parse import urlsplit, urlunsplit
 
 from .envdot import load_env
 
-ENVS = ("paper", "prod")
-DEFAULT_ENV = "paper"
+ENVS = ("demo", "live")
+DEFAULT_ENV = "demo"
 LAB_VAR = "BOT_LAB"
 DB_COMMON = "trading_common"
-DB_NAMES = {"paper": "trading_paper", "prod": "trading_prod"}
-WEB_PORTS = {"paper": 9000, "prod": 9001}
+DB_NAMES = {"demo": "trading_demo", "live": "trading_live"}
+WEB_PORTS = {"demo": 9000, "live": 9001}
 
 
 def env_name() -> str:
-    """BOT_ENV, validated; defaults to paper."""
+    """BOT_ENV, validated; defaults to demo."""
     raw = (os.environ.get("BOT_ENV") or "").strip().lower()
     if not raw:
         load_env()
@@ -36,7 +36,7 @@ def env_name() -> str:
 def lab_mode() -> bool:
     """True on the research laptop, where the whole registry is open.
 
-    The server never sets BOT_LAB, so paper and prod there show only the
+    The server never sets BOT_LAB, so demo and live there show only the
     strategies their promotion manifests activate. Lab is the one place
     an unpromoted strategy may appear, because that is where ideas live.
     """
@@ -46,7 +46,7 @@ def lab_mode() -> bool:
 
 
 def database_name(kind: str = "env") -> str:
-    """Database name for kind: env | common | paper | prod."""
+    """Database name for kind: env | common | demo | live."""
     if kind == "env":
         kind = env_name()
     if kind == "common":
@@ -68,8 +68,8 @@ def database_url(kind: str = "env") -> str | None:
         kind = env_name()
     override = {
         "common": "DATABASE_URL_COMMON",
-        "paper": "DATABASE_URL_PAPER",
-        "prod": "DATABASE_URL_PROD",
+        "demo": "DATABASE_URL_DEMO",
+        "live": "DATABASE_URL_LIVE",
     }.get(kind)
     if override and os.environ.get(override):
         return os.environ[override]

@@ -208,6 +208,49 @@ lowered the account return (+16.6% median vs +20.5%) by holding ~75% longer.
 Mean reversion on a panic spike is the case where a target beats patience. See
 `research/WVFX_TUNE.md` and `research/wvfx_trailfit.py`.
 
+## D18 - Replay each sleeve on its own measured risk profile (2026-11-28)
+
+The dry-run runner took one global profile (3% risk, 95% cap, brake off) and
+lent it to every manifest. `capitulation_dip_uni` was measured at 5% / 50% / a
+10% brake, so its card read +38.5% / -3.2% instead of the promoted +67.8% /
+-5.3%: same signals, a different book. That is a measurement lie even though
+no order was wrong.
+
+`Manifest.risk_profile()` reads the three knobs from the evidence,
+`active_specs` carries them, and `run_specs` resolves each sleeve separately:
+manifest first, the caller's flags (or `run_cycle` defaults) for keys an older
+manifest omits. `--profile flags` is the explicit what-if. The status payload
+records the profile and where it came from.
+
+A profile change is a different book: the deploy pin is re-taken and
+`repinned_at` keeps the old date, exactly like a moved window. A status file
+that predates the profile re-pins once, because it cannot prove the book is
+the same. What it commits us to: a trading bot's env must copy its sleeve's
+manifest profile, and a release check must compare the two.
+
+## D19 - A fresh trading bot reconstructs the current stance, not historical fills (2026-11-28)
+
+A fresh trading bot anchored past the newest closed bar and started flat. When
+the dry-run was already long (XRP from 25 November, released 28 November) the
+Bots page showed no position and the owner reasonably read that as a missing
+step. Waiting for the next signal can also miss an entry that fired on the
+bar just before release.
+
+With `STARTUP_REPLAY=1` (the `run_bot.sh` default; a manual `bot live` keeps
+flat as its default) a fresh state replays the fetched closed bars through the
+same `Engine` and inspects the model's stance. If the model is long, or has a
+pending BUY for the next open, the bot buys at the newest closed bar's close
+as a **new** entry: new timestamp, new price, new P&L, a normal alert. It
+never copies a historical fill or credits the dry-run's history. The replay
+is state-only, guarded by the drawdown brake, the stop/target sanity checks
+and the usual minimum size; a replay failure anchors flat and keeps the loop
+alive.
+
+What it commits us to: a release is still not a clone. The two books can hold
+the same side, but their entry price, entry time, size and P&L start at the
+release; compare position and return since a common bar, never the dry-run's
+history equity against the bot's wallet.
+
 What it commits us to: keeps the 2.5R target as the `wvfx_stoch` default, keeps
 the trail in `BookConfig.trail_atr` and `momentum_swing`, and forbids applying
 either exit style to a new strategy without measuring it on that strategy. A

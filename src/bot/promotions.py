@@ -1,6 +1,6 @@
 """Strategy activation manifests: the only route to a runnable strategy.
 
-promotions/paper/<name>.json and promotions/prod/<name>.json are the gate.
+promotions/demo/<name>.json and promotions/live/<name>.json are the gate.
 The bot imports nothing a manifest does not name, so a strategy module can
 sit on a box and be inert there. Gate checks are defaults: --force records
 the override and the reason instead of refusing the owner.
@@ -18,12 +18,22 @@ from typing import Any, Sequence
 
 ROOT = Path(__file__).resolve().parents[2]
 PROMOTIONS = ROOT / "promotions"
-ENVS = ("paper", "prod")
+ENVS = ("demo", "live")
 DEFAULT_CAPITAL = 1000.0
 # The three knobs that define the book a sleeve was measured on.  A manifest
 # carries them in its evidence so a replayer can reproduce the measured book
 # instead of silently lending it someone else's risk profile.
 RISK_PROFILE_KEYS = ("risk_per_trade", "max_position_pct", "max_drawdown_stop")
+# Every sleeve carries a complete risk profile.  When a manifest/evidence file
+# does not state one, this is the profile the replay and the deploy bot use:
+# 3% risk per trade, full position cap, and no drawdown brake (0.99 = off).
+# A partial profile is completed from here rather than left empty; an invalid
+# value is refused because silently clamping it would change the measured book.
+DEFAULT_RISK_PROFILE = {
+    "risk_per_trade": 0.03,
+    "max_position_pct": 0.95,
+    "max_drawdown_stop": 0.99,
+}
 
 
 class PromotionError(RuntimeError):
@@ -36,11 +46,11 @@ def params_hash(params: dict[str, Any] | None) -> str:
     return "sha256:" + hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
 
-def promotions_dir(env: str = "paper", base: Path | None = None) -> Path:
+def promotions_dir(env: str = "demo", base: Path | None = None) -> Path:
     return Path(base or PROMOTIONS) / env
 
 
-def manifest_path(strategy: str, env: str = "paper", base: Path | None = None) -> Path:
+def manifest_path(strategy: str, env: str = "demo", base: Path | None = None) -> Path:
     return promotions_dir(env, base) / f"{strategy}.json"
 
 
@@ -64,17 +74,13 @@ class Manifest:
     path: Path | None = None
 
     def risk_profile(self) -> dict[str, float]:
-        """The measured risk profile carried in the evidence, key by key.
+        """The complete profile carried in the evidence, defaults filled in.
 
-        Only keys the evidence actually states are returned: an older manifest
-        without them keeps the caller's defaults rather than guessing 0.0.
+        A manifest is never allowed to produce an empty/partial profile: every
+        caller gets all three knobs.  Promotion resolves and validates the
+        profile; this method is also safe for a hand-built Manifest in tests.
         """
-        out: dict[str, float] = {}
-        for key in RISK_PROFILE_KEYS:
-            value = _num(self.evidence, key)
-            if value is not None:
-                out[key] = value
-        return out
+        return resolve_risk_profile(self.evidence, strict=False)
 
     def to_json(self) -> dict[str, Any]:
         payload = {
@@ -101,6 +107,42 @@ def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def resolve_risk_profile(evidence: dict[str, Any], *, strict: bool = True) -> dict[str, float]:
+    """Complete and validate a sleeve risk profile.
+
+    Missing keys take ``DEFAULT_RISK_PROFILE``; present keys must be numeric
+    and inside sane bounds.  ``strict=False`` ignores a bad value instead of
+    raising, for a hand-built Manifest that never went through promotion.
+    """
+    out = dict(DEFAULT_RISK_PROFILE)
+    limits = {
+        "risk_per_trade": (0.0, 0.5),
+        "max_position_pct": (0.0, 1.0),
+        "max_drawdown_stop": (0.0, 1.0),
+    }
+    for key in RISK_PROFILE_KEYS:
+        raw = evidence.get(key)
+        if raw is None:
+            continue
+        if isinstance(raw, bool):
+            if strict:
+                raise PromotionError(f"risk profile {key} must be numeric, got {raw!r}")
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            if strict:
+                raise PromotionError(f"risk profile {key} must be numeric, got {raw!r}") from None
+            continue
+        low, high = limits[key]
+        if not low < value <= high:
+            if strict:
+                raise PromotionError(f"risk profile {key}={value:g} must be in ({low:g}, {high:g}]")
+            continue
+        out[key] = value
+    return out
+
+
 def parse_manifest(payload: Any, *, env: str | None = None, path: Path | None = None) -> Manifest:
     """Validate one manifest object; raise PromotionError with the reason."""
     if not isinstance(payload, dict):
@@ -108,7 +150,7 @@ def parse_manifest(payload: Any, *, env: str | None = None, path: Path | None = 
     strategy = str(payload.get("strategy") or "").strip()
     if not strategy:
         raise PromotionError(f"{path or 'manifest'}: missing strategy")
-    target = str(payload.get("env") or env or "paper").strip().lower()
+    target = str(payload.get("env") or env or "demo").strip().lower()
     if target not in ENVS:
         raise PromotionError(f"{strategy}: env must be one of {ENVS}, got {target!r}")
     symbols = payload.get("symbols")
@@ -125,6 +167,10 @@ def parse_manifest(payload: Any, *, env: str | None = None, path: Path | None = 
     evidence = payload.get("evidence") or {}
     if not isinstance(evidence, dict):
         raise PromotionError(f"{strategy}: evidence must be an object")
+    try:
+        evidence = {**evidence, **resolve_risk_profile(evidence)}
+    except PromotionError as exc:
+        raise PromotionError(f"{strategy}: {exc}") from None
     return Manifest(
         strategy=strategy,
         env=target,
@@ -145,7 +191,7 @@ def parse_manifest(payload: Any, *, env: str | None = None, path: Path | None = 
     )
 
 
-def load_manifests(env: str = "paper", base: Path | None = None) -> list[Manifest]:
+def load_manifests(env: str = "demo", base: Path | None = None) -> list[Manifest]:
     """Every manifest in one environment, sorted by name. Malformed = loud."""
     folder = promotions_dir(env, base)
     if not folder.exists():
@@ -163,11 +209,11 @@ def load_manifests(env: str = "paper", base: Path | None = None) -> list[Manifes
     return out
 
 
-def active_manifests(env: str = "paper", base: Path | None = None) -> dict[str, Manifest]:
+def active_manifests(env: str = "demo", base: Path | None = None) -> dict[str, Manifest]:
     return {m.strategy: m for m in load_manifests(env, base) if m.active}
 
 
-def require(strategy: str, env: str = "paper", base: Path | None = None) -> Manifest:
+def require(strategy: str, env: str = "demo", base: Path | None = None) -> Manifest:
     """Fail loud when a strategy is not activated in this environment."""
     manifests = active_manifests(env, base)
     if strategy not in manifests:
@@ -191,11 +237,11 @@ def write_manifest(manifest: Manifest, base: Path | None = None) -> Path:
 # -- the gate ---------------------------------------------------------------
 @dataclass(frozen=True)
 class GatePolicy:
-    min_weeks_live: float = 2.0
+    min_weeks_demo: float = 2.0
     min_fills: int = 1
     max_fill_slippage_bps: float = 30.0
     max_fee_drift_pct: float = 10.0
-    max_paper_over_backtest_pct: float = 50.0
+    max_demo_over_backtest_pct: float = 50.0
     stats_min_roundtrips: int = 30
     max_heartbeat_gap_minutes: float = 60.0
 
@@ -214,8 +260,8 @@ def _num(evidence: dict[str, Any], key: str) -> float | None:
         return None
 
 
-def paper_entry_checks(evidence: dict[str, Any], *, params_hash_expected: str = "") -> list[dict]:
-    """lab -> paper: is there a real backtest behind this, on a legal window?"""
+def demo_entry_checks(evidence: dict[str, Any], *, params_hash_expected: str = "") -> list[dict]:
+    """lab -> demo: is there a real backtest behind this, on a legal window?"""
     checks = []
     bars = _num(evidence, "bars")
     window = _num(evidence, "window_days")
@@ -234,13 +280,13 @@ def paper_entry_checks(evidence: dict[str, Any], *, params_hash_expected: str = 
     return checks
 
 
-def prod_entry_checks(evidence: dict[str, Any], policy: GatePolicy | None = None) -> list[dict]:
-    """paper -> prod: did the live paper run behave like the backtest?"""
+def live_entry_checks(evidence: dict[str, Any], policy: GatePolicy | None = None) -> list[dict]:
+    """demo -> live: did the live demo run behave like the backtest?"""
     policy = policy or GatePolicy()
     checks = []
-    weeks = _num(evidence, "weeks_live")
-    checks.append(_check("weeks_live", weeks is not None and weeks >= policy.min_weeks_live,
-                          f"{weeks if weeks is not None else 'missing'} (need {policy.min_weeks_live:g})"))
+    weeks = _num(evidence, "weeks_demo")
+    checks.append(_check("weeks_demo", weeks is not None and weeks >= policy.min_weeks_demo,
+                          f"{weeks if weeks is not None else 'missing'} (need {policy.min_weeks_demo:g})"))
     fills = _num(evidence, "fills")
     checks.append(_check("fills", fills is not None and fills >= policy.min_fills,
                           f"{fills if fills is not None else 'missing'} (need {policy.min_fills:g})"))
@@ -254,9 +300,9 @@ def prod_entry_checks(evidence: dict[str, Any], policy: GatePolicy | None = None
     drift = _num(evidence, "fee_drift_pct")
     checks.append(_check("fee_drift", drift is not None and abs(drift) <= policy.max_fee_drift_pct,
                           f"{drift if drift is not None else 'missing'}% (max {policy.max_fee_drift_pct:g})"))
-    excess = _num(evidence, "paper_over_backtest_pct")
-    checks.append(_check("not_beating_backtest", excess is not None and excess <= policy.max_paper_over_backtest_pct,
-                          f"{excess if excess is not None else 'missing'}% over backtest (max {policy.max_paper_over_backtest_pct:g})"))
+    excess = _num(evidence, "demo_over_backtest_pct")
+    checks.append(_check("not_beating_backtest", excess is not None and excess <= policy.max_demo_over_backtest_pct,
+                          f"{excess if excess is not None else 'missing'}% over backtest (max {policy.max_demo_over_backtest_pct:g})"))
     gap = _num(evidence, "max_heartbeat_gap_minutes")
     checks.append(_check("heartbeat", gap is not None and gap <= policy.max_heartbeat_gap_minutes,
                           f"gap={gap if gap is not None else 'missing'} min (max {policy.max_heartbeat_gap_minutes:g})"))
@@ -270,7 +316,7 @@ def summarize(checks: Sequence[dict]) -> str:
 def promote(
     strategy: str,
     *,
-    env: str = "paper",
+    env: str = "demo",
     params: dict[str, Any] | None = None,
     symbols: Sequence[str] = (),
     timeframe: str = "4h",
@@ -288,9 +334,12 @@ def promote(
     if not symbols:
         raise PromotionError("promote needs at least one symbol")
     evidence = dict(evidence or {})
+    # A sleeve always ships a complete profile: fill defaults now and persist
+    # them, so a later reader cannot invent a different book.
+    evidence.update(resolve_risk_profile(evidence))
     digest = params_hash(params)
-    checks = (prod_entry_checks(evidence) if env == "prod"
-              else paper_entry_checks(evidence, params_hash_expected=digest))
+    checks = (live_entry_checks(evidence) if env == "live"
+              else demo_entry_checks(evidence, params_hash_expected=digest))
     failed = [c for c in checks if not c["ok"]]
     if failed and not force:
         raise PromotionError("gate failed: " + summarize(checks) + "; use --force --reason ... to override")
@@ -327,7 +376,7 @@ def promote(
 def demote(
     strategy: str,
     *,
-    env: str = "prod",
+    env: str = "live",
     reason: str = "",
     actor: str = "",
     base: Path | None = None,

@@ -1,6 +1,6 @@
 {
   "strategy": "capitulation_dip_jup",
-  "env": "paper",
+  "env": "demo",
   "params_hash": "sha256:d2acc5a5e9bd6cab",
   "symbols": [
     "JUP/USDT"

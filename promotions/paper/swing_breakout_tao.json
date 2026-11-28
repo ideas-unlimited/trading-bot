@@ -1,6 +1,6 @@
 {
   "strategy": "swing_breakout_tao",
-  "env": "paper",
+  "env": "demo",
   "params_hash": "sha256:44136fa355b3678a",
   "symbols": [
     "TAO/USDT"

@@ -4,7 +4,7 @@ set -euo pipefail
 
 DEST=/var/backups/tradingbot
 KEEP_DAYS=14
-DATABASES=${DATABASES:-"trading_common trading_paper trading_prod"}
+DATABASES=${DATABASES:-"trading_common trading_demo trading_live"}
 STAMP=$(date +%F)
 
 install -d -m 0750 "$DEST"

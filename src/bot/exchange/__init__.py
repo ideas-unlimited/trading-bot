@@ -2,9 +2,9 @@
 
 The engine never talks to an exchange directly; it talks to a broker. One
 venue: Binance spot, read-only production klines for signals, demo trading for
-orders.  ``BinanceLiveClient`` is the duck-typed adapter the loop/CLI/web use.
+orders.  ``BinanceOrderClient`` is the duck-typed adapter the loop/CLI/web use.
 
-Honesty rules that live in this package:
+Honesty rules enforced by this package:
 
 * **Spot only.** Long-only cash balances; no futures, no margin, no shorts.
 * **Demo by default.** A Binance broker defaults to demo trading and needs an

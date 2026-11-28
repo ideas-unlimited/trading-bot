@@ -14,7 +14,7 @@ from pathlib import Path
 def load_env_for(env_name: str, *, base: str | Path = ".env") -> list[str]:
     """Load ``.env.<env>`` first, then ``.env``; process env always wins.
 
-    Per-world credentials (``.env.paper``, ``.env.prod``) take precedence so
+    Per-world credentials (``.env.demo``, ``.env.live``) take precedence so
     one server checkout can hold two venues' keys without either process
     seeing the other's. Returns the files that contributed values.
     """

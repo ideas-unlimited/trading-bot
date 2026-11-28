@@ -1,6 +1,6 @@
 {
   "strategy": "capitulation_dip_uni",
-  "env": "paper",
+  "env": "demo",
   "params_hash": "sha256:3520143553854675",
   "symbols": [
     "UNI/USDT"

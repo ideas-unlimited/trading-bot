@@ -8,7 +8,7 @@ from email.message import EmailMessage
 from unittest import mock
 
 from bot.broker import Fill
-from bot.forward import _fill_key, _notify_fills
+from bot.dryrun import _fill_key, _notify_fills
 from bot.notify import (
     EmailChannel, Notifier, NtfyChannel, TelegramChannel, format_trade,
 )
@@ -52,7 +52,7 @@ class TestFormat(unittest.TestCase):
     def test_entry_has_price_stop_target_and_never_claims_an_order(self):
         subject, body = format_trade({
             "side": "buy", "strategy": "capitulation_dip_uni",
-            "symbol": "UNI/USDT", "timeframe": "4h", "env": "paper",
+            "symbol": "UNI/USDT", "timeframe": "4h", "env": "demo",
             "ts": T0, "price": 4.8123, "qty": 12.5, "notional": 60.15,
             "entry": 4.8123, "stop": 4.7, "take_profit": 5.1,
             "reason": "capitulation",
@@ -73,7 +73,7 @@ class TestFormat(unittest.TestCase):
     def test_exit_reports_realised_pnl(self):
         subject, body = format_trade({
             "side": "sell", "strategy": "capitulation_dip_uni",
-            "symbol": "UNI/USDT", "timeframe": "4h", "env": "paper",
+            "symbol": "UNI/USDT", "timeframe": "4h", "env": "demo",
             "ts": T0, "price": 5.0, "qty": 12.5, "notional": 62.5,
             "entry": 4.8123, "stop": 4.7, "take_profit": 5.1,
             "pnl": 12.34, "return_pct": 0.042, "held_hours": 72.5,
@@ -162,9 +162,9 @@ class _Response:
 class ForwardSilenceTests(unittest.TestCase):
     def test_forward_unit_cannot_read_live_alert_channels(self):
         root = Path(__file__).resolve().parents[1]
-        unit = root / "deploy" / "tradingbot-forward.service"
+        unit = root / "deploy" / "tradingbot-dryrun.service"
         text = unit.read_text(encoding="utf-8")
-        self.assertIn("/etc/tradingbot/forward.env", text)
+        self.assertIn("/etc/tradingbot/dryrun.env", text)
         self.assertNotIn("alerts.env", text)
 
 

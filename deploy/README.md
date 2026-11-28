@@ -281,6 +281,9 @@ STRATEGY=swing_pullback_near
 CAPITAL=1000
 STATE=/var/lib/tradingbot/near.json
 POLL=60
+# Fresh release joins the model's current side at today's close; it never
+# copies a historical fill or credits that P&L. Manual `bot live` defaults off.
+STARTUP_REPLAY=1
 # The sleeve's backtest profile; the defaults are 0.01 / 0.95 / 0.10.
 RISK_PER_TRADE=0.03
 MAX_POSITION_PCT=0.95
@@ -290,11 +293,20 @@ MAX_DRAWDOWN_STOP=0.99
 ```
 
 The risk knobs fall back to the bot config's own defaults, so a bot that omits
-them behaves exactly as before.  The per-symbol swing sleeves were measured at
-3% risk with the account drawdown switch off: left at the 10% default they
-would halt mid-year (NEAR's own history draws down 12.9% before recovering),
-which is why both the bot env files and `tradingbot-forward.service` carry that
-profile.  The ATR stop on each trade is the real risk control.
+them behaves exactly as before.  Most per-symbol swing sleeves were measured at
+3% risk, a 95% position cap and the account drawdown switch off; left at the
+10% default they would halt mid-year (NEAR's own history draws down 12.9%
+before recovering).  `capitulation_dip_uni` and `jup_liquidity_15m` are the
+exceptions: their manifests say 5% / 50% / a 10% brake.  The dry-run runner
+reads each manifest's own profile (the `tradingbot-forward.service` flags are
+fallback only), so copy the sleeve's manifest into its bot env, not this
+example.  The ATR stop on each trade is the real risk control.
+
+`STARTUP_REPLAY=1` lets a fresh release join an already-open dry-run side
+without copying its fill: the bot replays the closed window, then buys at the
+newest close with a new entry timestamp and alerts it like any other fill.
+Set it to `0` to keep the old anchor-and-stay-flat behaviour.
+
 Every bot gets its own `CAPITAL` sizing cap, state file and unit, but they
 share one demo account: two bots on the same symbol would fight over the
 position. `CAPITAL` is not a separate ledger - a win or loss in one bot changes

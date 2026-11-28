@@ -17,7 +17,7 @@ from bot.web import (
     api_bots_create,
     api_bots_delete,
     api_equity,
-    api_forward,
+    api_dryrun,
     api_presets_create,
     api_presets_delete,
     api_scan,
@@ -159,20 +159,20 @@ class KillSwitchApiTests(unittest.TestCase):
 
 
 class StrategyCatalogueTests(unittest.TestCase):
-    """Paper and prod list promoted strategies only; lab lists the registry."""
+    """Demo and live list promoted strategies only; lab lists the registry."""
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.base = Path(self.tmp.name)
         self.addCleanup(self.tmp.cleanup)
-        self._env = patch.dict(os.environ, {"BOT_ENV": "paper", "BOT_LAB": ""})
+        self._env = patch.dict(os.environ, {"BOT_ENV": "demo", "BOT_LAB": ""})
         self._env.start()
         self.addCleanup(self._env.stop)
         self._promos = patch.object(promo, "PROMOTIONS", self.base)
         self._promos.start()
         self.addCleanup(self._promos.stop)
 
-    def _manifest(self, name: str = "sma_cross", *, env: str = "paper",
+    def _manifest(self, name: str = "sma_cross", *, env: str = "demo",
                   active: bool = True, symbols: tuple[str, ...] = ("BTC/USDT",),
                   timeframe: str = "4h") -> None:
         path = self.base / env / f"{name}.json"
@@ -184,10 +184,10 @@ class StrategyCatalogueTests(unittest.TestCase):
             "promoted_at": "2026-11-28T00:00:00+00:00",
         }), encoding="utf-8")
 
-    def test_paper_without_manifests_is_empty(self) -> None:
+    def test_demo_without_manifests_is_empty(self) -> None:
         self.assertEqual(api_strategies(base=self.base), {})
 
-    def test_paper_lists_only_the_promoted_strategy(self) -> None:
+    def test_demo_lists_only_the_promoted_strategy(self) -> None:
         self._manifest()
         data = api_strategies(base=self.base)
         self.assertEqual(set(data), {"sma_cross"})
@@ -212,7 +212,7 @@ class StrategyCatalogueTests(unittest.TestCase):
     def test_bot_create_requires_promotion(self) -> None:
         out = api_bots_create({"name": "x", "symbol": "BTC/USDT",
                                "timeframe": "4h", "kind": "sma_cross"})
-        self.assertIn("not activated for paper", out["error"])
+        self.assertIn("not activated for demo", out["error"])
 
     def test_bot_create_respects_promoted_symbol_and_timeframe(self) -> None:
         self._manifest(symbols=("ETH/USDT",), timeframe="4h")
@@ -223,21 +223,21 @@ class StrategyCatalogueTests(unittest.TestCase):
                                     "timeframe": "1h", "kind": "sma_cross"})
         self.assertIn("promoted on 4h", wrong_tf["error"])
 
-    def test_forward_reads_the_sleeve_status_file(self) -> None:
+    def test_dryrun_reads_the_sleeve_status_file(self) -> None:
         self._manifest()
         state = self.base / "state"
-        path = state / "sma_cross" / "forward" / "status.json"
+        path = state / "sma_cross" / "dryrun" / "status.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({
             "runners": {"BTC/USDT": {
                 "updated_at": datetime.now(timezone.utc).isoformat(),
                 "history": {"return_pct": 0.5, "trades": 10, "max_drawdown": -0.1},
-                "forward": {"return_pct": 0.01, "trades": 1},
+                "dryrun": {"return_pct": 0.01, "trades": 1},
                 "position": None,
                 "last_bar": "2026-11-28 04:00:00+00:00",
             }},
         }), encoding="utf-8")
-        data = api_forward(base=self.base, state_dir=state)
+        data = api_dryrun(base=self.base, state_dir=state)
         self.assertEqual(len(data["sleeves"]), 1)
         row = data["sleeves"][0]
         self.assertEqual(row["state"], "running")
@@ -246,24 +246,24 @@ class StrategyCatalogueTests(unittest.TestCase):
         self.assertIsNone(row["position"])
         json.dumps(data)  # the browser must be able to read it
 
-    def test_forward_without_status_is_waiting(self) -> None:
+    def test_dryrun_without_status_is_waiting(self) -> None:
         self._manifest()
-        data = api_forward(base=self.base, state_dir=self.base / "none")
+        data = api_dryrun(base=self.base, state_dir=self.base / "none")
         self.assertEqual(data["sleeves"][0]["state"], "waiting")
 
-    def test_forward_hides_an_inactive_manifest(self) -> None:
+    def test_dryrun_hides_an_inactive_manifest(self) -> None:
         self._manifest(active=False)
-        data = api_forward(base=self.base, state_dir=self.base / "state")
+        data = api_dryrun(base=self.base, state_dir=self.base / "state")
         self.assertEqual(data["sleeves"], [])
 
-    def test_forward_is_empty_in_prod(self) -> None:
-        with patch.dict(os.environ, {"BOT_ENV": "prod"}):
-            data = api_forward(base=self.base, state_dir=self.base / "state")
+    def test_dryrun_is_empty_in_live(self) -> None:
+        with patch.dict(os.environ, {"BOT_ENV": "live"}):
+            data = api_dryrun(base=self.base, state_dir=self.base / "state")
         self.assertEqual(data["sleeves"], [])
 
     def test_preset_create_requires_promotion(self) -> None:
         out = api_presets_create({"name": "x", "kind": "sma_cross"})
-        self.assertIn("not activated for paper", out["error"])
+        self.assertIn("not activated for demo", out["error"])
 
 
 class _NoRowsConn:
@@ -327,19 +327,19 @@ class EquityCurveTests(unittest.TestCase):
         self.assertEqual(equity, sorted(equity))
         self.assertTrue(all(v in {1000.0 + i for i in range(1000)} for v in equity))
 
-    def test_forward_equity_csv_is_a_contributor(self) -> None:
+    def test_dryrun_equity_csv_is_a_contributor(self) -> None:
         from types import SimpleNamespace
 
         state = self.base / "state"
-        path = state / "sma_cross" / "forward" / "BTCUSDT.equity.csv"
+        path = state / "sma_cross" / "dryrun" / "BTCUSDT.equity.csv"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            "ts,equity,live_return,position_qty\n"
+            "ts,equity,deploy_return,position_qty\n"
             "2026-11-28 00:00:00+00:00,1000.0,0,0\n"
             "2026-11-28 04:00:00+00:00,1010.0,0.01,1\n"
             "2026-11-28 08:00:00+00:00,1005.0,0.005,1\n",
             encoding="utf-8")
-        with patch.dict(os.environ, {"BOT_ENV": "paper", "BOT_LAB": ""}), \
+        with patch.dict(os.environ, {"BOT_ENV": "demo", "BOT_LAB": ""}), \
                 patch("bot.web._db_conn", return_value=_NoRowsConn()), \
                 patch("bot.web.env_state_dir", return_value=state), \
                 patch("bot.web.promo.active_manifests",
@@ -348,17 +348,17 @@ class EquityCurveTests(unittest.TestCase):
         self.assertEqual(data["contributors"], 1)
         self.assertEqual(data["series"][-1]["equity"], 1005.0)
 
-    def test_prod_ignores_the_forward_csvs(self) -> None:
+    def test_live_ignores_the_dryrun_csvs(self) -> None:
         from types import SimpleNamespace
 
         state = self.base / "state"
-        path = state / "sma_cross" / "forward" / "BTCUSDT.equity.csv"
+        path = state / "sma_cross" / "dryrun" / "BTCUSDT.equity.csv"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            "ts,equity,live_return,position_qty\n"
+            "ts,equity,deploy_return,position_qty\n"
             "2026-11-28 00:00:00+00:00,1000.0,0,0\n",
             encoding="utf-8")
-        with patch.dict(os.environ, {"BOT_ENV": "prod", "BOT_LAB": ""}), \
+        with patch.dict(os.environ, {"BOT_ENV": "live", "BOT_LAB": ""}), \
                 patch("bot.web._db_conn", return_value=_NoRowsConn()), \
                 patch("bot.web.env_state_dir", return_value=state), \
                 patch("bot.web.promo.active_manifests",
@@ -381,46 +381,46 @@ class EquityCurveTests(unittest.TestCase):
 class EnvironmentBrandingTests(unittest.TestCase):
     """The same HTML serves both worlds; the world must be burned in."""
 
-    def test_paper_page_is_marked_paper(self) -> None:
-        with patch.dict(os.environ, {"BOT_ENV": "paper"}):
+    def test_demo_page_is_marked_demo(self) -> None:
+        with patch.dict(os.environ, {"BOT_ENV": "demo"}):
             html = render_index().decode("utf-8")
-        self.assertIn("<title>trading-bot · paper · terminal</title>", html)
-        self.assertIn('<body class="paper">', html)
-        self.assertIn("PAPER", html)
+        self.assertIn("<title>trading-bot · demo · terminal</title>", html)
+        self.assertIn('<body class="demo">', html)
+        self.assertIn("demo", html)
         self.assertIn("simulated fills", html)
-        self.assertIn('const ENV = "paper"', html)
+        self.assertIn('const ENV = "demo"', html)
         self.assertNotIn("{{ENV", html)
 
-    def test_prod_page_is_marked_production(self) -> None:
-        with patch.dict(os.environ, {"BOT_ENV": "prod"}):
+    def test_live_page_is_marked_live(self) -> None:
+        with patch.dict(os.environ, {"BOT_ENV": "live"}):
             html = render_index().decode("utf-8")
-        self.assertIn("PRODUCTION", html)
-        self.assertIn('<body class="prod">', html)
-        self.assertIn('const ENV = "prod"', html)
+        self.assertIn("LIVE", html)
+        self.assertIn('<body class="live">', html)
+        self.assertIn('const ENV = "live"', html)
         self.assertNotIn("{{ENV", html)
 
     def test_favicon_is_coloured_for_its_world(self) -> None:
-        with patch.dict(os.environ, {"BOT_ENV": "paper"}):
-            paper = favicon_svg().decode("utf-8")
-        with patch.dict(os.environ, {"BOT_ENV": "prod"}):
-            prod = favicon_svg().decode("utf-8")
-        self.assertIn("#0ecb81", paper)          # paper green
-        self.assertNotIn("#f6465d", paper)
-        self.assertIn("#f6465d", prod)           # production red
-        self.assertNotIn("#0ecb81", prod)
-        for svg in (paper, prod):
+        with patch.dict(os.environ, {"BOT_ENV": "demo"}):
+            demo = favicon_svg().decode("utf-8")
+        with patch.dict(os.environ, {"BOT_ENV": "live"}):
+            live = favicon_svg().decode("utf-8")
+        self.assertIn("#0ecb81", demo)          # demo green
+        self.assertNotIn("#f6465d", demo)
+        self.assertIn("#f6465d", live)           # live red
+        self.assertNotIn("#0ecb81", live)
+        for svg in (demo, live):
             self.assertTrue(svg.startswith("<svg"))
             self.assertIn('viewBox="0 0 64 64"', svg)
             self.assertNotIn("{{", svg)
 
     def test_page_links_its_icon(self) -> None:
-        with patch.dict(os.environ, {"BOT_ENV": "paper"}):
+        with patch.dict(os.environ, {"BOT_ENV": "demo"}):
             html = render_index().decode("utf-8")
         self.assertIn('<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=1">', html)
         self.assertIn('class="logo"><img src="/favicon.svg?v=1"', html)
 
-    def test_prod_write_endpoints_are_read_only(self) -> None:
-        with patch.dict(os.environ, {"BOT_ENV": "prod"}):
+    def test_live_write_endpoints_are_read_only(self) -> None:
+        with patch.dict(os.environ, {"BOT_ENV": "live"}):
             results = [
                 api_bots_create({"name": "x", "symbol": "BTC/USDT", "timeframe": "1h"}),
                 api_bots_delete(1),

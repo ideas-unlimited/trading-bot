@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Standard paper release: deploy BOTH halves of a promotion on this box.
+# Standard demo release: deploy BOTH halves of a promotion on this box.
 #
-#   1. the dry-run sleeve - tradingbot-forward picks the manifest up on its
+#   1. the dry-run sleeve - tradingbot-dryrun picks the manifest up on its
 #      next cycle automatically (measurement, no orders);
-#   2. the trading bot    - tradingbot@<strategy>-paper, demo orders, Bots page.
+#   2. the trading bot    - tradingbot@<strategy>-demo, demo orders, Bots page.
 #
 # Usage (on the box):
-#   sudo bash deploy/release_paper.sh <strategy-name>
+#   sudo bash deploy/release_demo.sh <strategy-name>
 #
-# Naming convention: bots are named <strategy>-<env> (capitulation_dip_uni-paper).
+# Naming convention: bots are named <strategy>-<env> (capitulation_dip_uni-demo).
 # One symbol may carry several strategies and one box hosts both worlds, so a
 # short symbol name or a bare strategy name is never enough to be unambiguous.
 #
@@ -22,14 +22,14 @@
 # Idempotent: re-running a released bot verifies it instead of clobbering.
 set -euo pipefail
 
-strategy=${1:?usage: release_paper.sh <strategy-name>}
-name=${strategy}-paper
+strategy=${1:?usage: release_demo.sh <strategy-name>}
+name=${strategy}-demo
 
 [[ $EUID -eq 0 ]] || { echo "refused: run with sudo (writes /etc/tradingbot)" >&2; exit 1; }
 repo=/opt/trading-bot
-manifest=$repo/promotions/paper/${strategy}.json
+manifest=$repo/promotions/demo/${strategy}.json
 conf=/etc/tradingbot/${name}.env
-[[ -r $manifest ]] || { echo "refused: no paper manifest $manifest" >&2; exit 1; }
+[[ -r $manifest ]] || { echo "refused: no demo manifest $manifest" >&2; exit 1; }
 
 # --- read the manifest (no secrets in a manifest) ---
 eval "$(python3 - "$manifest" <<'PY'
@@ -99,17 +99,17 @@ SYMBOL=$want_symbol
 INTERVAL=$want_tf
 STRATEGY=$want_strategy
 CAPITAL=$want_cap
-STATE=/var/lib/tradingbot/paper/${name}.json
+STATE=/var/lib/tradingbot/demo/${name}.json
 POLL=60
-BOT_ENV=paper
+BOT_ENV=demo
 RISK_PER_TRADE=$want_risk
 MAX_POSITION_PCT=$want_cap_pct
 MAX_DRAWDOWN_STOP=$want_dd
 EOF
-  if [[ -r /etc/tradingbot/forward.env ]] && grep -q '^HEARTBEAT_URL=' /etc/tradingbot/forward.env; then
-    grep '^HEARTBEAT_URL=' /etc/tradingbot/forward.env >> "$conf"
+  if [[ -r /etc/tradingbot/dryrun.env ]] && grep -q '^HEARTBEAT_URL=' /etc/tradingbot/dryrun.env; then
+    grep '^HEARTBEAT_URL=' /etc/tradingbot/dryrun.env >> "$conf"
   else
-    echo "warning: no HEARTBEAT_URL in /etc/tradingbot/forward.env; this bot will not heartbeat" >&2
+    echo "warning: no HEARTBEAT_URL in /etc/tradingbot/dryrun.env; this bot will not heartbeat" >&2
   fi
   chown root:trader "$conf"
   chmod 640 "$conf"
@@ -117,7 +117,7 @@ EOF
 fi
 
 # --- dry-run sleeve (informational; --all picks it up itself) ---
-fwd=/var/lib/tradingbot/paper/${strategy}/forward/status.json
+fwd=/var/lib/tradingbot/demo/${strategy}/dryrun/status.json
 if [[ -f $fwd ]]; then
   echo "dry-run    sleeve replaying ($fwd)"
 else

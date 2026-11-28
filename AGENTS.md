@@ -141,15 +141,20 @@ when you hit a new environment quirk and solve it, add it here and commit.
   `take_profit` and the trail, exiting only on the stop or a signal.
 - **A dry-run and a trading bot are not tick-for-tick twins.** The dry-run
   replays from history and can already hold a position opened before its
-  deploy pin; a trading bot starts flat and ignores those historical signals.
-  The dry-run fills at the next bar's open, while the trading bot fills at the
-  signal bar's close. The dry-run has one independent $1,000 wallet per sleeve
-  that compounds; all trading bots share one demo account, size from
+  deploy pin. A service trading bot (`STARTUP_REPLAY=1`, the `run_bot.sh`
+  default) reconstructs the strategy's current stance on a fresh state and
+  opens that side as a **new** position at the newest closed bar's close; it
+  never copies the historical entry price or credits that P&L. A manual
+  `bot live` keeps the conservative anchor-and-stay-flat default. The dry-run
+  fills at the next bar's open, while the trading bot fills at the signal
+  bar's close. The dry-run has one independent $1,000 wallet per sleeve that
+  compounds; all trading bots share one demo account, size from
   `min(account equity, CAPITAL)` and stop compounding at `CAPITAL`. A backlog
   beyond `max_catchup` is skipped live but replayed dry-run. Compare since the
-  same bar, never history equity against the trading wallet; XRP on
-  2026-11-28 is the canonical example (dry-run long from 25 November, trading
-  bot released 28 November flat).
+  same bar, never history equity against the trading wallet. The 2026-11-28
+  XRP mismatch (dry-run long from 25 November, bot released flat) is what
+  startup replay addresses: the bot can now join the same side, but its entry
+  price, entry time and P&L start at the release.
 
 - **Each sleeve replays the risk profile its manifest was measured at.**
   `bot forward --all` reads `risk_per_trade`, `max_position_pct` and

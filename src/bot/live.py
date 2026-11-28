@@ -1,4 +1,4 @@
-"""Live paper trading on Binance spot: production signals, demo orders.
+"""Deploy bot: production Binance signals, demo orders on spot.
 
 The loop polls production Binance klines for freshly *closed* bars, runs the
 chosen strategy on them with the same no-lookahead semantics as the
@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TextIO
 
-from .exchange.live_client import BinanceLiveClient, duration_for
+from .exchange.order_client import BinanceOrderClient, duration_for
 from .config import BotConfig
 from .data.feed import Bar
 from .heartbeat import Heartbeat
@@ -56,16 +56,16 @@ def compute_entry_qty(
     return min(qty, equity * max_position_pct / price)
 
 
-class LiveTrader:
+class DeployTrader:
     def __init__(
         self,
-        client: BinanceLiveClient,
+        client: BinanceOrderClient,
         strategy: Strategy,
         config: BotConfig,
         symbol: str,
         timeframe: str = "1Day",
         *,
-        state_path: str | Path = "runs/live_state.json",
+        state_path: str | Path = "runs/deploy_state.json",
         poll: float = 60.0,
         lookback: int = 400,
         max_catchup: int = 3,
@@ -121,7 +121,7 @@ class LiveTrader:
         )
         self._last_view: dict[str, Any] = {}
         self._trade_warned = False
-        # Dashboard bookkeeping: a live loop registers itself once and then
+        # Dashboard bookkeeping: a deploy loop registers itself once and then
         # writes equity + heartbeat every poll, so "is it running, and at
         # what rate" is answered by the database, not by hope.  A missing DB
         # must never stop trading or flood the log.
@@ -182,7 +182,7 @@ class LiveTrader:
             self.lookback = max(self.lookback, needed)
             if len(bars) < needed:
                 self._emit(
-                    f"[live] {len(bars)} bars < warmup {needed}; "
+                    f"[deploy] {len(bars)} bars < warmup {needed}; "
                     f"refetching {self.lookback}"
                 )
                 bars = self.client.fetch_bars(
@@ -192,7 +192,7 @@ class LiveTrader:
                     self.strategy.prepare(bars_to_frame(bars)) if bars else None
                 )
         if not bars or len(bars) < self.strategy.warmup + 2:
-            self._emit(f"[live] only {len(bars)} bars fetched; waiting for more")
+            self._emit(f"[deploy] only {len(bars)} bars fetched; waiting for more")
             self.heartbeat.ping()
             return 0
 
@@ -219,7 +219,7 @@ class LiveTrader:
                 equity = self._book_equity(self.client.get_account()) or equity
                 self._last_equity = equity
             self._emit(
-                f"[live] HALTED by kill switch :: {self.symbol} "
+                f"[deploy] HALTED by kill switch :: {self.symbol} "
                 f"{'flat' if position <= 0 else 'position still open'}"
             )
             self._view(position, bars)
@@ -249,7 +249,7 @@ class LiveTrader:
                 self.state["last_ts"] = closed[-1].ts.isoformat()
                 self._save_state()
                 self._emit(
-                    f"[live] fresh state: anchored to {closed[-1].ts:%Y-%m-%d %H:%M}, "
+                    f"[deploy] fresh state: anchored to {closed[-1].ts:%Y-%m-%d %H:%M}, "
                     f"not trading {len(closed)} historical bars"
                 )
                 closed = []
@@ -258,7 +258,7 @@ class LiveTrader:
             # backlog is not the plan, so resume on the most recent bars only.
             skipped = len(closed) - self.max_catchup
             self._emit(
-                f"[live] {skipped} missed bars skipped, resuming on the newest {self.max_catchup}"
+                f"[deploy] {skipped} missed bars skipped, resuming on the newest {self.max_catchup}"
             )
             closed = closed[-self.max_catchup:]
         if closed and prepared is None:
@@ -326,7 +326,7 @@ class LiveTrader:
         except Exception as exc:  # noqa: BLE001 - the loop outlives the DB
             if not self._events_warned:
                 self._events_warned = True
-                self._emit(f"[live] event log off: {exc}")
+                self._emit(f"[deploy] event log off: {exc}")
 
     def _ensure_bot(self, equity: float) -> None:
         """Register this run once so the dashboard can list it by name."""
@@ -387,7 +387,7 @@ class LiveTrader:
         except Exception as exc:  # noqa: BLE001 - never stop trading for bookkeeping
             if not self._db_warned:
                 self._db_warned = True
-                self._emit(f"[live] dashboard bookkeeping off: {exc}")
+                self._emit(f"[deploy] dashboard bookkeeping off: {exc}")
 
     def _halted(self) -> bool:
         """Read the kill switch; a database hiccup must never stop the loop."""
@@ -450,7 +450,7 @@ class LiveTrader:
         except Exception as exc:  # noqa: BLE001
             if not self._trade_warned:
                 self._trade_warned = True
-                self._emit(f"[live] trade history off: {exc}")
+                self._emit(f"[deploy] trade history off: {exc}")
 
     def _alert_fill(
         self,
@@ -482,7 +482,7 @@ class LiveTrader:
                 "strategy": self.strategy.name,
                 "symbol": self.symbol,
                 "timeframe": self.timeframe,
-                "env": (os.environ.get("BOT_ENV") or "paper").strip().lower() or "paper",
+                "env": (os.environ.get("BOT_ENV") or "demo").strip().lower() or "demo",
                 "ts": ts,
                 "entry": entry_price if entry_price is not None else (price if side == "buy" else None),
                 "price": price,
@@ -500,7 +500,7 @@ class LiveTrader:
         except Exception as exc:  # noqa: BLE001 - never stop managing a position
             if not self._alert_warned:
                 self._alert_warned = True
-                self._emit(f"[live] trade alerts failed: {type(exc).__name__}: {exc}")
+                self._emit(f"[deploy] trade alerts failed: {type(exc).__name__}: {exc}")
 
     def _exit(self, qty: float, price: float, why: str, ts: datetime,
               *, equity: float | None = None) -> None:
@@ -556,7 +556,7 @@ class LiveTrader:
         self.risk.update_equity(float(equity))
         if self.risk.halted and not was_halted:
             self._emit(
-                f"[live] drawdown brake: {self.risk.halt_reason}; "
+                f"[deploy] drawdown brake: {self.risk.halt_reason}; "
                 "no new entries (open position still managed)"
             )
         persisted = self.state.setdefault("risk", {})
@@ -586,7 +586,7 @@ class LiveTrader:
         self.state["last_ts"] = last.ts.isoformat()
         if self.risk.halted:
             self._emit(
-                f"[live] startup replay: {len(closed)} bars; drawdown brake "
+                f"[deploy] startup replay: {len(closed)} bars; drawdown brake "
                 f"({self.risk.halt_reason}), staying flat"
             )
             self._save_state()
@@ -597,7 +597,7 @@ class LiveTrader:
                 pass
         except Exception as exc:  # noqa: BLE001 - a replay must not kill the loop
             self._emit(
-                f"[live] startup replay unavailable: {exc}; "
+                f"[deploy] startup replay unavailable: {exc}; "
                 f"anchored to {last.ts:%Y-%m-%d %H:%M}"
             )
             self._save_state()
@@ -605,7 +605,7 @@ class LiveTrader:
 
         if engine.risk.halted:
             self._emit(
-                f"[live] startup replay: {len(closed)} bars; replay drawdown "
+                f"[deploy] startup replay: {len(closed)} bars; replay drawdown "
                 f"brake ({engine.risk.halt_reason}), staying flat"
             )
             self._save_state()
@@ -616,7 +616,7 @@ class LiveTrader:
         origin = ""
         if pending is not None and pending.limit_prices:
             self._emit(
-                "[live] startup replay: model has a resting limit ladder; "
+                "[deploy] startup replay: model has a resting limit ladder; "
                 "not converting it to a market entry"
             )
             self._save_state()
@@ -645,7 +645,7 @@ class LiveTrader:
 
         if signal is None:
             self._emit(
-                f"[live] startup replay: {len(closed)} bars; model flat at "
+                f"[deploy] startup replay: {len(closed)} bars; model flat at "
                 f"{last.ts:%Y-%m-%d %H:%M}, anchored without trading history"
             )
             self._save_state()
@@ -658,7 +658,7 @@ class LiveTrader:
             not math.isfinite(float(stop)) or float(stop) >= price
         ):
             self._emit(
-                f"[live] startup replay: model long but stop {stop} is not "
+                f"[deploy] startup replay: model long but stop {stop} is not "
                 f"below {price:.4f}; staying flat"
             )
             self._save_state()
@@ -667,7 +667,7 @@ class LiveTrader:
             not math.isfinite(float(take)) or float(take) <= price
         ):
             self._emit(
-                f"[live] startup replay: model long but target {take} is not "
+                f"[deploy] startup replay: model long but target {take} is not "
                 f"above {price:.4f}; staying flat"
             )
             self._save_state()
@@ -680,7 +680,7 @@ class LiveTrader:
         )
         if qty * price < 1.0:
             self._emit(
-                f"[live] startup replay: model long but "
+                f"[deploy] startup replay: model long but "
                 f"${qty * price:.2f} size is too small"
             )
             self._save_state()
@@ -721,7 +721,7 @@ class LiveTrader:
                      "ts": now.isoformat()},
         )
         self._emit(
-            f"[live] startup replay: {len(closed)} bars; {origin} -> BUY "
+            f"[deploy] startup replay: {len(closed)} bars; {origin} -> BUY "
             f"{filled:.4f} {self.symbol} @ {fill_px:.4f}"
             + (f" stop={stop:.4f}" if stop is not None else "")
             + " (new entry now; historical fills/P&L not credited)"
@@ -757,7 +757,7 @@ class LiveTrader:
                             self.state["dust_logged"] = True
                             self._save_state()
                             self._emit(
-                                f"[live] {qty:g} {self.symbol.split('/')[0]} left on the "
+                                f"[deploy] {qty:g} {self.symbol.split('/')[0]} left on the "
                                 f"venue is below the lot step ({rules.step_size}); "
                                 f"treating the book as flat"
                             )
@@ -784,14 +784,14 @@ class LiveTrader:
                 return
         signal = self.strategy.signal(i, prepared, position)
         if signal is None:
-            self._emit(f"[live] {bar.ts:%Y-%m-%d %H:%M} no signal")
+            self._emit(f"[deploy] {bar.ts:%Y-%m-%d %H:%M} no signal")
             self.state["last_ts"] = bar.ts.isoformat()
             return
 
         if signal.action is Action.BUY and position <= 0:
             if self.risk.halted:
                 self._emit(
-                    f"[live] {bar.ts:%Y-%m-%d %H:%M} buy skipped: "
+                    f"[deploy] {bar.ts:%Y-%m-%d %H:%M} buy skipped: "
                     f"drawdown brake ({self.risk.halt_reason})"
                 )
                 self.state["last_ts"] = bar.ts.isoformat()
@@ -804,7 +804,7 @@ class LiveTrader:
                 max_position_pct=self.config.risk.max_position_pct,
             )
             if qty * bar.close < 1.0:
-                self._emit(f"[live] {bar.ts:%Y-%m-%d %H:%M} buy skipped: size ${qty * bar.close:.2f} too small")
+                self._emit(f"[deploy] {bar.ts:%Y-%m-%d %H:%M} buy skipped: size ${qty * bar.close:.2f} too small")
                 self._event("signal", f"buy skipped: size ${qty * bar.close:.2f} too small",
                             payload={"action": "buy", "ts": bar.ts.isoformat()})
             else:
@@ -854,15 +854,15 @@ class LiveTrader:
                                      "stop": signal.stop_loss, "take_profit": signal.take_profit,
                                      "reason": signal.reason, "ts": bar.ts.isoformat()})
                 self._emit(
-                    f"[live] {bar.ts:%Y-%m-%d %H:%M} BUY {qty:.4f} {self.symbol} @ ~{bar.close:.2f}"
+                    f"[deploy] {bar.ts:%Y-%m-%d %H:%M} BUY {qty:.4f} {self.symbol} @ ~{bar.close:.2f}"
                     + (f" stop={signal.stop_loss:.2f}" if signal.stop_loss else " (no stop)")
                     + f" :: {signal.reason}"
                 )
         elif signal.action is Action.CLOSE and position > 0:
             self._exit(position, bar.close, "signal", bar.ts, equity=equity)
-            self._emit(f"[live] {bar.ts:%Y-%m-%d %H:%M} CLOSE {self.symbol} @ ~{bar.close:.2f} :: {signal.reason}")
+            self._emit(f"[deploy] {bar.ts:%Y-%m-%d %H:%M} CLOSE {self.symbol} @ ~{bar.close:.2f} :: {signal.reason}")
         else:
-            self._emit(f"[live] {bar.ts:%Y-%m-%d %H:%M} signal {signal.action.value} ignored (position {position})")
+            self._emit(f"[deploy] {bar.ts:%Y-%m-%d %H:%M} signal {signal.action.value} ignored (position {position})")
             self._event("signal", f"{signal.action.value} ignored (position {position})",
                         payload={"action": signal.action.value, "ts": bar.ts.isoformat()})
         self.state["last_ts"] = bar.ts.isoformat()
@@ -871,7 +871,7 @@ class LiveTrader:
         """Persist the trail that belongs to this entry, or clear it.
 
         The peak starts at the fill, not at a bar high that happened before
-        the entry.  The live loop fills at the signal bar's close, so it must
+        the entry.  The deploy loop fills at the signal bar's close, so it must
         skip that same bar when it later ratchets.
         """
         trails = self.state.setdefault("trails", {})
@@ -916,7 +916,7 @@ class LiveTrader:
         """Raise this entry's stop to peak minus trail_atr ATRs, up only.
 
         This runs after the bar's exit check, so the new stop can only bind
-        from the next bar onwards.  It also skips the entry bar because live
+        from the next bar onwards.  It also skips the entry bar because the deploy bot
         entries fill at that bar's close, after the high already happened.
         """
         trail = self.state.get("trails", {}).get(self.symbol)
@@ -957,7 +957,7 @@ class LiveTrader:
             self._event("stop", f"trail raised to {candidate:.4f} (peak {peak:.4f} - {trail_atr:g} ATR)",
                         payload={"stop": candidate, "peak": peak, "ts": bar.ts.isoformat()})
             self._emit(
-                f"[live] {bar.ts:%Y-%m-%d %H:%M} TRAIL stop={candidate:.4f} "
+                f"[deploy] {bar.ts:%Y-%m-%d %H:%M} TRAIL stop={candidate:.4f} "
                 f"(peak {peak:.4f} - {trail_atr:g} ATR {atr:.4f})"
             )
 
@@ -965,7 +965,7 @@ class LiveTrader:
         """Check one closed bar's stop then target, with gap fills."""
         entry = self.state.get("entries", {}).get(self.symbol) or {}
         if entry.get("ts") == bar.ts.isoformat():
-            # Live fills at this bar's close; its low/high happened before
+            # Deploy fills at this bar's close; its low/high happened before
             # the position existed.  The first exit check is the next bar.
             return
         stop = self.state.get("stops", {}).get(self.symbol)
@@ -977,7 +977,7 @@ class LiveTrader:
             price = min(float(bar.open), float(stop))
             self._exit(qty, price, "stop", bar.ts, equity=self._last_equity)
             self._emit(
-                f"[live] {bar.ts:%Y-%m-%d %H:%M} STOP hit "
+                f"[deploy] {bar.ts:%Y-%m-%d %H:%M} STOP hit "
                 f"({stop:.2f} >= low {bar.low:.2f}) -> closed {self.symbol}"
             )
             return
@@ -985,7 +985,7 @@ class LiveTrader:
             price = max(float(bar.open), float(target))
             self._exit(qty, price, "target", bar.ts, equity=self._last_equity)
             self._emit(
-                f"[live] {bar.ts:%Y-%m-%d %H:%M} TARGET hit "
+                f"[deploy] {bar.ts:%Y-%m-%d %H:%M} TARGET hit "
                 f"({target:.2f} <= high {bar.high:.2f}) -> closed {self.symbol}"
             )
 
@@ -1008,31 +1008,31 @@ class LiveTrader:
             latest = bars[-1]
             pos = f"{position:.4f} {self.symbol}" if position > 0 else "flat"
             self._emit(
-                f"[live] {latest.ts:%Y-%m-%d %H:%M} close={latest.close:.2f} "
+                f"[deploy] {latest.ts:%Y-%m-%d %H:%M} close={latest.close:.2f} "
                 f"position={pos} equity={equity:,.2f}"
             )
 
     # -- main loop ----------------------------------------------------------
     def run(self, *, once: bool = False) -> None:
         self._emit(
-            f"[live] paper trading {self.symbol} @ {self.timeframe} on Binance DEMO account "
+            f"[deploy] demo trading {self.symbol} @ {self.timeframe} on Binance DEMO account "
             f"(strategy {self.strategy.name}, poll {self.poll_seconds:.0f}s)"
         )
         self._emit(
-            f"[live] trade alerts: {self.notifier.describe()}"
+            f"[deploy] trade alerts: {self.notifier.describe()}"
             if self.notifier is not None and self.notifier.enabled
-            else "[live] trade alerts off (set TELEGRAM_*, NTFY_URL or SMTP_*)"
+            else "[deploy] trade alerts off (set TELEGRAM_*, NTFY_URL or SMTP_*)"
         )
         try:
             while True:
                 try:
                     self.poll()
                 except Exception as exc:  # noqa: BLE001 - keep the loop alive
-                    self._emit(f"[live] poll failed: {exc}")
+                    self._emit(f"[deploy] poll failed: {exc}")
                     self._event("error", f"poll failed: {type(exc).__name__}: {exc}",
                                 level="error")
                 if once:
                     break
                 self.clock(self.poll_seconds)
         except KeyboardInterrupt:
-            self._emit("[live] stopped")
+            self._emit("[deploy] stopped")

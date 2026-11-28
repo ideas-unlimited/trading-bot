@@ -1,5 +1,5 @@
 [Unit]
-Description=Trading bot dry-run sleeve runner (paper)
+Description=Trading bot dry-run sleeve runner (demo)
 After=network-online.target postgresql.service
 Wants=network-online.target
 
@@ -14,21 +14,21 @@ Environment=PYTHONUNBUFFERED=1
 Environment=OMP_NUM_THREADS=1
 Environment=OPENBLAS_NUM_THREADS=1
 Environment=MALLOC_ARENA_MAX=2
-# State is per sleeve: BOT_STATE_DIR/<env>/<strategy>/forward/status.json.
-Environment=BOT_ENV=paper
+# State is per sleeve: BOT_STATE_DIR/<env>/<strategy>/dryrun/status.json.
+Environment=BOT_ENV=demo
 Environment=BOT_STATE_DIR=/var/lib/tradingbot
 # HEARTBEAT_URL lives here (root:trader, 0640), never in git.
-EnvironmentFile=-/etc/tradingbot/forward.env
+EnvironmentFile=-/etc/tradingbot/dryrun.env
 # Alerts are deliberately absent here: the dry-run is a shadow replay, not a
-# trade.  `bot forward --alerts` opts in manually; the service does not.
-# The sleeve profile, not the old book default: every manifest in
-# promotions/paper/ was measured at 3% risk, 95% max position and with the
-# account drawdown switch off (research convention - left at 10% it halts a
-# sleeve mid-year and the dry-run record stops being comparable to its own
-# evidence).  The per-trade ATR stop is the real risk control.
-ExecStart=/opt/trading-bot/.venv/bin/bot forward --all --poll 900 --risk-per-trade 0.03 --max-position-pct 0.95 --max-drawdown-stop 0.99
-# Durable log file (paper-only runner): journald remains the live tail.
-StandardOutput=append:/var/log/tradingbot/forward.log
+# trade.  `bot dryrun --alerts` opts in manually; the service does not.
+# Per-sleeve risk profile comes from each manifest's evidence; these flags
+# are the fallback for an older manifest that omits it (or `--profile flags`).
+# Most demo sleeves are 3% risk, 95% max position, brake off; UNI and JUP are
+# 5% / 50% / a 10% brake.  One global profile made UNI's card disagree with its
+# own evidence.  The per-trade ATR stop is the real risk control.
+ExecStart=/opt/trading-bot/.venv/bin/bot dryrun --all --poll 900 --risk-per-trade 0.03 --max-position-pct 0.95 --max-drawdown-stop 0.99
+# Durable log file (demo-only runner): journald remains the live tail.
+StandardOutput=append:/var/log/tradingbot/dryrun.log
 StandardError=inherit
 Restart=always
 RestartSec=30

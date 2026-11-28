@@ -1,6 +1,6 @@
 {
   "strategy": "wvf_stoch_xrp",
-  "env": "paper",
+  "env": "demo",
   "params_hash": "sha256:38d6e0662ef1e24d",
   "symbols": [
     "XRP/USDT"

@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
-# Retire a released paper bot: the counterpart of release_paper.sh.
+# Retire a released demo bot: the counterpart of release_demo.sh.
 #
 # Run it after `bot demote <strategy>` once the bot is flat (drained on its
 # own signal, or `bot demote --flatten`).  It stops and disables
 # tradingbot@<name>, archives the per-bot env file under
-# /etc/tradingbot/retired/ and re-checks the box, so reconcile_paper.sh no
+# /etc/tradingbot/retired/ and re-checks the box, so reconcile_demo.sh no
 # longer expects a manifest for a bot that is gone.
 #
-# The dry-run sleeve needs no step: `bot forward --all` re-reads the manifests
+# The dry-run sleeve needs no step: `bot dryrun --all` re-reads the manifests
 # every cycle and a demoted manifest simply stops being replayed.
 #
 # Usage (on the box):
-#   sudo bash deploy/retire_paper.sh <strategy-name>
+#   sudo bash deploy/retire_demo.sh <strategy-name>
 #
 # Refuses while the bot still holds a position: draining is a decision, and a
 # silent market-close is not part of retiring.  Flatten first, then retire.
 set -euo pipefail
 
-strategy=${1:?usage: retire_paper.sh <strategy-name> (e.g. jup_liquidity_15m)}
-env=${BOT_ENV:-paper}
+strategy=${1:?usage: retire_demo.sh <strategy-name> (e.g. jup_liquidity_15m)}
+env=${BOT_ENV:-demo}
 name="${strategy}-${env}"
 conf="/etc/tradingbot/${name}.env"
 unit="tradingbot@${name}.service"
@@ -61,4 +61,4 @@ systemctl disable --now "$unit" >/dev/null 2>&1 || true
 install -d -m 750 /etc/tradingbot/retired
 mv "$conf" "/etc/tradingbot/retired/${name}.env.${stamp}"
 echo "retired    ${name}: unit disabled, env archived to /etc/tradingbot/retired/"
-echo "next       sudo bash deploy/reconcile_paper.sh   (expect all checks PASS)"
+echo "next       sudo bash deploy/reconcile_demo.sh   (expect all checks PASS)"

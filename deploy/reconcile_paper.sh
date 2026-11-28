@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Reconcile every released paper bot against its manifest and the release
+# Reconcile every released demo bot against its manifest and the release
 # checklist.  Read-only; run after every release, or any time "where is my
 # bot?" is asked.
 #
-# Usage (on the box):  sudo bash deploy/reconcile_paper.sh
+# Usage (on the box):  sudo bash deploy/reconcile_demo.sh
 # Exit 0 = all checks pass, 1 = at least one FAIL.
 #
 # Checks per bot (from /etc/tradingbot/<name>.env):
@@ -24,16 +24,16 @@ check() { # check <ok> <label>
 
 for conf in /etc/tradingbot/*.env; do
   name=$(basename "$conf" .env)
-  [[ $name == forward || $name == alerts ]] && continue
+  [[ $name == dryrun || $name == alerts ]] && continue
   get() { grep -E "^$1=" "$conf" | head -1 | cut -d= -f2-; }
   strategy=$(get STRATEGY)
   # Utility env files (no STRATEGY=) share this directory but are not bots.
   [[ -n $strategy ]] || { printf 'skip  %s: no STRATEGY, not a bot env file\n' "$name"; continue; }
   echo "$name ($strategy)"
 
-  manifest=$repo/promotions/paper/${strategy}.json
+  manifest=$repo/promotions/demo/${strategy}.json
   if [[ ! -r $manifest ]]; then
-    check 0 "no paper manifest for $strategy - released without a promotion"
+    check 0 "no demo manifest for $strategy - released without a promotion"
     check 1 "unit $(systemctl is-active tradingbot@$name)"
     continue
   fi
@@ -87,7 +87,7 @@ PY
 
   state=$(get STATE)
   [[ $state == /var/lib/tradingbot/* ]] && check 1 "state under /var/lib/tradingbot" || check 0 "state outside /var/lib/tradingbot: $state"
-  [[ -f /var/lib/tradingbot/paper/${strategy}/forward/status.json ]] && check 1 "dry-run sleeve replaying" || check 0 "dry-run sleeve missing"
+  [[ -f /var/lib/tradingbot/demo/${strategy}/dryrun/status.json ]] && check 1 "dry-run sleeve replaying" || check 0 "dry-run sleeve missing"
 
   # The web unit restarts on every deploy; retry so reconcile never reports
   # a false heartbeat outage just because it ran right after update.sh.
@@ -108,7 +108,7 @@ print('API_HALT=' + ('1' if b.get('halted') else '0'))
     [[ $API_ALIVE == 1 ]] && break
     sleep 2
   done
-  [[ $API_ALIVE == 1 ]] && check 1 "heartbeat fresh (alive)" || check 0 "no fresh heartbeat on the paper API"
+  [[ $API_ALIVE == 1 ]] && check 1 "heartbeat fresh (alive)" || check 0 "no fresh heartbeat on the demo API"
   if [[ $API_HALT == 1 ]]; then check 0 "halted - operator killed this bot"
   elif [[ $API_HALT == 0 ]]; then check 1 "not halted"
   else check 0 "halt state unknown (API unreachable or bot not registered)"; fi

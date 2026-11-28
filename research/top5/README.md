@@ -274,7 +274,7 @@ because only 391 4h / 66 1d bars were available.
 
 ## Paper deployment (2026-11-28)
 
-The five sleeves are shipped and active on the paper forward runner, one
+The five sleeves are shipped and active on the paper dry-run runner, one
 $1,000 wallet each, at the measured profile (3% risk, 95% max position,
 drawdown switch off):
 
@@ -289,8 +289,9 @@ drawdown switch off):
 The dry-run sleeves are **shadow replays**; the matching trading bots place
 demo orders. `bot live` manages the stop, target and trail locally, so SUI can
 run there faithfully. The dry-run runner re-reads the manifests each cycle,
-and `since deploy` starts at $1,000 on the first cycle; the table above is the
-full history replay.
+and `since deploy` starts at $1,000 on the first cycle; with `STARTUP_REPLAY=1`
+a fresh bot joins the model's current side at the newest close as a new entry,
+not a copy of the old fill. The table above is the full history replay.
 
 The strict two-year evidence for SUI is **+61.3% / -13.1% / 30 trades**
 (2024-11-28 .. 2026-11-28). The +57.8% figure elsewhere in this report comes

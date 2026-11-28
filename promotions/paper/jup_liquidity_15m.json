@@ -1,6 +1,6 @@
 {
   "strategy": "jup_liquidity_15m",
-  "env": "paper",
+  "env": "demo",
   "params_hash": "sha256:43d50c859a1e34ef",
   "symbols": [
     "JUP/USDT"

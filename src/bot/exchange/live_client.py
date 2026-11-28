@@ -1,6 +1,6 @@
-"""Live trading client for Binance spot: production signals, demo orders.
+"""Real trading client for Binance spot: production signals, demo orders.
 
-The live loop needs five things from a venue: bars, equity, position size,
+The deploy loop needs five things from a venue: bars, equity, position size,
 an order, and a flatten.  This module is that surface for Binance spot:
 
 * **bars** always come from production klines (``api.binance.com``), because
@@ -10,7 +10,7 @@ an order, and a flatten.  This module is that surface for Binance spot:
   production order routing here - the broker itself refuses non-``/api/v3``
   paths and defaults to the demo base URL.
 
-Spot has no bracket orders, so stops are managed by the caller (LiveTrader
+Spot has no bracket orders, so stops are managed by the caller (DeployTrader
 keeps them in its state file and flattens on the first bar that trades
 through the stop).  Symbol forms accepted everywhere: ``BTC/USDT``,
 ``BTC/USD`` (mapped to USDT), ``BTCUSDT``, ``btc-usdt``.
@@ -86,8 +86,8 @@ def split_symbol(symbol: str) -> tuple[str, str, str]:
     return base, quote, f"{base}{quote}"
 
 
-class BinanceLiveClient:
-    """Duck-typed venue client used by LiveTrader, the CLI and the dashboard."""
+class BinanceOrderClient:
+    """Duck-typed venue client used by DeployTrader, the CLI and the dashboard."""
 
     def __init__(
         self,
@@ -109,13 +109,13 @@ class BinanceLiveClient:
         else:
             load_env_for(self.env)
 
-        # Rail 1: prod may never hold or display a demo wallet.  Demo keys are
+        # Rail 1: live may never hold or display a demo wallet.  Demo keys are
         # virtual money; seeing them under a PRODUCTION banner is the exact
         # mistake that teaches people to trust the wrong number.
-        if self.env == "prod":
+        if self.env == "live":
             raise BrokerError(
-                "PROD refused: this build has no live venue. Demo credentials are "
-                "never accepted in prod, and real-money routing must be built and "
+                "LIVE refused: this build has no real venue. Demo credentials are "
+                "never accepted in live, and real-money routing must be built and "
                 "reviewed deliberately. No balances can be read and no order can "
                 "be placed here yet."
             )
@@ -125,7 +125,7 @@ class BinanceLiveClient:
             if not self.api_key or not self.api_secret:
                 raise BrokerError(
                     "Missing Binance demo credentials. Set BINANCE_DEMO_KEY and "
-                    "BINANCE_DEMO_SECRET in .env.paper (server) or .env (laptop); "
+                    "BINANCE_DEMO_SECRET in .env.demo (server) or .env (laptop); "
                     "create them under Binance -> API Management -> demo trading."
                 )
             broker = BinanceSpotBroker(
@@ -260,7 +260,7 @@ class BinanceLiveClient:
     def filters(self, symbol: str):
         """Venue lot and tick rules for one pair, cached by the broker.
 
-        The loop asks for these to tell a real position from a leftover it
+        The loop asks for these to tell an open position from a leftover it
         could never sell (a balance below the lot step is dust, not a book).
         """
         base, _, pair = split_symbol(symbol)
@@ -357,6 +357,6 @@ class BinanceLiveClient:
 
 
 __all__ = [
-    "BinanceLiveClient", "interval_for", "duration_for", "split_symbol",
+    "BinanceOrderClient", "interval_for", "duration_for", "split_symbol",
     "INTERVAL_ALIASES",
 ]

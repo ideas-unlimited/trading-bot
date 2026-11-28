@@ -205,7 +205,8 @@ native Binance timeframe.
 **Trading bot (paper)** — the internal `bot live` loop polls freshly-closed
 production bars, computes signals with the same no-lookahead semantics as the
 backtester, sizes from the stop distance, and sends market orders to the demo
-account.  Spot has no
+account at the signal bar's close.  The dry-run fills at the next bar's open,
+so the two books can differ by design.  Spot has no
 bracket orders, so the ATR stop is checked locally on each closed bar:
 
 ```bash
@@ -214,6 +215,10 @@ python -m bot live --symbol BTC/USDT --interval 1d --strategy sma_cross --once  
 ```
 
 State (last processed bar, local stops) lives in `runs/live_state.json`.
+On a fresh state the service bot reconstructs the strategy's current stance
+from the closed window and opens it at the newest close (`STARTUP_REPLAY=1`,
+the `run_bot.sh` default); it never copies the dry-run's historical fills or
+P&L. A manual `bot live` keeps the conservative anchor-and-stay-flat default.
 
 The names say what the book does: a **trading bot** (`bot live`) places demo
 orders and appears on the Bots page; a **dry-run bot** (`bot forward`) only

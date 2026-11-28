@@ -4,14 +4,14 @@
     python -m bot strategies
     python -m bot backtest    --source synthetic --strategy sma_cross --plot
     python -m bot backtest    --source csv --csv data/sample.csv
-    python -m bot paper       --source synthetic --delay 0.01
+    python -m bot demo       --source synthetic --delay 0.01
 
     # Real TradingView data (unofficial tvDatafeed; TV_USERNAME/TV_PASSWORD env optional)
     python -m bot tv-bars     --symbol BTCUSDT --exchange BINANCE --interval 1h --n-bars 5000 --out data/tv.csv
     python -m bot backtest    --source tv --symbol BTCUSDT --exchange BINANCE --interval 1h --strategy sma_cross
-    python -m bot paper       --source tv --symbol SPY --exchange NASDAQ --interval 1d --strategy rsi_meanrev
+    python -m bot demo       --source tv --symbol SPY --exchange NASDAQ --interval 1d --strategy rsi_meanrev
 
-    # Mirror TradingView paper-trading alerts into this engine's risk rules
+    # Mirror TradingView demo-trading alerts into this engine's risk rules
     python -m bot serve-alerts --port 8788 --token MYSECRET
 """
 
@@ -24,12 +24,12 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-# Live lookback floor in days (see cmd_live): fetch at least this much of the
+# Live lookback floor in days (see cmd_deploy): fetch at least this much of the
 # bot's own timeframe every poll, regardless of what a fixed bar count would
 # shrink to on a faster chart.
-LIVE_LOOKBACK_DAYS = 100
+DEPLOY_LOOKBACK_DAYS = 100
 
-from .exchange.live_client import BinanceLiveClient, duration_for, interval_for, split_symbol
+from .exchange.order_client import BinanceOrderClient, duration_for, interval_for, split_symbol
 from .alerts import AlertServer, MirrorAccount, random_token
 from .backtest import run_backtest
 from .book import (
@@ -46,7 +46,7 @@ from .data.binance import INTERVALS, fetch_binance_bars
 from .data.feed import generate_synthetic, load_csv, write_bars
 from .data.tvfeed import fetch_latest_tv_bars, fetch_tv_bars
 from .metrics import format_metrics
-from .paper import PaperTrader
+from .demo import DemoTrader
 from .portfolio import (
     RotationConfig,
     closes_from_bars,
@@ -60,7 +60,7 @@ from .scanlib import load_scan_bars
 from .strategy import REGISTRY, build
 
 
-def _add_source_args(p: argparse.ArgumentParser, *, live: bool = False) -> None:
+def _add_source_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--source", choices=["synthetic", "csv", "binance", "tv"], default="synthetic",
                    help="data source: synthetic, OHLCV csv, Binance klines, or TradingView bars")
     p.add_argument("--csv", type=Path, help="OHLCV csv (required for --source csv)")
@@ -234,10 +234,10 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_paper(args: argparse.Namespace) -> int:
+def cmd_demo(args: argparse.Namespace) -> int:
     bars = _load_bars(args)
     strategy = build(args.strategy, **_parse_params(args.param))
-    PaperTrader(
+    DemoTrader(
         bars,
         strategy,
         _config(args, bars),
@@ -298,7 +298,7 @@ def cmd_tv_bars(args: argparse.Namespace) -> int:
 
 
 def cmd_serve_alerts(args: argparse.Namespace) -> int:
-    """Serve the TradingView webhook that mirrors paper-trading fills."""
+    """Serve the TradingView webhook that mirrors demo-trading fills."""
     token = args.token or random_token()
     mirror = MirrorAccount(
         initial_cash=args.initial_cash,
@@ -313,10 +313,10 @@ def cmd_serve_alerts(args: argparse.Namespace) -> int:
 
 def cmd_account(_: argparse.Namespace) -> int:
     """Show the Binance demo account summary and open positions."""
-    client = BinanceLiveClient()
+    client = BinanceOrderClient()
     acct = client.get_account()
     print(f"account       {acct.get('account_number')} ({acct.get('status')})")
-    print(f"mode          PAPER (no real orders possible from this code)")
+    print(f"mode          demo (no real orders possible from this code)")
     print(f"equity        {float(acct.get('equity') or 0):,.2f}")
     print(f"cash          {float(acct.get('cash') or 0):,.2f}")
     print(f"buying power  {float(acct.get('buying_power') or 0):,.2f}")
@@ -332,14 +332,14 @@ def cmd_account(_: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_live(args: argparse.Namespace) -> int:
-    """Trade a strategy on freshly closed Binance bars; orders go to the demo account.
+def cmd_deploy(args: argparse.Namespace) -> int:
+    """Deploy a strategy on freshly closed Binance bars; orders go to the demo account.
 
     Outside lab, only an active promotion manifest may run - the same rule
     the dashboard follows, enforced where the orders actually happen.
     """
     from . import envcfg, promotions as promo
-    from .live import LiveTrader
+    from .deploy import DeployTrader
     from .notify import Notifier
 
     if not envcfg.lab_mode():
@@ -355,20 +355,27 @@ def cmd_live(args: argparse.Namespace) -> int:
         if args.interval != manifest.timeframe:
             print(f"refused: {args.strategy} is promoted on {manifest.timeframe}; this run asks for {args.interval}", file=sys.stderr)
             return 2
+        # The sleeve owns its measured risk profile.  Environment files may
+        # carry knobs for older releases, but the manifest is authoritative so
+        # a stale /etc/tradingbot/*.env cannot silently change the book.
+        profile = manifest.risk_profile()
+        args.risk_per_trade = profile["risk_per_trade"]
+        args.max_position_pct = profile["max_position_pct"]
+        args.max_drawdown_stop = profile["max_drawdown_stop"]
 
     strategy = build(args.strategy, **_parse_params(args.param))
     # Day-based lookback floor: a fixed bar count shrinks with the timeframe
     # (400 bars is ~66 days on 4h but ~4 days on 15m), which starves any
     # strategy carrying higher-timeframe context.  Always fetch at least
-    # LIVE_LOOKBACK_DAYS of the bot's own timeframe plus its indicator
+    # DEPLOY_LOOKBACK_DAYS of the bot's own timeframe plus its indicator
     # warmup, so a 15m bot and a 4h bot both see a century of context.
-    bars_100d = math.ceil(timedelta(days=LIVE_LOOKBACK_DAYS) / duration_for(args.interval))
+    bars_100d = math.ceil(timedelta(days=DEPLOY_LOOKBACK_DAYS) / duration_for(args.interval))
     lookback = max(strategy.warmup + 2, bars_100d, args.lookback)
     notifier = Notifier.from_env()
-    client = BinanceLiveClient()
+    client = BinanceOrderClient()
     bars = client.fetch_bars(args.symbol, args.interval, limit=lookback)
     config = _config(args, bars)
-    LiveTrader(
+    DeployTrader(
         client,
         strategy,
         config,
@@ -383,7 +390,7 @@ def cmd_live(args: argparse.Namespace) -> int:
         record=True,
         notifier=notifier,
         # Service bots opt in via STARTUP_REPLAY=1 (run_bot.sh defaults it on).
-        # A manual `bot live` keeps the conservative anchor-to-newest default.
+        # A manual `bot deploy` keeps the conservative anchor-to-newest default.
         startup_replay=(
             args.startup_replay
             or os.environ.get("STARTUP_REPLAY", "").strip().lower()
@@ -493,7 +500,7 @@ def cmd_web(args: argparse.Namespace) -> int:
     from .web import WebApp
 
     port = args.port or envcfg.web_port()
-    label = "PRODUCTION - real money" if envcfg.env_name() == "prod" else "PAPER - simulated fills"
+    label = "LIVE - real money (venue not configured)" if envcfg.env_name() == "live" else "DEMO - simulated fills"
     print(f"env        {envcfg.env_name()}  ({label})")
     print(f"port       {port}")
     app = WebApp(args.host, port)
@@ -643,14 +650,14 @@ def cmd_book(args: argparse.Namespace) -> int:
         print(f"{name:<8} {path}")
 
     print()
-    print("next open (paper):")
+    print("next open (demo):")
     for sym, text in last_signal(result, bars, configs).items():
         print(f"  {sym:<10} {text}")
     return 0
 
 
 def cmd_auto(args: argparse.Namespace) -> int:
-    '''Dry-run the paper books on closed bars.  No orders are ever sent.'''
+    '''Dry-run the demo books on closed bars.  No orders are ever sent.'''
     from .autobook import (books_from_pool, default_books, format_status, run_forever,
                            run_once, select_books)
     from . import symbolcfg
@@ -697,7 +704,7 @@ def cmd_auto(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_forward(args: argparse.Namespace) -> int:
+def cmd_dryrun(args: argparse.Namespace) -> int:
     """Dry-run promoted sleeves as simulated wallets.  No orders are sent.
 
     This is the per-symbol counterpart of `bot auto`: the same deterministic
@@ -708,16 +715,16 @@ def cmd_forward(args: argparse.Namespace) -> int:
     active manifest whose parameter hash matches the sleeve defaults.
     """
     from . import envcfg, promotions as promo
-    from .forward import (
+    from .dryrun import (
         active_specs, default_outdir, format_status, run_all_forever, run_cycle,
         run_forever, run_specs,
     )
     from .notify import Notifier
 
     env = envcfg.env_name()
-    # Forward is a shadow replay, not a trade: silent unless explicitly asked.
+    # A dry run is a shadow replay, not a trade: silent unless explicitly asked.
     # A disabled Notifier (not None) stops the loop helper from auto-reading the
-    # live alert environment.
+    # alert environment.
     notifier = Notifier.from_env() if args.alerts else Notifier()
     # Resolve after env_name(): that call loads .env, so the heartbeat URL may
     # live in the repo dotfile, a systemd EnvironmentFile, or the shell.
@@ -966,7 +973,7 @@ def cmd_env(_: argparse.Namespace) -> int:
     from . import envcfg, db
 
     info = envcfg.describe()
-    label = "PRODUCTION - real money" if info["env"] == "prod" else "PAPER - simulated fills"
+    label = "LIVE - real money (venue not configured)" if info["env"] == "live" else "DEMO - simulated fills"
     print(f"env          {info['env']}  ({label})")
     print(f"database     {info['database']}")
     print(f"common db    {info['common_database']}")
@@ -1026,7 +1033,7 @@ def _promotion_conn(env: str):
 
 
 def cmd_promote(args: argparse.Namespace) -> int:
-    """Run the gate and activate a strategy in paper or prod."""
+    """Run the gate and activate a strategy in demo or live."""
     import json as _json
     from pathlib import Path as _Path
 
@@ -1107,7 +1114,7 @@ def cmd_promotions(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="bot", description="Backtest and paper-trade a strategy.")
+    parser = argparse.ArgumentParser(prog="bot", description="Backtest and demo-trade a strategy.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_gen = sub.add_parser("gen-data", help="write a synthetic OHLCV csv")
@@ -1130,13 +1137,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_bt.add_argument("--json", action="store_true", help="also print metrics as json")
     p_bt.set_defaults(func=cmd_backtest)
 
-    p_paper = sub.add_parser("paper", help="replay bars live-ish with simulated money")
-    _add_source_args(p_paper)
-    _add_strategy_args(p_paper)
-    _add_cost_args(p_paper)
-    p_paper.add_argument("--delay", type=float, default=0.0, help="seconds to sleep per bar")
-    p_paper.add_argument("--every", type=int, default=50, help="print a status line every N bars")
-    p_paper.set_defaults(func=cmd_paper)
+    p_demo = sub.add_parser("demo", help="replay bars live-ish with simulated money")
+    _add_source_args(p_demo)
+    _add_strategy_args(p_demo)
+    _add_cost_args(p_demo)
+    p_demo.add_argument("--delay", type=float, default=0.0, help="seconds to sleep per bar")
+    p_demo.add_argument("--every", type=int, default=50, help="print a status line every N bars")
+    p_demo.set_defaults(func=cmd_demo)
 
     p_tv = sub.add_parser("tv-bars", help="download real TradingView bars to a csv")
     p_tv.add_argument("--symbol", default="BTCUSDT")
@@ -1159,30 +1166,30 @@ def build_parser() -> argparse.ArgumentParser:
     p_acct = sub.add_parser("account", help="show the Binance demo account and open positions")
     p_acct.set_defaults(func=cmd_account)
 
-    p_live = sub.add_parser("live", help="run a trading bot on closed Binance bars (demo orders)")
-    _add_strategy_args(p_live)
-    _add_cost_args(p_live)
-    p_live.add_argument("--symbol", default="BTC/USDT", help="e.g. BTC/USDT, ETH/USDT")
-    p_live.add_argument("--interval", default="1d", help="bar timeframe, e.g. 1h, 4h, 1d")
-    p_live.add_argument("--poll", type=float, default=60.0, help="seconds between polls")
-    p_live.add_argument("--lookback", type=int, default=400, help="bars fetched each poll")
-    p_live.add_argument("--capital", type=float, default=None,
+    p_deploy = sub.add_parser("deploy", help="run a deploy bot on closed Binance bars (demo orders)")
+    _add_strategy_args(p_deploy)
+    _add_cost_args(p_deploy)
+    p_deploy.add_argument("--symbol", default="BTC/USDT", help="e.g. BTC/USDT, ETH/USDT")
+    p_deploy.add_argument("--interval", default="1d", help="bar timeframe, e.g. 1h, 4h, 1d")
+    p_deploy.add_argument("--poll", type=float, default=60.0, help="seconds between polls")
+    p_deploy.add_argument("--lookback", type=int, default=400, help="bars fetched each poll")
+    p_deploy.add_argument("--capital", type=float, default=None,
                        help="max equity this bot may size from (default: whole demo account) so "
                             "several bots can share one account with separate wallets")
-    p_live.add_argument("--state", default="runs/live_state.json", help="loop state file")
-    p_live.add_argument("--heartbeat-url", default=os.environ.get("HEARTBEAT_URL", ""),
+    p_deploy.add_argument("--state", default="runs/deploy_state.json", help="loop state file")
+    p_deploy.add_argument("--heartbeat-url", default=os.environ.get("HEARTBEAT_URL", ""),
                         help="ping this URL on each cycle; an outside service "
                              "(healthchecks.io, Uptime Kuma) alerts when the pings stop")
-    p_live.add_argument("--heartbeat-every", type=float, default=1800.0,
+    p_deploy.add_argument("--heartbeat-every", type=float, default=1800.0,
                         help="minimum seconds between pings (default 1800)")
-    p_live.add_argument("--once", action="store_true", help="run a single poll cycle and exit")
-    p_live.add_argument(
+    p_deploy.add_argument("--once", action="store_true", help="run a single poll cycle and exit")
+    p_deploy.add_argument(
         "--startup-replay", action="store_true",
         help="on a fresh state, replay closed bars and open the model's "
              "current long as a new entry at today's price (service bots "
              "enable this via STARTUP_REPLAY=1; historical P&L is not credited)",
     )
-    p_live.set_defaults(func=cmd_live)
+    p_deploy.set_defaults(func=cmd_deploy)
 
     p_scan = sub.add_parser("scan", help="rank strategies across timeframes (Binance bars)")
     _add_strategy_args_multi(p_scan)
@@ -1264,7 +1271,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_book.add_argument("--outdir", default="runs/book")
     p_book.set_defaults(func=cmd_book)
 
-    p_auto = sub.add_parser("auto", help="dry-run the paper books on closed bars (no orders sent)")
+    p_auto = sub.add_parser("auto", help="dry-run the demo books on closed bars (no orders sent)")
     p_auto.add_argument("--coins", default="BTCUSDT,ETHUSDT,BNBUSDT,XRPUSDT,SOLUSDT")
     p_auto.add_argument("--source", choices=["binance", "tv"], default="binance")
     p_auto.add_argument("--timeframe", default="4h")
@@ -1284,7 +1291,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_auto.set_defaults(func=cmd_auto)
 
     p_fwd = sub.add_parser(
-        "forward",
+        "dryrun",
         help="dry-run promoted sleeves as simulated wallets (no orders sent)",
     )
     p_fwd.add_argument("--all", action="store_true",
@@ -1297,9 +1304,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_fwd.add_argument("--initial-cash", type=float, default=1_000.0, help="wallet size")
     p_fwd.add_argument("--fee-bps", type=float, default=10.0)
     p_fwd.add_argument("--slippage-bps", type=float, default=5.0)
-    p_fwd.add_argument("--risk-per-trade", type=float, default=0.05)
-    p_fwd.add_argument("--max-position-pct", type=float, default=0.5)
-    p_fwd.add_argument("--max-drawdown-stop", type=float, default=0.10)
+    p_fwd.add_argument("--risk-per-trade", type=float, default=0.03)
+    p_fwd.add_argument("--max-position-pct", type=float, default=0.95)
+    p_fwd.add_argument("--max-drawdown-stop", type=float, default=0.99)
     p_fwd.add_argument("--days", type=int, default=730, help="history window (2-year cap)")
     p_fwd.add_argument("--source", choices=["binance", "tv"], default="binance")
     p_fwd.add_argument("--poll", type=int, default=900, help="seconds between cycles")
@@ -1311,10 +1318,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_fwd.add_argument("--alerts", action="store_true",
                        help="also send trade alerts from this replay (off by default)")
     p_fwd.add_argument("--outdir", default=None,
-                       help="single-sleeve override; defaults to runs/<env>/<strategy>/forward")
+                       help="single-sleeve override; defaults to runs/<env>/<strategy>/dryrun")
     p_fwd.add_argument("--profile", choices=["manifest", "flags"], default="manifest",
                        help="risk profile: the manifest's measured one (default) or the flags")
-    p_fwd.set_defaults(func=cmd_forward)
+    p_fwd.set_defaults(func=cmd_dryrun)
     p_wd = sub.add_parser(
         "watchdog",
         help="alert on a dead loop by name and ping the book's dead-man check",
@@ -1357,9 +1364,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_depth.add_argument("--no-db", action="store_true")
     p_depth.set_defaults(func=cmd_depth)
 
-    p_promo = sub.add_parser("promote", help="promote a strategy into paper or prod")
+    p_promo = sub.add_parser("promote", help="promote a strategy into demo or live")
     p_promo.add_argument("strategy")
-    p_promo.add_argument("--to", choices=["paper", "prod"], default="paper")
+    p_promo.add_argument("--to", choices=["demo", "live"], default="demo")
     p_promo.add_argument("--symbols", default="BTCUSDT")
     p_promo.add_argument("--timeframe", default="4h")
     p_promo.add_argument("--params", default="{}", help="strategy parameters as JSON")
@@ -1372,18 +1379,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_demote = sub.add_parser("demote", help="deactivate a promoted strategy")
     p_demote.add_argument("strategy")
-    p_demote.add_argument("--env", choices=["paper", "prod"], default="prod")
+    p_demote.add_argument("--env", choices=["demo", "live"], default="live")
     p_demote.add_argument("--flatten", action="store_true", help="market-close now instead of draining")
     p_demote.add_argument("--reason", default="")
     p_demote.add_argument("--actor", default="")
     p_demote.set_defaults(func=cmd_demote)
 
     p_promos = sub.add_parser("promotions", help="list promotions and their state")
-    p_promos.add_argument("--env", choices=["paper", "prod"], default=None)
+    p_promos.add_argument("--env", choices=["demo", "live"], default=None)
     p_promos.set_defaults(func=cmd_promotions)
     p_web = sub.add_parser("web", help="run the local web trader terminal")
     p_web.add_argument("--host", default="127.0.0.1")
-    p_web.add_argument("--port", type=int, default=None, help="defaults to 9000 paper, 9001 prod")
+    p_web.add_argument("--port", type=int, default=None, help="defaults to 9000 demo, 9001 live")
     p_web.set_defaults(func=cmd_web)
 
     return parser
