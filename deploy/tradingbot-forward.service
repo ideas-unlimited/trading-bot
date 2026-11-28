@@ -28,8 +28,7 @@ EnvironmentFile=-/etc/tradingbot/forward.env
 # evidence).  The per-trade ATR stop is the real risk control.
 ExecStart=/opt/trading-bot/.venv/bin/bot forward --all --poll 900 --risk-per-trade 0.03 --max-position-pct 0.95 --max-drawdown-stop 0.99
 # Durable log file (paper-only runner): journald stays the live tail.
-Environment=LOG_DIR=/var/log/tradingbot/paper
-StandardOutput=append:${LOG_DIR}/forward.log
+StandardOutput=append:/var/log/tradingbot/forward.log
 StandardError=inherit
 Restart=always
 RestartSec=30

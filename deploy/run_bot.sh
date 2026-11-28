@@ -13,13 +13,10 @@ set -a
 . "$conf"
 set +a
 
-# Durable log dir (see tradingbot@.service StandardOutput): one folder per
-# world so paper and prod bot logs cannot mix.
-env_name=${BOT_ENV:-paper}
-LOG_DIR="/var/log/tradingbot/${env_name}"
-mkdir -p "$LOG_DIR"
-chown trader:trader "$LOG_DIR" 2>/dev/null || true
-export LOG_DIR
+# Make sure the durable log folder exists (tradingbot@.service appends
+# /var/log/tradingbot/<bot>.log; logrotate handles rotation).
+mkdir -p /var/log/tradingbot
+chown trader:trader /var/log/tradingbot 2>/dev/null || true
 
 cd /opt/trading-bot
 # Risk knobs default to BotConfig's own defaults, so a bot that sets nothing

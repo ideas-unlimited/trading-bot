@@ -1,7 +1,7 @@
 # Rotate the durable bot/runner logs written by systemd (see
 # tradingbot@.service and tradingbot-forward.service StandardOutput=append).
 # copytruncate: the processes keep writing to the same file handle.
-/var/log/tradingbot/*/*.log {
+/var/log/tradingbot/*.log {
     daily
     rotate 14
     compress

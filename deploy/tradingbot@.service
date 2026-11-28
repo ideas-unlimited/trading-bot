@@ -20,9 +20,10 @@ Environment=MALLOC_ARENA_MAX=2
 EnvironmentFile=-/etc/tradingbot/alerts.env
 ExecStart=/opt/trading-bot/deploy/run_bot.sh %i
 # Durable bot log: journald stays the live tail, this file is the archive
-# (rotated by /etc/logrotate.d/tradingbot).  LOG_DIR is derived from BOT_ENV
-# by run_bot.sh, so paper and prod bots land in their own folder.
-StandardOutput=append:${LOG_DIR}/%i.log
+# (rotated by /etc/logrotate.d/tradingbot).  The instance name carries the
+# world (<strategy>-paper / <strategy>-prod), so one flat folder stays
+# unambiguous; ${VAR} expansion is unavailable this early in the unit.
+StandardOutput=append:/var/log/tradingbot/%i.log
 StandardError=inherit
 Restart=always
 RestartSec=15
