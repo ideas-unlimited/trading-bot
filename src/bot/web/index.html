@@ -577,9 +577,7 @@ async function loadDashboard(){
       ? `<div>${esc(a.error)}</div><div style="margin-top:6px">Demo credentials are refused in prod by design. This world cannot read balances or place orders until a live venue is deliberately added and reviewed.</div>`
       : "";
     $("dashPositions").innerHTML = `<tr><td class="empty" colspan="4">no venue</td></tr>`;
-    $("dashRuns").innerHTML = `<tr><td class="empty" colspan="6">—</td></tr>`;
-    return;
-  }
+  } else {
   const upnl = Number(a.unrealized_pl||0);
   const pnlTxt = (upnl >= 0 ? "+" : "−") + money(Math.abs(upnl));
   badge.className = "badge " + (a.venue === "live" ? "live" : "demo");
@@ -606,6 +604,9 @@ async function loadDashboard(){
       `<tr><td>${esc(p.symbol)}</td><td>${qtyFmt(p.qty)}</td><td>${money(p.avg_entry_price, 4)}</td>
        <td class="${cls(p.unrealized_pl)}">${fmt(p.unrealized_pl)}</td></tr>`).join("")
     : `<tr><td class="empty" colspan="4">no open positions</td></tr>`;
+  }
+  // Bots and runs are about this installation, not about the venue, so they
+  // paint in both worlds - including prod, where the account cannot load.
   const ago = (s) => s == null ? "—" : s < 90 ? `${Math.max(0,Math.round(s))}s ago` : s < 5400 ? `${Math.round(s/60)}m ago` : `${(s/3600).toFixed(1)}h ago`;
   try {
     const live = await api("/api/running");
